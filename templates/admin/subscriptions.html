@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription Management - Admin Panel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .back-link {
+            display: inline-block;
+            color: #667eea;
+            text-decoration: none;
+            margin-bottom: 10px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .stat-card h3 {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+        
+        .stat-card p {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .stat-card.mrr p {
+            color: #28a745;
+        }
+        
+        .table-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .table-container h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        
+        th {
+            background: #f8f9fa;
+            color: #666;
+            font-weight: bold;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        
+        .badge.free {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .badge.standard {
+            background: #667eea;
+            color: white;
+        }
+        
+        .badge.pro {
+            background: #28a745;
+            color: white;
+        }
+        
+        .badge.active {
+            background: #28a745;
+            color: white;
+        }
+        
+        .badge.cancelled {
+            background: #dc3545;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <a href="{{ url_for('admin.dashboard') }}" class="back-link">← Back to Dashboard</a>
+            <h1>Subscription Management</h1>
+            <p>Monitor and manage user subscriptions</p>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Subscriptions</h3>
+                <p>{{ stats.total_subscriptions }}</p>
+            </div>
+            
+            <div class="stat-card">
+                <h3>Free Users</h3>
+                <p>{{ stats.free_count }}</p>
+            </div>
+            
+            <div class="stat-card">
+                <h3>Standard Users</h3>
+                <p>{{ stats.standard_count }}</p>
+            </div>
+            
+            <div class="stat-card">
+                <h3>Pro Users</h3>
+                <p>{{ stats.pro_count }}</p>
+            </div>
+            
+            <div class="stat-card">
+                <h3>Active</h3>
+                <p>{{ stats.active_count }}</p>
+            </div>
+            
+            <div class="stat-card">
+                <h3>Cancelled</h3>
+                <p>{{ stats.cancelled_count }}</p>
+            </div>
+            
+            <div class="stat-card mrr">
+                <h3>MRR (Monthly)</h3>
+                <p>${{ "%.2f"|format(mrr) }}</p>
+            </div>
+            
+            <div class="stat-card mrr">
+                <h3>ARR (Annual)</h3>
+                <p>${{ "%.2f"|format(mrr * 12) }}</p>
+            </div>
+        </div>
+        
+        <div class="table-container">
+            <h2>All Subscriptions</h2>
+            
+            {% if subscriptions %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Tier</th>
+                        <th>Status</th>
+                        <th>Renewal Date</th>
+                        <th>Created At</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sub in subscriptions %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('admin.user_detail', username=sub.username) }}" style="color: #667eea; text-decoration: none;">
+                                {{ sub.username }}
+                            </a>
+                        </td>
+                        <td><span class="badge {{ sub.tier }}">{{ sub.tier|upper }}</span></td>
+                        <td><span class="badge {{ sub.status }}">{{ sub.status|upper }}</span></td>
+                        <td>{{ sub.current_period_end or '-' }}</td>
+                        <td>{{ sub.created_at }}</td>
+                        <td>
+                            <a href="{{ url_for('admin.user_detail', username=sub.username) }}" style="color: #667eea; text-decoration: none; font-size: 0.9em;">
+                                View User
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p style="text-align: center; color: #666; padding: 40px;">No subscriptions found</p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
+

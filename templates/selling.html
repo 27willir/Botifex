@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sell Items - Super Bot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Exo+2:wght@300;400;500;600;700;800&family=Rajdhani:wght@300;400;500;600;700&family=Roboto+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "Orbitron", "Exo 2", "Rajdhani", "Roboto Mono", "Courier New", monospace;
+            background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #16213e 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            color: #ffffff;
+            position: relative;
+            line-height: 1.6;
+            font-weight: 400;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Animated background particles */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(circle at 20% 80%, rgba(0, 123, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(0, 123, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(0, 123, 255, 0.05) 0%, transparent 50%);
+            z-index: -1;
+            animation: particleFloat 20s ease-in-out infinite;
+        }
+
+        @keyframes particleFloat {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(180deg); }
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 32px;
+        }
+
+        .header {
+            background: rgba(26, 26, 46, 0.85);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 48px 40px;
+            margin-bottom: 40px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 30px rgba(0, 191, 255, 0.15);
+            border: 1px solid rgba(0, 191, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #00bfff, transparent);
+            opacity: 0.6;
+        }
+
+        .header h1 {
+            color: #00bfff;
+            font-size: 3rem;
+            margin-bottom: 16px;
+            text-align: center;
+            text-shadow: 0 0 30px rgba(0, 191, 255, 0.6);
+            font-weight: 800;
+            letter-spacing: -1px;
+            line-height: 1.1;
+        }
+
+        .header p {
+            color: rgba(255, 255, 255, 0.85);
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: 400;
+            letter-spacing: 0.3px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .navigation {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #007bff 0%, #00bfff 100%);
+            color: white;
+            border: none;
+            padding: 16px 32px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-decoration: none;
+            display: inline-block;
+            position: relative;
+            overflow: hidden;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            box-shadow: 0 4px 16px rgba(0, 191, 255, 0.3);
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn:hover::before {
+            left: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 32px rgba(0, 191, 255, 0.5);
+        }
+
+        .btn:active {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(0, 191, 255, 0.4);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #495057 0%, #6c757d 100%);
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 8px 25px rgba(108, 117, 125, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 0.875rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: rgba(26, 26, 46, 0.85);
+            backdrop-filter: blur(20px);
+            border-radius: 16px;
+            padding: 32px 28px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 191, 255, 0.1);
+            border: 1px solid rgba(0, 191, 255, 0.2);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), 0 0 40px rgba(0, 191, 255, 0.2);
+            border-color: rgba(0, 191, 255, 0.4);
+        }
+
+        .stat-value {
+            font-size: 3rem;
+            font-weight: 800;
+            color: #00bfff;
+            margin-bottom: 12px;
+            text-shadow: 0 0 20px rgba(0, 191, 255, 0.6);
+            letter-spacing: -1px;
+            line-height: 1;
+        }
+
+        .stat-label {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 1.1rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .section {
+            background: rgba(26, 26, 46, 0.85);
+            backdrop-filter: blur(20px);
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 191, 255, 0.1);
+            border: 1px solid rgba(0, 191, 255, 0.2);
+        }
+
+        .section-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #00bfff;
+            margin-bottom: 24px;
+            text-shadow: 0 0 15px rgba(0, 191, 255, 0.4);
+            letter-spacing: 0.5px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-group label {
+            font-weight: 700;
+            color: #00bfff;
+            font-size: 0.95rem;
+            text-shadow: 0 0 5px rgba(0, 191, 255, 0.3);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            padding: 14px 18px;
+            border: 2px solid rgba(0, 191, 255, 0.3);
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            background: rgba(22, 33, 62, 0.8);
+            color: #ffffff;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+            font-family: inherit;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #00bfff;
+            box-shadow: 0 0 15px rgba(0, 191, 255, 0.3);
+            background: rgba(22, 33, 62, 0.9);
+        }
+
+        .checkbox-group {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 10px 15px;
+            background: rgba(22, 33, 62, 0.5);
+            border: 2px solid rgba(0, 191, 255, 0.3);
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+
+        .checkbox-label:hover {
+            border-color: #00bfff;
+            background: rgba(22, 33, 62, 0.8);
+        }
+
+        .checkbox-label input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .listings-container {
+            display: grid;
+            gap: 20px;
+        }
+
+        .listing-card {
+            background: rgba(22, 33, 62, 0.6);
+            border: 2px solid rgba(0, 191, 255, 0.2);
+            border-radius: 12px;
+            padding: 24px;
+            transition: all 0.3s;
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 20px;
+            align-items: start;
+        }
+
+        .listing-card:hover {
+            border-color: #00bfff;
+            box-shadow: 0 4px 20px rgba(0, 191, 255, 0.2);
+        }
+
+        .listing-info h3 {
+            color: #00bfff;
+            font-size: 1.4rem;
+            margin-bottom: 8px;
+        }
+
+        .listing-info p {
+            color: rgba(255, 255, 255, 0.8);
+            margin: 4px 0;
+        }
+
+        .listing-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-top: 8px;
+        }
+
+        .status-draft {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+            border: 1px solid #ffc107;
+        }
+
+        .status-posted {
+            background: rgba(40, 167, 69, 0.2);
+            color: #28a745;
+            border: 1px solid #28a745;
+        }
+
+        .listing-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .alert-success {
+            background: rgba(40, 167, 69, 0.9);
+            color: white;
+            border: 1px solid rgba(40, 167, 69, 0.5);
+            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.2);
+        }
+
+        .alert-error {
+            background: rgba(220, 53, 69, 0.9);
+            color: white;
+            border: 1px solid rgba(220, 53, 69, 0.5);
+            box-shadow: 0 4px 15px rgba(220, 53, 69, 0.2);
+        }
+
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            color: #00bfff;
+            font-size: 1.1rem;
+            text-shadow: 0 0 10px rgba(0, 191, 255, 0.5);
+        }
+
+        .marketplace-badges {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .marketplace-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: rgba(0, 191, 255, 0.2);
+            color: #00bfff;
+            border: 1px solid #00bfff;
+        }
+
+        @media (max-width: 768px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .listing-card {
+                grid-template-columns: 1fr;
+            }
+            
+            .listing-actions {
+                flex-direction: row;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Sell Your Items</h1>
+            <p>Create listings and post to multiple marketplaces from one place</p>
+        </div>
+
+        <div class="navigation">
+            <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
+        </div>
+
+        <div id="alertContainer"></div>
+
+        <!-- Stats Section -->
+        <div id="statsContainer" class="stats-grid">
+            <!-- Stats will be loaded here -->
+        </div>
+
+        <!-- Create Listing Form -->
+        <div class="section">
+            <h2 class="section-title">Create New Listing</h2>
+            <form id="createListingForm">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="title">Title *</label>
+                        <input type="text" id="title" name="title" required placeholder="Enter item title">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="price">Price ($) *</label>
+                        <input type="number" id="price" name="price" required min="0" placeholder="0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="category">Category</label>
+                        <select id="category" name="category">
+                            <option value="">Select a category</option>
+                            <option value="vehicles">Vehicles</option>
+                            <option value="electronics">Electronics</option>
+                            <option value="furniture">Furniture</option>
+                            <option value="clothing">Clothing</option>
+                            <option value="sports">Sports & Outdoors</option>
+                            <option value="home">Home & Garden</option>
+                            <option value="toys">Toys & Games</option>
+                            <option value="books">Books & Media</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="location">Location</label>
+                        <input type="text" id="location" name="location" placeholder="City, State">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description" placeholder="Describe your item..."></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Select Marketplaces *</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="marketplaces" value="craigslist">
+                            <span>Craigslist</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="marketplaces" value="facebook">
+                            <span>Facebook Marketplace</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="marketplaces" value="ksl">
+                            <span>KSL Classifieds</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="marketplaces" value="ebay">
+                            <span>eBay</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn">Create Listing</button>
+            </form>
+        </div>
+
+        <!-- Your Listings -->
+        <div class="section">
+            <h2 class="section-title">Your Listings</h2>
+            <div id="listingsContainer" class="listings-container">
+                <div class="loading">Loading your listings...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentListings = [];
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStats();
+            loadListings();
+            
+            // Setup form submission
+            document.getElementById('createListingForm').addEventListener('submit', handleCreateListing);
+        });
+
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/seller-listings/stats', {
+                    credentials: 'same-origin'
+                });
+                const data = await response.json();
+                
+                if (data.stats) {
+                    const stats = data.stats;
+                    document.getElementById('statsContainer').innerHTML = `
+                        <div class="stat-card">
+                            <div class="stat-value">${stats.total_listings || 0}</div>
+                            <div class="stat-label">Total Listings</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${stats.draft_count || 0}</div>
+                            <div class="stat-label">Drafts</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${stats.posted_count || 0}</div>
+                            <div class="stat-label">Posted</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">$${Math.round(stats.avg_price || 0).toLocaleString()}</div>
+                            <div class="stat-label">Average Price</div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        async function loadListings() {
+            try {
+                const response = await fetch('/api/seller-listings', {
+                    credentials: 'same-origin'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to load listings');
+                }
+                
+                const data = await response.json();
+                currentListings = data.listings || [];
+                displayListings();
+            } catch (error) {
+                console.error('Error loading listings:', error);
+                showAlert('Failed to load listings', 'error');
+                document.getElementById('listingsContainer').innerHTML = '<p style="text-align: center; color: rgba(255,255,255,0.6);">Failed to load listings</p>';
+            }
+        }
+
+        function displayListings() {
+            const container = document.getElementById('listingsContainer');
+            
+            if (currentListings.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: rgba(255,255,255,0.6);">No listings yet. Create your first listing above!</p>';
+                return;
+            }
+            
+            container.innerHTML = currentListings.map(listing => {
+                const marketplaces = listing.marketplaces ? listing.marketplaces.split(',') : [];
+                const marketplaceBadges = marketplaces.map(m => 
+                    `<span class="marketplace-badge">${m}</span>`
+                ).join('');
+                
+                return `
+                    <div class="listing-card">
+                        <div class="listing-info">
+                            <h3>${listing.title}</h3>
+                            <p><strong>Price:</strong> $${listing.price.toLocaleString()}</p>
+                            ${listing.category ? `<p><strong>Category:</strong> ${listing.category}</p>` : ''}
+                            ${listing.location ? `<p><strong>Location:</strong> ${listing.location}</p>` : ''}
+                            ${listing.description ? `<p><strong>Description:</strong> ${listing.description}</p>` : ''}
+                            <div class="marketplace-badges">${marketplaceBadges}</div>
+                            <span class="listing-status status-${listing.status}">${listing.status}</span>
+                        </div>
+                        <div class="listing-actions">
+                            ${listing.status === 'draft' ? `
+                                <button onclick="postListing(${listing.id})" class="btn btn-success btn-small">Post</button>
+                            ` : ''}
+                            <button onclick="editListing(${listing.id})" class="btn btn-secondary btn-small">Edit</button>
+                            <button onclick="deleteListing(${listing.id})" class="btn btn-danger btn-small">Delete</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function handleCreateListing(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const marketplaces = Array.from(formData.getAll('marketplaces'));
+            
+            if (marketplaces.length === 0) {
+                showAlert('Please select at least one marketplace', 'error');
+                return;
+            }
+            
+            const listingData = {
+                title: formData.get('title'),
+                price: formData.get('price'),
+                category: formData.get('category'),
+                location: formData.get('location'),
+                description: formData.get('description'),
+                marketplaces: marketplaces,
+                images: ''
+            };
+            
+            try {
+                const response = await fetch('/api/seller-listings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(listingData)
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showAlert('Listing created successfully!', 'success');
+                    event.target.reset();
+                    loadStats();
+                    loadListings();
+                } else {
+                    showAlert(data.error || 'Failed to create listing', 'error');
+                }
+            } catch (error) {
+                console.error('Error creating listing:', error);
+                showAlert('Failed to create listing', 'error');
+            }
+        }
+
+        async function deleteListing(listingId) {
+            if (!confirm('Are you sure you want to delete this listing?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/seller-listings/${listingId}`, {
+                    method: 'DELETE',
+                    credentials: 'same-origin'
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showAlert('Listing deleted successfully!', 'success');
+                    loadStats();
+                    loadListings();
+                } else {
+                    showAlert(data.error || 'Failed to delete listing', 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting listing:', error);
+                showAlert('Failed to delete listing', 'error');
+            }
+        }
+
+        async function editListing(listingId) {
+            // For now, just show an alert. You can implement a modal or separate edit form later
+            showAlert('Edit functionality coming soon! For now, you can delete and recreate the listing.', 'error');
+        }
+
+        async function postListing(listingId) {
+            if (!confirm('This will prepare your listing for posting to the selected marketplaces. Continue?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/seller-listings/${listingId}/post`, {
+                    method: 'POST',
+                    credentials: 'same-origin'
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showAlert(data.note || 'Listing posted successfully!', 'success');
+                    loadStats();
+                    loadListings();
+                } else {
+                    showAlert(data.error || 'Failed to post listing', 'error');
+                }
+            } catch (error) {
+                console.error('Error posting listing:', error);
+                showAlert('Failed to post listing', 'error');
+            }
+        }
+
+        function showAlert(message, type) {
+            const container = document.getElementById('alertContainer');
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+            container.appendChild(alertDiv);
+            
+            setTimeout(() => {
+                alertDiv.remove();
+            }, type === 'error' ? 5000 : 3000);
+        }
+    </script>
+</body>
+</html>
+

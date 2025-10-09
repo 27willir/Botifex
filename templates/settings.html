@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Super Bot Settings</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Exo+2:wght@300;400;500;600;700;800&family=Rajdhani:wght@300;400;500;600;700&family=Roboto+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Enhanced dark neon blue theme */
+        * { 
+            box-sizing: border-box; 
+            margin: 0; 
+            padding: 0; 
+        }
+        
+        body { 
+            font-family: "Orbitron", "Exo 2", "Rajdhani", "Roboto Mono", "Courier New", monospace; 
+            background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #16213e 100%);
+            background-attachment: fixed;
+            color: #fff; 
+            display: flex; 
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* Animated background particles */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(circle at 20% 80%, rgba(0, 123, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(0, 123, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(0, 123, 255, 0.05) 0%, transparent 50%);
+            z-index: -1;
+            animation: particleFloat 20s ease-in-out infinite;
+        }
+
+        @keyframes particleFloat {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(180deg); }
+        }
+        
+        a { 
+            text-decoration: none; 
+            color: inherit; 
+        }
+        
+        .sidebar { 
+            width: 220px; 
+            background: rgba(26, 26, 46, 0.95);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(0, 123, 255, 0.2);
+            padding: 20px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 20px;
+            box-shadow: 0 0 30px rgba(0, 123, 255, 0.1);
+        }
+        
+        .sidebar h1 { 
+            font-size: 22px; 
+            color: #00bfff; 
+            margin-bottom: 20px; 
+            text-shadow: 0 0 10px rgba(0, 191, 255, 0.5);
+            font-weight: 700;
+        }
+        
+        .sidebar a { 
+            display: flex; 
+            align-items: center; 
+            padding: 12px 15px; 
+            border-radius: 8px; 
+            transition: all 0.3s ease; 
+            color: #ffffff; 
+            border: 1px solid transparent;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .sidebar a::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 191, 255, 0.1), transparent);
+            transition: left 0.5s;
+        }
+
+        .sidebar a:hover::before {
+            left: 100%;
+        }
+        
+        .sidebar a:hover { 
+            background: rgba(0, 123, 255, 0.1);
+            border-color: rgba(0, 191, 255, 0.3);
+            transform: translateX(5px);
+            box-shadow: 0 0 15px rgba(0, 191, 255, 0.2);
+        }
+        
+        .sidebar a i { 
+            margin-right: 12px; 
+            color: #00bfff;
+        }
+        
+        .main { 
+            flex-grow: 1; 
+            padding: 30px;
+            background: rgba(10, 10, 15, 0.3);
+        }
+        
+        h2 { 
+            margin-bottom: 15px; 
+            color: #fff; 
+            font-size: 24px;
+            font-weight: 600;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+        }
+
+        h2 i {
+            color: #00bfff;
+            margin-right: 10px;
+            text-shadow: 0 0 10px rgba(0, 191, 255, 0.5);
+        }
+        
+        .card { 
+            background: rgba(26, 26, 46, 0.8);
+            backdrop-filter: blur(20px);
+            padding: 25px; 
+            border-radius: 15px; 
+            margin-bottom: 30px;
+            border: 1px solid rgba(0, 191, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 191, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 30px rgba(0, 191, 255, 0.15);
+            border-color: rgba(0, 191, 255, 0.3);
+        }
+        
+        input[type="text"], input[type="number"], select { 
+            width: 100%; 
+            padding: 12px 15px; 
+            margin: 8px 0 15px 0; 
+            border-radius: 8px; 
+            border: 1px solid rgba(0, 191, 255, 0.3); 
+            background: rgba(22, 33, 62, 0.8); 
+            color: #fff; 
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus, input[type="number"]:focus, select:focus {
+            outline: none;
+            border-color: #00bfff;
+            box-shadow: 0 0 15px rgba(0, 191, 255, 0.3);
+            background: rgba(22, 33, 62, 0.9);
+        }
+
+        input[type="text"]::placeholder, input[type="number"]::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        input[type="submit"], button { 
+            background: linear-gradient(135deg, #007bff 0%, #00bfff 100%);
+            color: #fff; 
+            border: none; 
+            padding: 12px 24px; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            transition: all 0.3s ease;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        input[type="submit"]::before, button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        input[type="submit"]:hover::before, button:hover::before {
+            left: 100%;
+        }
+        
+        input[type="submit"]:hover, button:hover { 
+            background: linear-gradient(135deg, #00bfff 0%, #007bff 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 191, 255, 0.4);
+        }
+
+        /* Flash messages */
+        .flash-message {
+            padding: 12px 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+            border: 1px solid;
+        }
+
+        .flash-success {
+            background: rgba(0, 255, 136, 0.9);
+            color: white;
+            border-color: rgba(0, 255, 136, 0.5);
+            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.2);
+        }
+
+        .flash-error {
+            background: rgba(255, 71, 87, 0.9);
+            color: white;
+            border-color: rgba(255, 71, 87, 0.5);
+            box-shadow: 0 4px 15px rgba(255, 71, 87, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+        <h1><i class="fas fa-robot"></i> Super Bot</h1>
+        <a href="{{ url_for('index') }}"><i class="fas fa-home"></i> Dashboard</a>
+        <a href="{{ url_for('profile_page') }}"><i class="fas fa-user"></i> Profile</a>
+        <a href="{{ url_for('favorites_page') }}"><i class="fas fa-star"></i> Favorites</a>
+        <a href="{{ url_for('settings') }}"><i class="fas fa-cog"></i> Settings</a>
+        <a href="/analytics"><i class="fas fa-chart-line"></i> Analytics</a>
+        <a href="/subscription"><i class="fas fa-crown"></i> Subscription</a>
+        <a href="/api-docs" target="_blank"><i class="fas fa-book"></i> API Docs</a>
+        <a href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="main">
+        <!-- Flash messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-message flash-{{ category }}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="card">
+            <h2><i class="fas fa-cog"></i> Scraper Settings</h2>
+            
+            <form action="{{ url_for('settings') }}" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                Location (City, State):<br>
+                <input type="text" name="location" value="{{ settings.get('location','Boise, ID') }}"><br>
+                
+                Search Radius (miles):<br>
+                <input type="number" name="radius" value="{{ settings.get('radius',50) }}" min="1" max="500"><br>
+                
+                Keywords (comma separated):<br>
+                <input type="text" name="keywords" value="{{ settings.get('keywords','Firebird,Camaro,Corvette') }}"><br>
+                
+                Min Price:<br>
+                <input type="number" name="min_price" value="{{ settings.get('min_price',1000) }}" min="0"><br>
+                
+                Max Price:<br>
+                <input type="number" name="max_price" value="{{ settings.get('max_price',30000) }}" min="0"><br>
+                
+                Check Interval (minutes):<br>
+                <input type="number" name="interval" value="{{ settings.get('interval',60) }}" min="10" max="1440"><br>
+                
+                <input type="submit" value="Save Settings">
+            </form>
+        </div>
+
+        <div class="card">
+            <h2><i class="fas fa-bell"></i> Notification Preferences</h2>
+            <p style="margin-bottom: 20px; color: rgba(255, 255, 255, 0.7); font-size: 14px;">
+                Get notified instantly when new listings matching your criteria are found!
+            </p>
+            
+            <form action="{{ url_for('update_notification_settings') }}" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                
+                <!-- Email Notifications -->
+                <div style="margin-bottom: 20px;">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" name="email_notifications" value="1" 
+                               {% if notifications and notifications.email_notifications %}checked{% endif %}
+                               style="width: auto; margin-right: 10px; cursor: pointer;">
+                        <span><i class="fas fa-envelope" style="color: #00bfff; margin-right: 8px;"></i> Email Notifications</span>
+                    </label>
+                    <p style="margin-left: 30px; color: rgba(255, 255, 255, 0.6); font-size: 12px;">
+                        Email: {{ notifications.email if notifications else 'Not set' }}
+                    </p>
+                </div>
+
+                <!-- SMS Notifications -->
+                <div style="margin-bottom: 20px;">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" name="sms_notifications" value="1" 
+                               {% if notifications and notifications.sms_notifications %}checked{% endif %}
+                               style="width: auto; margin-right: 10px; cursor: pointer;">
+                        <span><i class="fas fa-mobile-alt" style="color: #00bfff; margin-right: 8px;"></i> SMS Notifications</span>
+                    </label>
+                </div>
+
+                <!-- Phone Number -->
+                <label for="phone_number">Phone Number (for SMS):</label><br>
+                <input type="text" id="phone_number" name="phone_number" 
+                       value="{{ notifications.phone_number if notifications and notifications.phone_number else '' }}" 
+                       placeholder="+1234567890">
+                <p style="color: rgba(255, 255, 255, 0.6); font-size: 12px; margin-top: -10px; margin-bottom: 15px;">
+                    <i class="fas fa-info-circle"></i> Enter phone number in E.164 format (e.g., +1234567890)
+                </p>
+                
+                <input type="submit" value="Save Notification Settings">
+            </form>
+
+            <div style="margin-top: 20px; padding: 15px; background: rgba(0, 191, 255, 0.1); border-radius: 8px; border: 1px solid rgba(0, 191, 255, 0.2);">
+                <p style="font-size: 13px; color: rgba(255, 255, 255, 0.8);">
+                    <i class="fas fa-info-circle" style="color: #00bfff;"></i> <strong>Note:</strong> 
+                    SMS notifications require Twilio configuration. Contact your administrator if SMS is not working.
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

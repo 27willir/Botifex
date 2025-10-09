@@ -1,0 +1,88 @@
+# Flask Configuration
+SECRET_KEY=your-super-secret-key-here-change-this-in-production
+
+# Session Security
+SESSION_COOKIE_SECURE=False
+SESSION_COOKIE_HTTPONLY=True
+SESSION_COOKIE_SAMESITE=Lax
+PERMANENT_SESSION_LIFETIME=3600
+
+# Password Requirements
+MIN_PASSWORD_LENGTH=8
+REQUIRE_SPECIAL_CHARS=True
+REQUIRE_NUMBERS=True
+REQUIRE_UPPERCASE=True
+
+# Database Configuration (optional - defaults to superbot.db)
+# DB_FILE=superbot.db
+
+# Connection Pool Configuration (optional - defaults shown)
+# POOL_SIZE=10
+# CONNECTION_TIMEOUT=30
+
+# Rate Limiting Configuration (optional - defaults shown)
+# RATE_LIMIT_API=60
+# RATE_LIMIT_SCRAPER=10
+# RATE_LIMIT_SETTINGS=30
+# RATE_LIMIT_LOGIN=5
+# RATE_LIMIT_REGISTER=3
+
+# Cache Configuration (optional - defaults shown)
+# CACHE_DEFAULT_TTL=300
+
+# Logging Configuration (optional)
+# LOG_LEVEL=INFO
+
+# Flask Debug Mode (set to False in production)
+# FLASK_DEBUG=False
+# FLASK_ENV=production
+
+# ===================================
+# NOTIFICATION SETTINGS
+# ===================================
+
+# Email Configuration (for email notifications)
+# For Gmail: Use an App Password (https://support.google.com/accounts/answer/185833)
+# For other providers: Use your SMTP settings
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your-email@gmail.com
+SMTP_PASSWORD=your-app-password-here
+SMTP_FROM_EMAIL=your-email@gmail.com
+SMTP_FROM_NAME=Super-Bot Alerts
+
+# SMS Configuration (Twilio - optional)
+# Get your credentials from: https://www.twilio.com/console
+# Leave blank to disable SMS notifications
+TWILIO_ACCOUNT_SID=your-twilio-account-sid
+TWILIO_AUTH_TOKEN=your-twilio-auth-token
+TWILIO_FROM_NUMBER=+1234567890
+
+# ===================================
+# STRIPE PAYMENT SETTINGS
+# ===================================
+
+# Stripe API Keys
+# Get your keys from: https://dashboard.stripe.com/apikeys
+STRIPE_SECRET_KEY=sk_test_your-stripe-secret-key-here
+STRIPE_PUBLISHABLE_KEY=pk_test_your-stripe-publishable-key-here
+STRIPE_WEBHOOK_SECRET=whsec_your-webhook-secret-here
+
+# Stripe Price IDs (create these in your Stripe Dashboard)
+# Standard Plan ($9.99/month)
+STRIPE_STANDARD_PRICE_ID=price_your-standard-price-id
+# Pro Plan ($39.99/month)
+STRIPE_PRO_PRICE_ID=price_your-pro-price-id
+
+# INSTRUCTIONS:
+# 1. Copy this file to .env
+# 2. Update SECRET_KEY with a secure random string
+# 3. Configure email settings (required for email notifications)
+# 4. Configure Twilio settings (optional, for SMS notifications)
+# 5. Configure Stripe settings (required for paid subscriptions):
+#    a. Create a Stripe account at https://stripe.com
+#    b. Get your API keys from the Stripe Dashboard
+#    c. Create products and prices for Standard and Pro plans
+#    d. Set up a webhook endpoint pointing to /webhook/stripe
+#    e. Copy the webhook secret to STRIPE_WEBHOOK_SECRET
+# 6. Adjust other settings as needed for your environment

@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market Analytics - Super Bot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Exo+2:wght@300;400;500;600;700;800&family=Rajdhani:wght@300;400;500;600;700&family=Roboto+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "Orbitron", "Exo 2", "Rajdhani", "Roboto Mono", "Courier New", monospace;
+            background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #16213e 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            color: #ffffff;
+            position: relative;
+            line-height: 1.6;
+            font-weight: 400;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Animated background particles */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(circle at 20% 80%, rgba(0, 123, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(0, 123, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(0, 123, 255, 0.05) 0%, transparent 50%);
+            z-index: -1;
+            animation: particleFloat 20s ease-in-out infinite;
+        }
+
+        @keyframes particleFloat {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(180deg); }
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 32px;
+        }
+
+        .header {
+            background: rgba(26, 26, 46, 0.85);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 48px 40px;
+            margin-bottom: 40px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 30px rgba(0, 191, 255, 0.15);
+            border: 1px solid rgba(0, 191, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #00bfff, transparent);
+            opacity: 0.6;
+        }
+
+        .header h1 {
+            color: #00bfff;
+            font-size: 3rem;
+            margin-bottom: 16px;
+            text-align: center;
+            text-shadow: 0 0 30px rgba(0, 191, 255, 0.6);
+            font-weight: 800;
+            letter-spacing: -1px;
+            line-height: 1.1;
+        }
+
+        .header p {
+            color: rgba(255, 255, 255, 0.85);
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: 400;
+            letter-spacing: 0.3px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .controls {
+            background: rgba(26, 26, 46, 0.85);
+            backdrop-filter: blur(20px);
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 191, 255, 0.1);
+            border: 1px solid rgba(0, 191, 255, 0.2);
+            display: flex;
+            gap: 24px;
+            align-items: end;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-group label {
+            font-weight: 700;
+            color: #00bfff;
+            font-size: 0.95rem;
+            text-shadow: 0 0 5px rgba(0, 191, 255, 0.3);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .control-group select,
+        .control-group input {
+            padding: 14px 18px;
+            border: 2px solid rgba(0, 191, 255, 0.3);
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            background: rgba(22, 33, 62, 0.8);
+            color: #ffffff;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+
+        .control-group select:focus,
+        .control-group input:focus {
+            outline: none;
+            border-color: #00bfff;
+            box-shadow: 0 0 15px rgba(0, 191, 255, 0.3);
+            background: rgba(22, 33, 62, 0.9);
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #007bff 0%, #00bfff 100%);
+            color: white;
+            border: none;
+            padding: 16px 32px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-decoration: none;
+            display: inline-block;
+            position: relative;
+            overflow: hidden;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            box-shadow: 0 4px 16px rgba(0, 191, 255, 0.3);
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn:hover::before {
+            left: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 32px rgba(0, 191, 255, 0.5);
+        }
+
+        .btn:active {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(0, 191, 255, 0.4);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #495057 0%, #6c757d 100%);
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 8px 25px rgba(108, 117, 125, 0.4);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: rgba(26, 26, 46, 0.85);
+            backdrop-filter: blur(20px);
+            border-radius: 16px;
+            padding: 32px 28px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 191, 255, 0.1);
+            border: 1px solid rgba(0, 191, 255, 0.2);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #00bfff, transparent);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .stat-card:hover::before {
+            opacity: 1;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), 0 0 40px rgba(0, 191, 255, 0.2);
+            border-color: rgba(0, 191, 255, 0.4);
+        }
+
+        .stat-value {
+            font-size: 3rem;
+            font-weight: 800;
+            color: #00bfff;
+            margin-bottom: 12px;
+            text-shadow: 0 0 20px rgba(0, 191, 255, 0.6);
+            letter-spacing: -1px;
+            line-height: 1;
+        }
+
+        .stat-label {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 1.1rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+            gap: 32px;
+            margin-bottom: 40px;
+        }
+
+        .chart-container {
+            background: rgba(26, 26, 46, 0.85);
+            backdrop-filter: blur(20px);
+            border-radius: 16px;
+            padding: 32px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 191, 255, 0.1);
+            border: 1px solid rgba(0, 191, 255, 0.2);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .chart-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #00bfff, transparent);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .chart-container:hover::before {
+            opacity: 1;
+        }
+
+        .chart-container:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), 0 0 40px rgba(0, 191, 255, 0.2);
+            border-color: rgba(0, 191, 255, 0.4);
+        }
+
+        .chart-title {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #00bfff;
+            margin-bottom: 24px;
+            text-align: center;
+            text-shadow: 0 0 15px rgba(0, 191, 255, 0.4);
+            letter-spacing: 0.5px;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 400px;
+        }
+
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            color: #00bfff;
+            font-size: 1.1rem;
+            text-shadow: 0 0 10px rgba(0, 191, 255, 0.5);
+        }
+
+        .error {
+            background: rgba(255, 71, 87, 0.9);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            text-align: center;
+            border: 1px solid rgba(255, 71, 87, 0.5);
+            box-shadow: 0 4px 15px rgba(255, 71, 87, 0.2);
+        }
+
+        .success {
+            background: rgba(0, 255, 136, 0.9);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            text-align: center;
+            border: 1px solid rgba(0, 255, 136, 0.5);
+            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.2);
+        }
+
+        .navigation {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .control-group {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Market Analytics Dashboard</h1>
+            <p>Comprehensive insights into your market data, trends, and performance metrics</p>
+        </div>
+
+        <div class="navigation">
+            <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
+            <button onclick="updateTrends()" class="btn">Update Trends</button>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="timeRange">Time Range</label>
+                <select id="timeRange" onchange="loadAnalytics()">
+                    <option value="7">Last 7 days</option>
+                    <option value="30" selected>Last 30 days</option>
+                    <option value="90">Last 90 days</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="sourceFilter">Source</label>
+                <select id="sourceFilter" onchange="loadAnalytics()">
+                    <option value="">All Sources</option>
+                    <option value="facebook">Facebook</option>
+                    <option value="craigslist">Craigslist</option>
+                    <option value="ksl">KSL</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="keywordFilter">Keyword</label>
+                <select id="keywordFilter" onchange="loadAnalytics()">
+                    <option value="">All Keywords</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button onclick="loadAnalytics()" class="btn">Refresh Data</button>
+            </div>
+        </div>
+
+        <div id="statsContainer" class="stats-grid">
+            <!-- Stats will be loaded here -->
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-container">
+                <div class="chart-title">Price Trends Over Time</div>
+                <div class="chart-wrapper">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">Top Keywords</div>
+                <div class="chart-wrapper">
+                    <canvas id="keywordChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">Source Comparison</div>
+                <div class="chart-wrapper">
+                    <canvas id="sourceChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">Price Distribution</div>
+                <div class="chart-wrapper">
+                    <canvas id="distributionChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">Hourly Activity</div>
+                <div class="chart-wrapper">
+                    <canvas id="activityChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">Daily Listings</div>
+                <div class="chart-wrapper">
+                    <canvas id="dailyChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let charts = {};
+        let currentData = {};
+
+        // Initialize the dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if Chart.js is loaded
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js is not loaded!');
+                showError('Chart library failed to load. Please refresh the page.');
+                return;
+            }
+            console.log('Chart.js loaded successfully. Version:', Chart.version);
+            
+            loadAnalytics();
+            loadKeywords();
+        });
+
+        async function loadAnalytics() {
+            const timeRange = document.getElementById('timeRange').value;
+            const sourceFilter = document.getElementById('sourceFilter').value;
+            const keywordFilter = document.getElementById('keywordFilter').value;
+            
+            try {
+                showLoading();
+                
+                // Helper function to check and parse response
+                const parseResponse = async (response) => {
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        // Not JSON response, likely redirected to login
+                        window.location.href = '/login';
+                        throw new Error('Not authenticated - redirecting to login');
+                    }
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                };
+                
+                // Build query parameters
+                const keywordParam = keywordFilter ? `&keyword=${encodeURIComponent(keywordFilter)}` : '';
+                
+                // Load all analytics data in parallel
+                const [marketInsights, priceAnalytics, sourceComparison, keywordAnalysis, hourlyActivity, priceDistribution] = await Promise.all([
+                    fetch(`/api/analytics/market-insights?days=${timeRange}${keywordParam}`, {credentials: 'same-origin'}).then(parseResponse),
+                    fetch(`/api/analytics/price-analytics?days=${timeRange}${sourceFilter ? `&source=${sourceFilter}` : ''}${keywordParam}`, {credentials: 'same-origin'}).then(parseResponse),
+                    fetch(`/api/analytics/source-comparison?days=${timeRange}${keywordParam}`, {credentials: 'same-origin'}).then(parseResponse),
+                    fetch(`/api/analytics/keyword-analysis?days=${timeRange}${keywordParam}`, {credentials: 'same-origin'}).then(parseResponse),
+                    fetch(`/api/analytics/hourly-activity?days=${Math.min(timeRange, 7)}${keywordParam}`, {credentials: 'same-origin'}).then(parseResponse),
+                    fetch(`/api/analytics/price-distribution?days=${timeRange}${keywordParam}`, {credentials: 'same-origin'}).then(parseResponse)
+                ]);
+
+                currentData = {
+                    marketInsights,
+                    priceAnalytics,
+                    sourceComparison,
+                    keywordAnalysis,
+                    hourlyActivity,
+                    priceDistribution
+                };
+
+                console.log('Analytics data loaded:', {
+                    marketInsights: marketInsights ? 'yes' : 'no',
+                    priceAnalytics: priceAnalytics?.analytics?.length || 0,
+                    sourceComparison: sourceComparison?.comparison?.length || 0,
+                    keywordAnalysis: keywordAnalysis?.analysis?.length || 0,
+                    hourlyActivity: hourlyActivity?.activity?.length || 0,
+                    priceDistribution: priceDistribution?.distribution?.length || 0
+                });
+
+                updateStats();
+                updateCharts();
+                hideLoading();
+                
+            } catch (error) {
+                console.error('Error loading analytics:', error);
+                showError('Failed to load analytics data');
+            }
+        }
+
+        async function loadKeywords() {
+            try {
+                const response = await fetch('/api/analytics/keyword-analysis?days=30', {credentials: 'same-origin'});
+                const data = await response.json();
+                
+                const keywordSelect = document.getElementById('keywordFilter');
+                keywordSelect.innerHTML = '<option value="">All Keywords</option>';
+                
+                if (data.analysis) {
+                    data.analysis.forEach(item => {
+                        const option = document.createElement('option');
+                        option.value = item[0]; // keyword
+                        option.textContent = `${item[0]} (${item[1]} listings)`;
+                        keywordSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading keywords:', error);
+            }
+        }
+
+        function updateStats() {
+            if (!currentData || !currentData.marketInsights || !currentData.marketInsights.overall_stats) {
+                console.error('No market insights data available');
+                return;
+            }
+            
+            const stats = currentData.marketInsights.overall_stats;
+
+            const statsContainer = document.getElementById('statsContainer');
+            statsContainer.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value">${stats[0] || 0}</div>
+                    <div class="stat-label">Total Listings</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">$${Math.round(stats[1] || 0).toLocaleString()}</div>
+                    <div class="stat-label">Average Price</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">$${Math.round(stats[2] || 0).toLocaleString()}</div>
+                    <div class="stat-label">Lowest Price</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">$${Math.round(stats[3] || 0).toLocaleString()}</div>
+                    <div class="stat-label">Highest Price</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats[4] || 0}</div>
+                    <div class="stat-label">Active Sources</div>
+                </div>
+            `;
+        }
+
+        function updateCharts() {
+            updatePriceChart();
+            updateKeywordChart();
+            updateSourceChart();
+            updateDistributionChart();
+            updateActivityChart();
+            updateDailyChart();
+        }
+
+        function updatePriceChart() {
+            try {
+                const ctx = document.getElementById('priceChart').getContext('2d');
+                
+                if (charts.priceChart) {
+                    charts.priceChart.destroy();
+                }
+
+                if (!currentData || !currentData.priceAnalytics || !currentData.priceAnalytics.analytics) {
+                    console.error('No price analytics data available');
+                    return;
+                }
+
+                const data = currentData.priceAnalytics.analytics || [];
+                console.log('Price analytics data:', data);
+                
+                if (data.length === 0) {
+                    console.warn('Price analytics data is empty');
+                    return;
+                }
+                
+                const labels = data.map(item => new Date(item[0]).toLocaleDateString()).reverse();
+                const avgPrices = data.map(item => item[2]).reverse();
+                const counts = data.map(item => item[1]).reverse();
+
+                charts.priceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Average Price',
+                        data: avgPrices,
+                        borderColor: '#00bfff',
+                        backgroundColor: 'rgba(0, 191, 255, 0.1)',
+                        tension: 0.4,
+                        yAxisID: 'y'
+                    }, {
+                        label: 'Listings Count',
+                        data: counts,
+                        borderColor: '#e74c3c',
+                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                        tension: 0.4,
+                        yAxisID: 'y1'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Average Price ($)'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Listings Count'
+                            },
+                            grid: {
+                                drawOnChartArea: false,
+                            },
+                        }
+                    }
+                }
+                });
+                console.log('Price chart created successfully');
+            } catch (error) {
+                console.error('Error creating price chart:', error);
+            }
+        }
+
+        function updateKeywordChart() {
+            const ctx = document.getElementById('keywordChart').getContext('2d');
+            
+            if (charts.keywordChart) {
+                charts.keywordChart.destroy();
+            }
+
+            if (!currentData || !currentData.keywordAnalysis || !currentData.keywordAnalysis.analysis) {
+                console.error('No keyword analysis data available');
+                return;
+            }
+
+            const data = currentData.keywordAnalysis.analysis || [];
+            const labels = data.slice(0, 10).map(item => item[0]);
+            const counts = data.slice(0, 10).map(item => item[1]);
+
+            charts.keywordChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: counts,
+                        backgroundColor: [
+                            '#00bfff', '#007bff', '#0099cc', '#0066cc',
+                            '#004d99', '#003366', '#001a33', '#000d1a',
+                            '#00ccff', '#0099ff'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateSourceChart() {
+            const ctx = document.getElementById('sourceChart').getContext('2d');
+            
+            if (charts.sourceChart) {
+                charts.sourceChart.destroy();
+            }
+
+            if (!currentData || !currentData.sourceComparison || !currentData.sourceComparison.comparison) {
+                console.error('No source comparison data available');
+                return;
+            }
+
+            const data = currentData.sourceComparison.comparison || [];
+            const labels = data.map(item => item[0]);
+            const counts = data.map(item => item[1]);
+            const avgPrices = data.map(item => item[2]);
+
+            charts.sourceChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Total Listings',
+                        data: counts,
+                        backgroundColor: 'rgba(0, 191, 255, 0.8)',
+                        yAxisID: 'y'
+                    }, {
+                        label: 'Average Price',
+                        data: avgPrices,
+                        backgroundColor: 'rgba(118, 75, 162, 0.8)',
+                        yAxisID: 'y1'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Listings Count'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Average Price ($)'
+                            },
+                            grid: {
+                                drawOnChartArea: false,
+                            },
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateDistributionChart() {
+            const ctx = document.getElementById('distributionChart').getContext('2d');
+            
+            if (charts.distributionChart) {
+                charts.distributionChart.destroy();
+            }
+
+            if (!currentData || !currentData.priceDistribution || !currentData.priceDistribution.distribution) {
+                console.error('No price distribution data available');
+                return;
+            }
+
+            const data = currentData.priceDistribution.distribution || [];
+            const labels = data.map(item => item.range);
+            const counts = data.map(item => item.count);
+
+            charts.distributionChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Number of Listings',
+                        data: counts,
+                        backgroundColor: 'rgba(0, 191, 255, 0.8)',
+                        borderColor: '#00bfff',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Listings'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Price Range'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateActivityChart() {
+            const ctx = document.getElementById('activityChart').getContext('2d');
+            
+            if (charts.activityChart) {
+                charts.activityChart.destroy();
+            }
+
+            if (!currentData || !currentData.hourlyActivity || !currentData.hourlyActivity.activity) {
+                console.error('No hourly activity data available');
+                return;
+            }
+
+            const data = currentData.hourlyActivity.activity || [];
+            const hours = Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0'));
+            const activityByHour = new Array(24).fill(0);
+            
+            data.forEach(item => {
+                const hour = parseInt(item[0]);
+                activityByHour[hour] += item[1];
+            });
+
+            charts.activityChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: hours,
+                    datasets: [{
+                        label: 'Listings Posted',
+                        data: activityByHour,
+                        borderColor: '#00bfff',
+                        backgroundColor: 'rgba(0, 191, 255, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Listings'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Hour of Day'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateDailyChart() {
+            const ctx = document.getElementById('dailyChart').getContext('2d');
+            
+            if (charts.dailyChart) {
+                charts.dailyChart.destroy();
+            }
+
+            if (!currentData || !currentData.priceAnalytics || !currentData.priceAnalytics.analytics) {
+                console.error('No price analytics data available for daily chart');
+                return;
+            }
+
+            const data = currentData.priceAnalytics.analytics || [];
+            const labels = data.map(item => new Date(item[0]).toLocaleDateString()).reverse();
+            const counts = data.map(item => item[1]).reverse();
+
+            charts.dailyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Daily Listings',
+                        data: counts,
+                        backgroundColor: 'rgba(0, 191, 255, 0.8)',
+                        borderColor: '#00bfff',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Listings'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Date'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        async function updateTrends() {
+            try {
+                const response = await fetch('/api/analytics/update-trends', {
+                    method: 'POST',
+                    credentials: 'same-origin'
+                });
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showSuccess('Trends updated successfully!');
+                    loadAnalytics();
+                } else {
+                    showError(result.error || 'Failed to update trends');
+                }
+            } catch (error) {
+                console.error('Error updating trends:', error);
+                showError('Failed to update trends');
+            }
+        }
+
+        function showLoading() {
+            // Don't replace canvas elements - just show a loading indicator
+            console.log('Loading analytics...');
+        }
+
+        function hideLoading() {
+            console.log('Analytics loaded');
+        }
+
+        function showError(message) {
+            const container = document.querySelector('.container');
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = message;
+            container.insertBefore(errorDiv, container.firstChild);
+            
+            setTimeout(() => {
+                errorDiv.remove();
+            }, 5000);
+        }
+
+        function showSuccess(message) {
+            const container = document.querySelector('.container');
+            const successDiv = document.createElement('div');
+            successDiv.className = 'success';
+            successDiv.textContent = message;
+            container.insertBefore(successDiv, container.firstChild);
+            
+            setTimeout(() => {
+                successDiv.remove();
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
