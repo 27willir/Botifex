@@ -3,10 +3,16 @@ import urllib.parse
 import threading
 from datetime import datetime
 from lxml import html
-from selenium.webdriver.common.by import By
-from utils import debug_scraper_output, logger
+from utils import debug_scraper_output, logger, is_selenium_available
 from db import get_settings, save_listing
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
+
+# Make selenium imports optional
+try:
+    from selenium.webdriver.common.by import By
+except ImportError:
+    # Selenium not available - Facebook scraper will be disabled
+    pass
 
 # ======================
 # CONFIGURATION

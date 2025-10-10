@@ -1,9 +1,15 @@
 # utils.py
 import os, json, logging
 from pathlib import Path
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+
+# Make selenium optional for production environments
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -41,13 +47,22 @@ def safe_json_write(path, data):
     except Exception as e:
         logger.exception("safe_json_write failed for %s: %s", path, e)
 
+def is_selenium_available():
+    """Check if Selenium is available and properly configured."""
+    return SELENIUM_AVAILABLE
+
 def make_chrome_driver(headless=True):
-    opts = webdriver.ChromeOptions()
-    if headless:
-        opts.add_argument("--headless=new")
-    opts.add_argument("--disable-gpu")
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--window-size=1200,800")
+    if not SELENIUM_AVAILABLE:
+        logger.warning("Selenium is not available. Scrapers requiring Selenium will be disabled.")
+        return None
+    
+    try:
+        opts = webdriver.ChromeOptions()
+        if headless:
+            opts.add_argument("--headless=new")
+        opts.add_argument("--disable-gpu")
+        opts.add_argument("--no-sandbox")
+        opts.add_argument("--window-size=1200,800")
     # sensible user agent (not a bypass instruction — normal practice)
     opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36")
     service = Service(ChromeDriverManager().install())

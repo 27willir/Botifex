@@ -1,10 +1,15 @@
 import threading
 import time
-from selenium.webdriver.chrome.service import Service
-from selenium import webdriver
-from webdriver_manager.chrome import ChromeDriverManager
-from utils import logger, make_chrome_driver, debug_scraper_output
+from utils import logger, make_chrome_driver, debug_scraper_output, is_selenium_available
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
+
+# Make selenium imports optional
+try:
+    from selenium.webdriver.chrome.service import Service
+    from selenium import webdriver
+    from webdriver_manager.chrome import ChromeDriverManager
+except ImportError:
+    pass  # Selenium not available
 
 # make sure this exists
 _threads = {}
@@ -66,6 +71,10 @@ def _get_driver_lock(site_name):
 # FACEBOOK SCRAPER THREADS
 # ============================
 def start_facebook():
+    if not is_selenium_available():
+        logger.warning("⚠️ Facebook scraper requires Selenium which is not available in this environment")
+        return False
+    
     if "facebook" in _threads and _threads["facebook"].is_alive():
         logger.warning("Facebook scraper is already running")
         return False
