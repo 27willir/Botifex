@@ -54,9 +54,11 @@ class HealthMonitor:
     def _check_database_health(self):
         """Check database connectivity and performance."""
         try:
-            from db_enhanced import init_db
-            # Simple database health check
-            init_db()
+            from db_enhanced import ping_db
+            # Simple database health check (read-only)
+            ok = ping_db()
+            if not ok:
+                raise Exception("Database ping failed")
             self.health_status["database"]["status"] = "healthy"
             self.health_status["database"]["last_check"] = datetime.now()
             self.health_status["database"]["error_count"] = 0
@@ -70,11 +72,18 @@ class HealthMonitor:
         try:
             import requests
             response = requests.get("https://httpbin.org/status/200", timeout=10)
-            if response.status_code == 200:
+            if 200 <= response.status_code < 400:
                 self.health_status["network"]["status"] = "healthy"
                 self.health_status["network"]["last_check"] = datetime.now()
                 self.health_status["network"]["error_count"] = 0
             else:
+                # Treat 5xx as transient, don't flip to unhealthy immediately
+                if 500 <= response.status_code < 600:
+                    self.health_status["network"]["error_count"] += 1
+                    if self.health_status["network"]["error_count"] >= 3:
+                        raise Exception(f"Repeated 5xx status code: {response.status_code}")
+                    logger.warning(f"Network transient error: status {response.status_code}")
+                    return
                 raise Exception(f"Unexpected status code: {response.status_code}")
         except Exception as e:
             self.health_status["network"]["status"] = "unhealthy"
@@ -157,7 +166,7 @@ class RecoveryManager:
             time.sleep(5)
             import requests
             response = requests.get("https://httpbin.org/status/200", timeout=10)
-            if response.status_code == 200:
+            if 200 <= response.status_code < 400:
                 logger.info("Network recovery successful")
                 return True
             return False

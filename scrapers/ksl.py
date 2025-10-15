@@ -168,8 +168,12 @@ def check_ksl(flag_name="ksl"):
     max_retries = 3
     base_retry_delay = 2
     
-    # Get location coordinates for distance filtering
-    location_coords = get_location_coords(location)
+    # Get location coordinates for distance filtering with protection
+    try:
+        location_coords = get_location_coords(location)
+    except Exception as e:
+        logger.warning(f"Geocoding error for '{location}': {e}")
+        location_coords = None
     if location_coords:
         logger.debug(f"KSL: Searching {location} within {radius} miles")
     else:
