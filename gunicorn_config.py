@@ -7,7 +7,9 @@ backlog = 2048
 
 # Worker processes
 workers = int(os.getenv('WEB_CONCURRENCY', multiprocessing.cpu_count() * 2 + 1))
-worker_class = 'eventlet'  # Required for SocketIO
+# Use gevent for SocketIO support (compatible with Python 3.13)
+# Fallback to sync if gevent not available
+worker_class = os.getenv('GUNICORN_WORKER_CLASS', 'gevent')  # gevent, sync, or eventlet
 worker_connections = 1000
 timeout = 120
 keepalive = 5

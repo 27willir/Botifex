@@ -34,3 +34,4 @@ flasgger==0.9.7.1
 # Production server
 gunicorn==21.2.0
 eventlet==0.35.2
+gevent==24.2.1

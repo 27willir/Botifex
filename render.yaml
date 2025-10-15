@@ -7,6 +7,7 @@ services:
     region: oregon  # Options: oregon, ohio, frankfurt, singapore, mumbai, sydney
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --config gunicorn_config.py app:socketio
+    dockerfilePath: ./Dockerfile  # Optional: use Dockerfile for more control
     envVars:
       # Flask Configuration (REQUIRED - CHANGE SECRET_KEY!)
       - key: SECRET_KEY
@@ -40,6 +41,8 @@ services:
       # Worker Configuration
       - key: WEB_CONCURRENCY
         value: "2"
+      - key: GUNICORN_WORKER_CLASS
+        value: gevent
       
       # Optional: Add your own environment variables below
       # Uncomment and set your values:
