@@ -26,7 +26,7 @@ def init_socketio(app):
     # Register event handlers
     register_events()
     
-    logger.info("✅ WebSocket server initialized")
+    logger.info("[OK] WebSocket server initialized")
     return socketio
 
 

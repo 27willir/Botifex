@@ -59,7 +59,9 @@ SUBSCRIPTION_TIERS = {
             'analytics': False,
             'selling': False,
             'notifications': False,
-            'priority_support': False
+            'priority_support': False,
+            'poshmark': False,  # Poshmark is pro-only
+            'mercari': False  # Mercari is pro-only
         }
     },
     'standard': {
@@ -69,12 +71,14 @@ SUBSCRIPTION_TIERS = {
         'features': {
             'max_keywords': 10,
             'refresh_interval': 300,  # 5 minutes in seconds
-            'platforms': ['craigslist', 'facebook', 'ksl', 'ebay'],  # All platforms
+            'platforms': ['craigslist', 'facebook', 'ksl', 'ebay'],  # All platforms except Poshmark and Mercari
             'max_platforms': 4,
             'analytics': 'limited',  # Limited analytics
             'selling': False,
             'notifications': True,
-            'priority_support': False
+            'priority_support': False,
+            'poshmark': False,  # Poshmark is pro-only
+            'mercari': False  # Mercari is pro-only
         }
     },
     'pro': {
@@ -84,12 +88,14 @@ SUBSCRIPTION_TIERS = {
         'features': {
             'max_keywords': -1,  # Unlimited (-1 indicates no limit)
             'refresh_interval': 60,  # 60 seconds
-            'platforms': ['craigslist', 'facebook', 'ksl', 'ebay'],  # All platforms
+            'platforms': ['craigslist', 'facebook', 'ksl', 'ebay', 'poshmark', 'mercari'],  # All platforms including Poshmark and Mercari
             'max_platforms': -1,  # Unlimited
             'analytics': True,  # Full analytics
             'selling': True,
             'notifications': True,
-            'priority_support': True
+            'priority_support': True,
+            'poshmark': True,  # Poshmark is pro-only
+            'mercari': True  # Mercari is pro-only
         }
     }
 }

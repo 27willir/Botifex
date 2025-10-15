@@ -1,73 +1,86 @@
 services:
+  # Web Service Configuration
   - type: web
     name: super-bot
-    env: python
-    region: oregon
-    plan: starter
-    branch: main
-    buildCommand: chmod +x build.sh && ./build.sh
-    startCommand: gunicorn --config gunicorn_config.py app:app
-    healthCheckPath: /
+    runtime: python
+    plan: starter  # Options: free, starter, standard, pro
+    region: oregon  # Options: oregon, ohio, frankfurt, singapore, mumbai, sydney
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --config gunicorn_config.py app:socketio
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
+      # Flask Configuration (REQUIRED - CHANGE SECRET_KEY!)
       - key: SECRET_KEY
-        generateValue: true
+        generateValue: true  # Render will auto-generate, but you should set your own
       - key: FLASK_ENV
         value: production
       - key: FLASK_DEBUG
-        value: False
+        value: "False"
+      
+      # Port (Render sets this automatically)
+      - key: PORT
+        fromService:
+          type: web
+          name: super-bot
+          property: port
+      
+      # Session Security
       - key: SESSION_COOKIE_SECURE
-        value: True
+        value: "True"
       - key: SESSION_COOKIE_HTTPONLY
-        value: True
+        value: "True"
       - key: SESSION_COOKIE_SAMESITE
         value: Lax
       - key: PERMANENT_SESSION_LIFETIME
-        value: 3600
-      - key: MIN_PASSWORD_LENGTH
-        value: 8
-      - key: REQUIRE_SPECIAL_CHARS
-        value: True
-      - key: REQUIRE_NUMBERS
-        value: True
-      - key: REQUIRE_UPPERCASE
-        value: True
+        value: "3600"
+      
+      # Database
       - key: DB_FILE
-        value: /opt/render/project/src/superbot.db
-      - key: POOL_SIZE
-        value: 10
-      - key: CONNECTION_TIMEOUT
-        value: 30
-      - key: RATE_LIMIT_API
-        value: 60
-      - key: RATE_LIMIT_SCRAPER
-        value: 10
-      - key: RATE_LIMIT_SETTINGS
-        value: 30
-      - key: RATE_LIMIT_LOGIN
-        value: 5
-      - key: RATE_LIMIT_REGISTER
-        value: 3
-      - key: CACHE_DEFAULT_TTL
-        value: 300
-      - key: LOG_LEVEL
-        value: INFO
+        value: superbot.db
+      
+      # Worker Configuration
       - key: WEB_CONCURRENCY
-        value: 2
-      # Add these in Render Dashboard - keep these secret!
-      # STRIPE_SECRET_KEY
-      # STRIPE_PUBLISHABLE_KEY
-      # STRIPE_WEBHOOK_SECRET
-      # STRIPE_STANDARD_PRICE_ID
-      # STRIPE_PRO_PRICE_ID
-      # SMTP_HOST
-      # SMTP_PORT
-      # SMTP_USERNAME
-      # SMTP_PASSWORD
-      # SMTP_FROM_EMAIL
-      # SMTP_FROM_NAME
-      # TWILIO_ACCOUNT_SID
-      # TWILIO_AUTH_TOKEN
-      # TWILIO_FROM_NUMBER
+        value: "2"
+      
+      # Optional: Add your own environment variables below
+      # Uncomment and set your values:
+      
+      # Email Configuration (if using notifications)
+      # - key: SMTP_HOST
+      #   value: smtp.gmail.com
+      # - key: SMTP_PORT
+      #   value: "587"
+      # - key: SMTP_USERNAME
+      #   value: your-email@gmail.com
+      # - key: SMTP_PASSWORD
+      #   value: your-app-password
+      # - key: SMTP_FROM_EMAIL
+      #   value: your-email@gmail.com
+      
+      # Stripe Configuration (if using payments)
+      # - key: STRIPE_SECRET_KEY
+      #   value: sk_live_your-key
+      # - key: STRIPE_PUBLISHABLE_KEY
+      #   value: pk_live_your-key
+      # - key: STRIPE_WEBHOOK_SECRET
+      #   value: whsec_your-secret
+      # - key: STRIPE_STANDARD_PRICE_ID
+      #   value: price_your-id
+      # - key: STRIPE_PRO_PRICE_ID
+      #   value: price_your-id
+      
+      # Twilio Configuration (if using SMS)
+      # - key: TWILIO_ACCOUNT_SID
+      #   value: your-sid
+      # - key: TWILIO_AUTH_TOKEN
+      #   value: your-token
+      # - key: TWILIO_FROM_NUMBER
+      #   value: +1234567890
+
+# Optional: Add PostgreSQL database for persistent storage
+# Uncomment below if you want to use PostgreSQL instead of SQLite
+# databases:
+#   - name: superbot-db
+#     plan: free  # Options: free, starter, standard, pro
+#     databaseName: superbot
+#     user: superbot
 

@@ -272,15 +272,26 @@ def get_user_features():
     Helper function to get current user's subscription features
     """
     tier = get_user_tier()
-    return SubscriptionManager.get_user_tier_features(tier)
+    features = SubscriptionManager.get_user_tier_features(tier)
+    
+    # Add Poshmark and Mercari feature flags (already in features dict, but ensure they're set)
+    if 'poshmark' not in features:
+        features['poshmark'] = (tier == 'pro')
+    if 'mercari' not in features:
+        features['mercari'] = (tier == 'pro')
+    
+    return features
 
 
 def can_access_feature(feature_name):
     """
     Helper function to check if current user can access a feature
     """
+    if not current_user.is_authenticated:
+        return False
+    
     # Admins can access all features
-    if current_user.is_authenticated and hasattr(current_user, 'role') and current_user.role == 'admin':
+    if hasattr(current_user, 'role') and current_user.role == 'admin':
         return True
     
     tier = get_user_tier()

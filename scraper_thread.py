@@ -1,15 +1,10 @@
 import threading
 import time
-from utils import logger, make_chrome_driver, debug_scraper_output, is_selenium_available
+from selenium.webdriver.chrome.service import Service
+from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
+from utils import logger, make_chrome_driver, debug_scraper_output
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
-
-# Make selenium imports optional
-try:
-    from selenium.webdriver.chrome.service import Service
-    from selenium import webdriver
-    from webdriver_manager.chrome import ChromeDriverManager
-except ImportError:
-    pass  # Selenium not available
 
 # make sure this exists
 _threads = {}
@@ -21,6 +16,8 @@ from scrapers.facebook import running_flags as fb_flags, run_facebook_scraper
 from scrapers.craigslist import running_flags as cl_flags, run_craigslist_scraper
 from scrapers.ksl import running_flags as ksl_flags, run_ksl_scraper
 from scrapers.ebay import running_flags as ebay_flags, run_ebay_scraper
+from scrapers.poshmark import running_flags as poshmark_flags, run_poshmark_scraper
+from scrapers.mercari import running_flags as mercari_flags, run_mercari_scraper
 
 # ----------------------------
 # CENTRALIZED DRIVER MANAGEMENT
@@ -71,10 +68,6 @@ def _get_driver_lock(site_name):
 # FACEBOOK SCRAPER THREADS
 # ============================
 def start_facebook():
-    if not is_selenium_available():
-        logger.warning("⚠️ Facebook scraper requires Selenium which is not available in this environment")
-        return False
-    
     if "facebook" in _threads and _threads["facebook"].is_alive():
         logger.warning("Facebook scraper is already running")
         return False
@@ -243,6 +236,84 @@ def is_ebay_running():
     return t.is_alive() if t else False
 
 # ============================
+# POSHMARK SCRAPER THREADS
+# ============================
+def start_poshmark():
+    if "poshmark" in _threads and _threads["poshmark"].is_alive():
+        logger.warning("Poshmark scraper is already running")
+        return False
+    
+    poshmark_flags["poshmark"] = True
+    
+    def target():
+        try:
+            logger.info("Starting Poshmark scraper")
+            run_poshmark_scraper(flag_name="poshmark")
+        except Exception as e:
+            logger.error(f"Poshmark scraper thread error: {e}")
+        finally:
+            logger.info("Poshmark scraper thread finished")
+    
+    t = threading.Thread(target=target, daemon=True, name="poshmark_scraper")
+    _threads["poshmark"] = t
+    t.start()
+    logger.info("✅ Started Poshmark scraper thread")
+    return True
+
+def stop_poshmark():
+    poshmark_flags["poshmark"] = False
+    t = _threads.get("poshmark")
+    if t:
+        t.join(timeout=5)  # Give more time for graceful shutdown
+        if t.is_alive():
+            logger.warning("Poshmark scraper thread did not stop gracefully")
+    logger.info("🛑 Stopped Poshmark scraper")
+    return True
+
+def is_poshmark_running():
+    t = _threads.get("poshmark")
+    return t.is_alive() if t else False
+
+# ============================
+# MERCARI SCRAPER THREADS
+# ============================
+def start_mercari():
+    if "mercari" in _threads and _threads["mercari"].is_alive():
+        logger.warning("Mercari scraper is already running")
+        return False
+    
+    mercari_flags["mercari"] = True
+    
+    def target():
+        try:
+            logger.info("Starting Mercari scraper")
+            run_mercari_scraper(flag_name="mercari")
+        except Exception as e:
+            logger.error(f"Mercari scraper thread error: {e}")
+        finally:
+            logger.info("Mercari scraper thread finished")
+    
+    t = threading.Thread(target=target, daemon=True, name="mercari_scraper")
+    _threads["mercari"] = t
+    t.start()
+    logger.info("✅ Started Mercari scraper thread")
+    return True
+
+def stop_mercari():
+    mercari_flags["mercari"] = False
+    t = _threads.get("mercari")
+    if t:
+        t.join(timeout=5)  # Give more time for graceful shutdown
+        if t.is_alive():
+            logger.warning("Mercari scraper thread did not stop gracefully")
+    logger.info("🛑 Stopped Mercari scraper")
+    return True
+
+def is_mercari_running():
+    t = _threads.get("mercari")
+    return t.is_alive() if t else False
+
+# ============================
 # GLOBAL CLEANUP FUNCTIONS
 # ============================
 def stop_all_scrapers():
@@ -254,6 +325,8 @@ def stop_all_scrapers():
     stop_craigslist()
     stop_ksl()
     stop_ebay()
+    stop_poshmark()
+    stop_mercari()
     
     # Cleanup all drivers
     _cleanup_all_drivers()
@@ -266,14 +339,16 @@ def get_scraper_status():
         "facebook": is_facebook_running(),
         "craigslist": is_craigslist_running(),
         "ksl": is_ksl_running(),
-        "ebay": is_ebay_running()
+        "ebay": is_ebay_running(),
+        "poshmark": is_poshmark_running(),
+        "mercari": is_mercari_running()
     }
 
 # ============================
 # APP HELPER FUNCTIONS
 # ============================
 def list_sites():
-    return ["facebook","craigslist","ksl","ebay"]
+    return ["facebook","craigslist","ksl","ebay","poshmark","mercari"]
 
 # Generic functions for app.py
 def start_scraper(site):
@@ -285,6 +360,10 @@ def start_scraper(site):
         return start_ksl()
     elif site == "ebay":
         return start_ebay()
+    elif site == "poshmark":
+        return start_poshmark()
+    elif site == "mercari":
+        return start_mercari()
     return False
 
 def stop_scraper(site):
@@ -296,6 +375,10 @@ def stop_scraper(site):
         return stop_ksl()
     elif site == "ebay":
         return stop_ebay()
+    elif site == "poshmark":
+        return stop_poshmark()
+    elif site == "mercari":
+        return stop_mercari()
     return False
 
 def running(site):
@@ -307,4 +390,8 @@ def running(site):
         return is_ksl_running()
     elif site == "ebay":
         return is_ebay_running()
+    elif site == "poshmark":
+        return is_poshmark_running()
+    elif site == "mercari":
+        return is_mercari_running()
     return False

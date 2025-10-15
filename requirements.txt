@@ -9,6 +9,7 @@ lxml==6.0.2
 selenium==4.35.0
 webdriver-manager==4.0.2
 loguru==0.7.3
+geopy==2.4.1
 
 # Notification dependencies
 twilio==9.0.4

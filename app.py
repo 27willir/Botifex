@@ -3,11 +3,14 @@ from flask_wtf.csrf import CSRFProtect
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from pathlib import Path
 from werkzeug.security import generate_password_hash, check_password_hash
+from collections import namedtuple
 from scraper_thread import (
     start_facebook, stop_facebook, is_facebook_running,
     start_craigslist, stop_craigslist, is_craigslist_running,
     start_ksl, stop_ksl, is_ksl_running,
     start_ebay, stop_ebay, is_ebay_running,
+    start_poshmark, stop_poshmark, is_poshmark_running,
+    start_mercari, stop_mercari, is_mercari_running,
 )
 # Import enhanced database module
 import db_enhanced
@@ -33,6 +36,10 @@ import json
 import os
 from dotenv import load_dotenv
 from datetime import datetime
+
+# Define named tuples for database row access
+UserRow = namedtuple('UserRow', ['username', 'email', 'password', 'verified', 'role', 'active', 'created_at', 'last_login', 'login_count'])
+ListingRow = namedtuple('ListingRow', ['id', 'title', 'price', 'link', 'image_url', 'source', 'created_at'])
 
 # Load environment variables
 load_dotenv()
@@ -147,10 +154,16 @@ def load_user(user_id):
         
         user_data = ErrorHandler.handle_database_error(db_enhanced.get_user_by_username, user_id)
         if user_data:
-            user = User(user_data[0], user_data[2], user_data[4])  # username, password, role
-            # Cache user object for 5 minutes
-            cache_set(cache_key, user, ttl=300)
-            return user
+            # Use named tuple for safe access
+            try:
+                user_row = UserRow._make(user_data)
+                user = User(user_row.username, user_row.password, user_row.role)
+                # Cache user object for 5 minutes
+                cache_set(cache_key, user, ttl=300)
+                return user
+            except (TypeError, ValueError) as e:
+                logger.error(f"Invalid user data structure for {user_id}: {e}")
+                return None
         return None
     except Exception as e:
         logger.error(f"Error loading user {user_id}: {e}")
@@ -258,14 +271,22 @@ def login():
             
             user_data = ErrorHandler.handle_database_error(db_enhanced.get_user_by_username, username)
             if user_data:
+                # Use named tuple for safe access
+                try:
+                    user_row = UserRow._make(user_data)
+                except (TypeError, ValueError) as e:
+                    logger.error(f"Invalid user data structure for {username}: {e}")
+                    flash("Database error. Please contact administrator.", "error")
+                    return render_template("login.html")
+                
                 # Check if user is active
-                if not user_data[5]:  # active is at index 5
+                if not user_row.active:
                     logger.warning(f"Login attempt for deactivated user: {username}")
                     flash("Account deactivated. Please contact administrator.", "error")
                     return render_template("login.html")
                 
-                if SecurityConfig.verify_password(user_data[2], password):  # password is at index 2
-                    user = User(username, user_data[2], user_data[4])  # username, password, role
+                if SecurityConfig.verify_password(user_row.password, password):
+                    user = User(username, user_row.password, user_row.role)
                     login_user(user, remember=True)
                     session.permanent = True
                     
@@ -281,7 +302,7 @@ def login():
                     )
                     
                     logger.info(f"Successful login for user: {username}")
-                    return redirect(url_for("index"))
+                    return redirect(url_for("dashboard"))
                 else:
                     logger.warning(f"Invalid password for user: {username}")
                     db_enhanced.log_user_activity(
@@ -319,9 +340,17 @@ def logout():
     return redirect(url_for("login"))
 
 @app.route("/")
+def landing():
+    """Public landing page"""
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    return render_template("landing.html")
+
+@app.route("/dashboard")
 @login_required
 @rate_limit('api', max_requests=60)
-def index():
+def dashboard():
+    """Main dashboard for authenticated users"""
     listings = get_listings_from_db()
     settings = get_user_settings()
     status = {
@@ -329,6 +358,8 @@ def index():
         "craigslist": is_craigslist_running(),
         "ksl": is_ksl_running(),
         "ebay": is_ebay_running(),
+        "poshmark": is_poshmark_running(),
+        "mercari": is_mercari_running(),
     }
     return render_template("index.html", listings=listings, settings=settings, status=status)
 
@@ -346,6 +377,20 @@ def start(site):
         start_ksl()
     elif site == "ebay":
         start_ebay()
+    elif site == "poshmark":
+        # Poshmark is pro-only, check subscription
+        subscription = db_enhanced.get_user_subscription(current_user.id)
+        if subscription.get('tier') != 'pro' and current_user.role != 'admin':
+            flash("Poshmark is only available for Pro subscribers. Please upgrade your plan.", "error")
+            return redirect(url_for("subscription_plans"))
+        start_poshmark()
+    elif site == "mercari":
+        # Mercari is pro-only, check subscription
+        subscription = db_enhanced.get_user_subscription(current_user.id)
+        if subscription.get('tier') != 'pro' and current_user.role != 'admin':
+            flash("Mercari is only available for Pro subscribers. Please upgrade your plan.", "error")
+            return redirect(url_for("subscription_plans"))
+        start_mercari()
     
     db_enhanced.log_user_activity(
         current_user.id, 
@@ -354,7 +399,7 @@ def start(site):
         request.remote_addr, 
         request.headers.get('User-Agent')
     )
-    return redirect(url_for("index"))
+    return redirect(url_for("dashboard"))
 
 @app.route("/stop/<site>")
 @login_required
@@ -369,6 +414,10 @@ def stop(site):
         stop_ksl()
     elif site == "ebay":
         stop_ebay()
+    elif site == "poshmark":
+        stop_poshmark()
+    elif site == "mercari":
+        stop_mercari()
     
     db_enhanced.log_user_activity(
         current_user.id, 
@@ -377,7 +426,71 @@ def stop(site):
         request.remote_addr, 
         request.headers.get('User-Agent')
     )
-    return redirect(url_for("index"))
+    return redirect(url_for("dashboard"))
+
+@app.route("/start-all")
+@login_required
+@check_platform_access()
+@rate_limit('scraper', max_requests=10)
+def start_all():
+    """Start all scrapers at once"""
+    try:
+        # Start all scrapers
+        start_facebook()
+        start_craigslist()
+        start_ksl()
+        start_ebay()
+        
+        # Check subscription for pro features
+        subscription = db_enhanced.get_user_subscription(current_user.id)
+        if subscription.get('tier') == 'pro' or current_user.role == 'admin':
+            start_poshmark()
+            start_mercari()
+        
+        db_enhanced.log_user_activity(
+            current_user.id, 
+            'start_all_scrapers', 
+            'Started all scrapers', 
+            request.remote_addr, 
+            request.headers.get('User-Agent')
+        )
+        
+        flash("All scrapers started successfully!", "success")
+    except Exception as e:
+        logger.error(f"Error starting all scrapers: {e}")
+        flash("Error starting some scrapers. Please check individual scrapers.", "error")
+    
+    return redirect(url_for("dashboard"))
+
+@app.route("/stop-all")
+@login_required
+@check_platform_access()
+@rate_limit('scraper', max_requests=10)
+def stop_all():
+    """Stop all scrapers at once"""
+    try:
+        # Stop all scrapers
+        stop_facebook()
+        stop_craigslist()
+        stop_ksl()
+        stop_ebay()
+        stop_poshmark()
+        stop_mercari()
+        
+        db_enhanced.log_user_activity(
+            current_user.id, 
+            'stop_all_scrapers', 
+            'Stopped all scrapers', 
+            request.remote_addr, 
+            request.headers.get('User-Agent')
+        )
+        
+        flash("All scrapers stopped successfully!", "success")
+    except Exception as e:
+        logger.error(f"Error stopping all scrapers: {e}")
+        flash("Error stopping some scrapers. Please check individual scrapers.", "error")
+    
+    return redirect(url_for("dashboard"))
 
 # Settings page
 @app.route("/settings", methods=["GET", "POST"])
@@ -474,7 +587,7 @@ def settings():
     )
     
     flash("Settings updated successfully!", "success")
-    return redirect(url_for("index"))
+    return redirect(url_for("dashboard"))
 
 @app.route("/update_settings", methods=["POST"])
 @login_required
@@ -497,29 +610,29 @@ def update_settings():
                 radius_val = int(radius)
                 if radius_val < 1 or radius_val > 500:
                     flash("Radius must be between 1 and 500 miles", "error")
-                    return redirect(url_for("index"))
+                    return redirect(url_for("dashboard"))
 
             if min_price:
                 min_price_val = int(min_price)
                 if min_price_val < 0:
                     flash("Minimum price cannot be negative", "error")
-                    return redirect(url_for("index"))
+                    return redirect(url_for("dashboard"))
 
             if max_price:
                 max_price_val = int(max_price)
                 if max_price_val < 0:
                     flash("Maximum price cannot be negative", "error")
-                    return redirect(url_for("index"))
+                    return redirect(url_for("dashboard"))
 
             if interval:
                 interval_val = int(interval)
                 if interval_val < 10 or interval_val > 1440:
                     flash("Interval must be between 10 and 1440 minutes", "error")
-                    return redirect(url_for("index"))
+                    return redirect(url_for("dashboard"))
 
         except ValueError:
             flash("Invalid numeric value", "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("dashboard"))
 
         # Update all settings
         update_user_setting("location", location)
@@ -542,12 +655,12 @@ def update_settings():
         )
         
         flash("Settings updated successfully!", "success")
-        return redirect(url_for("index"))
+        return redirect(url_for("dashboard"))
 
     except Exception as e:
         logger.error(f"Error updating settings: {e}")
         flash("An error occurred while updating settings", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("dashboard"))
 
 @app.route("/update_notification_settings", methods=["POST"])
 @login_required
@@ -653,6 +766,11 @@ def terms_of_service():
     show_register = request.referrer and 'register' in request.referrer
     return render_template("terms.html", show_register=show_register)
 
+@app.route("/privacy")
+def privacy_policy():
+    """Display Privacy Policy page"""
+    return render_template("privacy.html")
+
 @app.route("/verify-email")
 @rate_limit('api', max_requests=10)
 def verify_email():
@@ -706,10 +824,18 @@ def resend_verification():
             flash("If that email is registered, a verification email has been sent.", "info")
             return redirect(url_for("login"))
         
-        username = user_data[0]
+        # Use named tuple for safe access
+        try:
+            user_row = UserRow._make(user_data)
+        except (TypeError, ValueError) as e:
+            logger.error(f"Invalid user data structure for email {email}: {e}")
+            flash("Database error. Please try again.", "error")
+            return redirect(url_for("login"))
+        
+        username = user_row.username
         
         # Check if already verified
-        if user_data[3]:  # verified is at index 3
+        if user_row.verified:
             flash("Your email is already verified. Please log in.", "info")
             return redirect(url_for("login"))
         
@@ -726,7 +852,7 @@ def resend_verification():
             flash("Email service is not configured. Please contact support.", "error")
         
         return redirect(url_for("login"))
-        
+    
     except Exception as e:
         logger.error(f"Error resending verification: {e}")
         flash("An error occurred. Please try again.", "error")
@@ -877,7 +1003,20 @@ def favorites_page():
     except Exception as e:
         logger.error(f"Error loading favorites page: {e}")
         flash("Error loading favorites", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("dashboard"))
+
+
+@app.route("/alerts")
+@login_required
+@rate_limit('api', max_requests=60)
+def alerts_page():
+    """User's price alerts page"""
+    try:
+        return render_template("alerts.html")
+    except Exception as e:
+        logger.error(f"Error loading alerts page: {e}")
+        flash("Error loading alerts page", "error")
+        return redirect(url_for("dashboard"))
 
 @app.route("/profile")
 @login_required
@@ -890,14 +1029,22 @@ def profile_page():
         subscription = db_enhanced.get_user_subscription(current_user.id)
         activity = db_enhanced.get_user_activity(current_user.id, limit=20)
         
+        # Use named tuple for safe access
+        try:
+            user_row = UserRow._make(user_data)
+        except (TypeError, ValueError) as e:
+            logger.error(f"Invalid user data structure for {current_user.id}: {e}")
+            flash("Database error. Please try again.", "error")
+            return redirect(url_for("dashboard"))
+        
         profile = {
-            'username': user_data[0],
-            'email': user_data[1],
-            'verified': user_data[3],
-            'role': user_data[4],
-            'created_at': user_data[6],
-            'last_login': user_data[7],
-            'login_count': user_data[8]
+            'username': user_row.username,
+            'email': user_row.email,
+            'verified': user_row.verified,
+            'role': user_row.role,
+            'created_at': user_row.created_at,
+            'last_login': user_row.last_login,
+            'login_count': user_row.login_count
         }
         
         return render_template("profile.html", 
@@ -908,7 +1055,7 @@ def profile_page():
     except Exception as e:
         logger.error(f"Error loading profile page: {e}")
         flash("Error loading profile", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("dashboard"))
 
 # ======================
 # SUBSCRIPTION ROUTES
@@ -932,7 +1079,7 @@ def subscription_page():
     except Exception as e:
         logger.error(f"Error loading subscription page: {e}")
         flash("Error loading subscription information", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("dashboard"))
 
 
 @app.route("/subscription/plans")
@@ -951,7 +1098,7 @@ def subscription_plans():
     except Exception as e:
         logger.error(f"Error loading subscription plans: {e}")
         flash("Error loading subscription plans", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("dashboard"))
 
 
 @app.route("/subscription/checkout/<tier>")
@@ -971,7 +1118,15 @@ def subscription_checkout(tier):
             flash("User not found", "error")
             return redirect(url_for("subscription_plans"))
         
-        email = user_data[1]  # email is at index 1
+        # Use named tuple for safe access
+        try:
+            user_row = UserRow._make(user_data)
+        except (TypeError, ValueError) as e:
+            logger.error(f"Invalid user data structure for {current_user.id}: {e}")
+            flash("Database error. Please try again.", "error")
+            return redirect(url_for("subscription_plans"))
+        
+        email = user_row.email
         
         # Create checkout session
         success_url = url_for('subscription_success', _external=True) + '?session_id={CHECKOUT_SESSION_ID}'
@@ -1200,7 +1355,9 @@ def api_status():
         "facebook": is_facebook_running(),
         "craigslist": is_craigslist_running(),
         "ksl": is_ksl_running(),
-        "ebay": is_ebay_running()
+        "ebay": is_ebay_running(),
+        "poshmark": is_poshmark_running(),
+        "mercari": is_mercari_running()
     })
 
 @app.route("/api/listings")
@@ -1366,6 +1523,7 @@ def api_price_distribution():
         return jsonify({"error": "Failed to get price distribution"}), 500
 
 @app.route("/api/analytics/update-trends", methods=["POST"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=10)
 def api_update_trends():
@@ -1414,6 +1572,7 @@ def api_get_seller_listing(listing_id):
         return jsonify({"error": "Failed to get listing"}), 500
 
 @app.route("/api/seller-listings", methods=["POST"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=30)
 def api_create_seller_listing():
@@ -1426,6 +1585,12 @@ def api_create_seller_listing():
         for field in required_fields:
             if not data.get(field):
                 return jsonify({"error": f"Missing required field: {field}"}), 400
+        
+        # Verify user exists in database (to avoid FK constraint errors)
+        user_data = db_enhanced.get_user_by_username(current_user.id)
+        if not user_data:
+            logger.error(f"User {current_user.id} not found in database but has active session")
+            return jsonify({"error": "User account not found. Please log out and log back in."}), 400
         
         # Sanitize inputs
         title = SecurityConfig.sanitize_input(data['title'])
@@ -1442,12 +1607,32 @@ def api_create_seller_listing():
             return jsonify({"error": "Invalid price value"}), 400
         
         # Validate marketplaces
-        valid_marketplaces = ['craigslist', 'facebook', 'ksl', 'ebay']
+        valid_marketplaces = ['craigslist', 'facebook', 'ksl', 'ebay', 'poshmark', 'mercari']
         marketplaces = data.get('marketplaces', [])
         if isinstance(marketplaces, list):
+            # Check if user is trying to use Poshmark or Mercari without Pro subscription
+            if 'poshmark' in marketplaces or 'mercari' in marketplaces:
+                subscription = db_enhanced.get_user_subscription(current_user.id)
+                if subscription.get('tier') != 'pro' and current_user.role != 'admin':
+                    return jsonify({"error": "Poshmark and Mercari are only available for Pro subscribers. Please upgrade your plan."}), 403
             marketplaces = ','.join([m for m in marketplaces if m in valid_marketplaces])
         else:
             return jsonify({"error": "Marketplaces must be an array"}), 400
+        
+        if not marketplaces:
+            return jsonify({"error": "Please select at least one marketplace"}), 400
+        
+        # Get and validate original cost
+        original_cost = data.get('original_cost')
+        if original_cost is not None and original_cost != '':
+            try:
+                original_cost = int(original_cost)
+                if original_cost < 0:
+                    return jsonify({"error": "Original cost cannot be negative"}), 400
+            except ValueError:
+                return jsonify({"error": "Invalid original cost value"}), 400
+        else:
+            original_cost = None
         
         # Create listing
         listing_id = db_enhanced.create_seller_listing(
@@ -1458,7 +1643,8 @@ def api_create_seller_listing():
             category=category,
             location=location,
             images=data.get('images', ''),
-            marketplaces=marketplaces
+            marketplaces=marketplaces,
+            original_cost=original_cost
         )
         
         # Log activity
@@ -1473,10 +1659,14 @@ def api_create_seller_listing():
         return jsonify({"message": "Listing created successfully", "listing_id": listing_id}), 201
     
     except Exception as e:
-        logger.error(f"Error creating seller listing: {e}")
+        logger.error(f"Error creating seller listing for user {current_user.id}: {e}")
+        # Check if it's a foreign key constraint error
+        if "FOREIGN KEY constraint failed" in str(e):
+            return jsonify({"error": "User account error. Please log out and log back in."}), 400
         return jsonify({"error": "Failed to create listing"}), 500
 
 @app.route("/api/seller-listings/<int:listing_id>", methods=["PUT"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=30)
 def api_update_seller_listing(listing_id):
@@ -1510,6 +1700,18 @@ def api_update_seller_listing(listing_id):
                 update_data['price'] = price
             except ValueError:
                 return jsonify({"error": "Invalid price value"}), 400
+        if 'original_cost' in data:
+            original_cost = data['original_cost']
+            if original_cost is not None and original_cost != '':
+                try:
+                    original_cost = int(original_cost)
+                    if original_cost < 0:
+                        return jsonify({"error": "Original cost cannot be negative"}), 400
+                    update_data['original_cost'] = original_cost
+                except ValueError:
+                    return jsonify({"error": "Invalid original cost value"}), 400
+            else:
+                update_data['original_cost'] = None
         if 'status' in data:
             update_data['status'] = data['status']
         if 'images' in data:
@@ -1517,7 +1719,12 @@ def api_update_seller_listing(listing_id):
         if 'marketplaces' in data:
             marketplaces = data['marketplaces']
             if isinstance(marketplaces, list):
-                valid_marketplaces = ['craigslist', 'facebook', 'ksl', 'ebay']
+                valid_marketplaces = ['craigslist', 'facebook', 'ksl', 'ebay', 'poshmark', 'mercari']
+                # Check if user is trying to use Poshmark or Mercari without Pro subscription
+                if 'poshmark' in marketplaces or 'mercari' in marketplaces:
+                    subscription = db_enhanced.get_user_subscription(current_user.id)
+                    if subscription.get('tier') != 'pro' and current_user.role != 'admin':
+                        return jsonify({"error": "Poshmark and Mercari are only available for Pro subscribers. Please upgrade your plan."}), 403
                 update_data['marketplaces'] = ','.join([m for m in marketplaces if m in valid_marketplaces])
         
         # Update listing
@@ -1541,6 +1748,7 @@ def api_update_seller_listing(listing_id):
         return jsonify({"error": "Failed to update listing"}), 500
 
 @app.route("/api/seller-listings/<int:listing_id>", methods=["DELETE"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=30)
 def api_delete_seller_listing(listing_id):
@@ -1566,6 +1774,7 @@ def api_delete_seller_listing(listing_id):
         return jsonify({"error": "Failed to delete listing"}), 500
 
 @app.route("/api/seller-listings/<int:listing_id>/post", methods=["POST"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=10)
 def api_post_seller_listing(listing_id):
@@ -1591,6 +1800,82 @@ def api_post_seller_listing(listing_id):
     except Exception as e:
         logger.error(f"Error posting seller listing: {e}")
         return jsonify({"error": "Failed to post listing"}), 500
+
+@app.route("/api/seller-listings/<int:listing_id>/status", methods=["PUT"])
+@csrf.exempt
+@login_required
+@rate_limit('api', max_requests=30)
+def api_update_listing_status(listing_id):
+    """Update a listing's status (e.g., mark as sold)"""
+    try:
+        # Get the listing
+        listing = db_enhanced.get_seller_listing_by_id(listing_id)
+        if not listing:
+            return jsonify({"error": "Listing not found"}), 404
+        
+        # Check if user owns the listing
+        if listing['username'] != current_user.id:
+            return jsonify({"error": "Unauthorized"}), 403
+        
+        data = request.get_json()
+        new_status = data.get('status', '').lower()
+        
+        # Validate status
+        valid_statuses = ['draft', 'posted', 'sold', 'archived']
+        if new_status not in valid_statuses:
+            return jsonify({"error": f"Invalid status. Must be one of: {', '.join(valid_statuses)}"}), 400
+        
+        # Get additional fields for sold status
+        sold_on_marketplace = data.get('sold_on_marketplace')
+        actual_sale_price = data.get('actual_sale_price')
+        
+        # Validate sold_on_marketplace if provided
+        if sold_on_marketplace:
+            valid_marketplaces = ['craigslist', 'facebook', 'ksl', 'ebay', 'other']
+            if sold_on_marketplace not in valid_marketplaces:
+                return jsonify({"error": f"Invalid marketplace. Must be one of: {', '.join(valid_marketplaces)}"}), 400
+        
+        # Validate actual_sale_price if provided
+        if actual_sale_price is not None:
+            try:
+                actual_sale_price = int(actual_sale_price)
+                if actual_sale_price < 0:
+                    return jsonify({"error": "Sale price cannot be negative"}), 400
+            except (ValueError, TypeError):
+                return jsonify({"error": "Invalid sale price"}), 400
+        
+        # Update the status
+        success = db_enhanced.update_seller_listing_status(
+            listing_id, 
+            current_user.id, 
+            new_status,
+            sold_on_marketplace=sold_on_marketplace,
+            actual_sale_price=actual_sale_price
+        )
+        
+        if success:
+            # Log activity
+            activity_msg = f'Updated listing "{listing["title"]}" status to {new_status}'
+            if new_status == 'sold' and sold_on_marketplace:
+                activity_msg += f' on {sold_on_marketplace}'
+            if new_status == 'sold' and actual_sale_price is not None:
+                activity_msg += f' for ${actual_sale_price}'
+                
+            db_enhanced.log_user_activity(
+                current_user.id,
+                'update_listing_status',
+                activity_msg,
+                request.remote_addr,
+                request.headers.get('User-Agent')
+            )
+            
+            return jsonify({"message": f"Listing status updated to {new_status}"}), 200
+        else:
+            return jsonify({"error": "Failed to update listing status"}), 500
+    
+    except Exception as e:
+        logger.error(f"Error updating listing status: {e}")
+        return jsonify({"error": "Failed to update listing status"}), 500
 
 @app.route("/api/seller-listings/stats", methods=["GET"])
 @login_required
@@ -1623,6 +1908,7 @@ def api_get_favorites():
 
 
 @app.route("/api/favorites/<int:listing_id>", methods=["POST"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=30)
 def api_add_favorite(listing_id):
@@ -1651,6 +1937,7 @@ def api_add_favorite(listing_id):
 
 
 @app.route("/api/favorites/<int:listing_id>", methods=["DELETE"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=30)
 def api_remove_favorite(listing_id):
@@ -1689,6 +1976,7 @@ def api_check_favorite(listing_id):
 
 
 @app.route("/api/favorites/<int:listing_id>/notes", methods=["PUT"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=30)
 def api_update_favorite_notes(listing_id):
@@ -1727,6 +2015,7 @@ def api_get_saved_searches():
 
 
 @app.route("/api/saved-searches", methods=["POST"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=30)
 def api_create_saved_search():
@@ -1770,6 +2059,7 @@ def api_create_saved_search():
 
 
 @app.route("/api/saved-searches/<int:search_id>", methods=["DELETE"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=30)
 def api_delete_saved_search(search_id):
@@ -1812,6 +2102,7 @@ def api_get_price_alerts():
 
 
 @app.route("/api/price-alerts", methods=["POST"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=30)
 def api_create_price_alert():
@@ -1861,6 +2152,7 @@ def api_create_price_alert():
 
 
 @app.route("/api/price-alerts/<int:alert_id>", methods=["DELETE"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=30)
 def api_delete_price_alert(alert_id):
@@ -1886,6 +2178,7 @@ def api_delete_price_alert(alert_id):
 
 
 @app.route("/api/price-alerts/<int:alert_id>/toggle", methods=["POST"])
+@csrf.exempt
 @login_required
 @rate_limit('api', max_requests=30)
 def api_toggle_price_alert(alert_id):
@@ -1927,19 +2220,25 @@ def api_export_listings():
             writer = csv.writer(output)
             
             # Write header
-            writer.writerow(['Title', 'Price', 'Link', 'Image URL', 'Source', 'Created At'])
+            writer.writerow(['ID', 'Title', 'Price', 'Link', 'Image URL', 'Source', 'Created At'])
             
             # Write data
-            # Note: listings is a list of tuples: (title, price, link, image_url, source, created_at)
+            # Note: listings is a list of tuples: (id, title, price, link, image_url, source, created_at)
             for listing in listings:
-                writer.writerow([
-                    listing[0],  # title
-                    listing[1],  # price
-                    listing[2],  # link
-                    listing[3],  # image_url
-                    listing[4],  # source
-                    listing[5]   # created_at
-                ])
+                try:
+                    listing_row = ListingRow._make(listing)
+                    writer.writerow([
+                        listing_row.id,
+                        listing_row.title,
+                        listing_row.price,
+                        listing_row.link,
+                        listing_row.image_url,
+                        listing_row.source,
+                        listing_row.created_at
+                    ])
+                except (TypeError, ValueError) as e:
+                    logger.error(f"Invalid listing data structure: {e}")
+                    continue  # Skip invalid listings
             
             output.seek(0)
             return output.getvalue(), 200, {
@@ -2026,6 +2325,113 @@ def api_export_searches():
         return jsonify({"error": "Failed to export searches"}), 500
 
 
+@app.route("/api/export/seller-listings", methods=["GET"])
+@login_required
+@rate_limit('api', max_requests=10)
+def api_export_seller_listings():
+    """Export user's seller listings with all details"""
+    try:
+        format_type = request.args.get('format', 'json')
+        listings = db_enhanced.get_seller_listings(username=current_user.id, limit=10000)
+        
+        if format_type == 'csv':
+            import io
+            import csv
+            
+            output = io.StringIO()
+            if listings:
+                writer = csv.DictWriter(output, fieldnames=listings[0].keys())
+                writer.writeheader()
+                writer.writerows(listings)
+            
+            output.seek(0)
+            return output.getvalue(), 200, {
+                'Content-Type': 'text/csv',
+                'Content-Disposition': f'attachment; filename=seller_listings_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+            }
+        else:
+            return jsonify({
+                "data": listings,
+                "count": len(listings),
+                "exported_at": datetime.now().isoformat()
+            })
+            
+    except Exception as e:
+        logger.error(f"Error exporting seller listings: {e}")
+        return jsonify({"error": "Failed to export seller listings"}), 500
+
+
+@app.route("/api/export/selling-analytics", methods=["GET"])
+@login_required
+@rate_limit('api', max_requests=10)
+def api_export_selling_analytics():
+    """Export selling analytics data"""
+    try:
+        stats = db_enhanced.get_seller_listing_stats(current_user.id)
+        listings = db_enhanced.get_seller_listings(username=current_user.id, limit=10000)
+        
+        export_data = {
+            "statistics": stats,
+            "total_listings": len(listings),
+            "listings_by_status": {
+                "draft": [l for l in listings if l['status'] == 'draft'],
+                "posted": [l for l in listings if l['status'] == 'posted'],
+                "sold": [l for l in listings if l['status'] == 'sold'],
+                "archived": [l for l in listings if l['status'] == 'archived']
+            },
+            "exported_at": datetime.now().isoformat(),
+            "export_type": "selling_analytics"
+        }
+        
+        db_enhanced.log_user_activity(
+            current_user.id,
+            'export_selling_analytics',
+            'Exported selling analytics data',
+            request.remote_addr,
+            request.headers.get('User-Agent')
+        )
+        
+        return jsonify(export_data)
+            
+    except Exception as e:
+        logger.error(f"Error exporting selling analytics: {e}")
+        return jsonify({"error": "Failed to export selling analytics"}), 500
+
+
+@app.route("/api/export/market-analytics", methods=["GET"])
+@login_required
+@rate_limit('api', max_requests=10)
+def api_export_market_analytics():
+    """Export market analytics data"""
+    try:
+        days = int(request.args.get('days', 30))
+        
+        market_insights = db_enhanced.get_market_insights(days=days, user_id=current_user.id)
+        keyword_trends = db_enhanced.get_keyword_trends(days=days, user_id=current_user.id)
+        
+        export_data = {
+            "market_insights": market_insights,
+            "keyword_trends": keyword_trends,
+            "time_range_days": days,
+            "exported_at": datetime.now().isoformat(),
+            "export_type": "market_analytics"
+        }
+        
+        db_enhanced.log_user_activity(
+            current_user.id,
+            'export_market_analytics',
+            f'Exported market analytics data ({days} days)',
+            request.remote_addr,
+            request.headers.get('User-Agent')
+        )
+        
+        return jsonify(export_data)
+            
+    except Exception as e:
+        logger.error(f"Error exporting market analytics: {e}")
+        return jsonify({"error": "Failed to export market analytics"}), 500
+
+
 @app.route("/api/export/user-data", methods=["GET"])
 @login_required
 @rate_limit('api', max_requests=3, window_minutes=60)
@@ -2041,15 +2447,26 @@ def api_export_user_data():
         activity = db_enhanced.get_user_activity(current_user.id, limit=1000)
         subscription = db_enhanced.get_user_subscription(current_user.id)
         
+        # Get selling data
+        seller_listings = db_enhanced.get_seller_listings(username=current_user.id, limit=10000)
+        selling_stats = db_enhanced.get_seller_listing_stats(current_user.id)
+        
+        # Use named tuple for safe access
+        try:
+            user_row = UserRow._make(user_data)
+        except (TypeError, ValueError) as e:
+            logger.error(f"Invalid user data structure for {current_user.id}: {e}")
+            return jsonify({"error": "Failed to export user data"}), 500
+        
         export_data = {
             "user_profile": {
-                "username": user_data[0],
-                "email": user_data[1],
-                "verified": user_data[3],
-                "role": user_data[4],
-                "created_at": str(user_data[6]),
-                "last_login": str(user_data[7]) if user_data[7] else None,
-                "login_count": user_data[8]
+                "username": user_row.username,
+                "email": user_row.email,
+                "verified": user_row.verified,
+                "role": user_row.role,
+                "created_at": str(user_row.created_at),
+                "last_login": str(user_row.last_login) if user_row.last_login else None,
+                "login_count": user_row.login_count
             },
             "settings": settings,
             "favorites": favorites,
@@ -2057,6 +2474,8 @@ def api_export_user_data():
             "price_alerts": alerts,
             "activity_log": activity,
             "subscription": subscription,
+            "seller_listings": seller_listings,
+            "selling_statistics": selling_stats,
             "exported_at": datetime.now().isoformat(),
             "export_type": "complete_user_data"
         }
@@ -2165,18 +2584,21 @@ if __name__ == "__main__":
             logger.warning("Starting with incomplete Stripe configuration. Some features may not work.")
         
         logger.info("=" * 80)
-        logger.info("🚀 Starting Super-Bot Application v2.0 (Enhanced + Feature-Rich)")
+        logger.info("Starting Super-Bot Application v2.0 (Enhanced + Feature-Rich)")
         logger.info("=" * 80)
-        logger.info("✅ Core: Connection Pooling, Rate Limiting, Caching, User Roles")
-        logger.info("✅ Auth: Email Verification, Password Reset")
-        logger.info("✅ Features: Favorites, Saved Searches, Price Alerts")
-        logger.info("✅ Export: GDPR Compliance, CSV/JSON Export")
-        logger.info("✅ Real-Time: WebSocket Notifications")
-        logger.info("✅ API: 40+ Endpoints, Swagger Documentation at /api-docs")
+        logger.info("[OK] Core: Connection Pooling, Rate Limiting, Caching, User Roles")
+        logger.info("[OK] Auth: Email Verification, Password Reset")
+        logger.info("[OK] Features: Favorites, Saved Searches, Price Alerts")
+        logger.info("[OK] Export: GDPR Compliance, CSV/JSON Export")
+        logger.info("[OK] Real-Time: WebSocket Notifications")
+        logger.info("[OK] API: 40+ Endpoints, Swagger Documentation at /api-docs")
         logger.info("=" * 80)
         
         # Run with SocketIO support
-        socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)
+        # Use environment variables for production deployment
+        port = int(os.getenv('PORT', 5000))
+        debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+        socketio.run(app, host="0.0.0.0", port=port, debug=debug, allow_unsafe_werkzeug=True)
     except Exception as e:
         logger.error(f"Failed to start application: {e}")
         handle_error(e, "application", "startup")

@@ -233,6 +233,7 @@ def init_db():
                     title TEXT NOT NULL,
                     description TEXT,
                     price INTEGER NOT NULL,
+                    original_cost INTEGER,
                     category TEXT,
                     location TEXT,
                     images TEXT,
@@ -241,12 +242,40 @@ def init_db():
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     posted_at DATETIME,
+                    sold_at DATETIME,
+                    sold_on_marketplace TEXT,
+                    actual_sale_price INTEGER,
                     craigslist_url TEXT,
                     facebook_url TEXT,
                     ksl_url TEXT,
                     FOREIGN KEY (username) REFERENCES users (username) ON DELETE CASCADE
                 )
             """)
+            
+            # Add new columns to existing tables if they don't exist
+            try:
+                c.execute("ALTER TABLE seller_listings ADD COLUMN sold_at DATETIME")
+                logger.info("Added sold_at column to seller_listings table")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
+            try:
+                c.execute("ALTER TABLE seller_listings ADD COLUMN sold_on_marketplace TEXT")
+                logger.info("Added sold_on_marketplace column to seller_listings table")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
+            try:
+                c.execute("ALTER TABLE seller_listings ADD COLUMN actual_sale_price INTEGER")
+                logger.info("Added actual_sale_price column to seller_listings table")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
+            try:
+                c.execute("ALTER TABLE seller_listings ADD COLUMN original_cost INTEGER")
+                logger.info("Added original_cost column to seller_listings table")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
             
             c.execute("""
                 CREATE TABLE IF NOT EXISTS keyword_trends (
@@ -864,27 +893,42 @@ def reset_rate_limit(username, endpoint=None):
 def save_listing(title, price, link, image_url=None, source=None, user_id=None):
     """Save a listing to the database"""
     is_new_listing = False
+    listing_id = None
+    
     with get_pool().get_connection() as conn:
         c = conn.cursor()
         
-        # Check if this is a new listing before inserting
-        c.execute("SELECT id FROM listings WHERE link = ?", (link,))
-        existing = c.fetchone()
-        
-        # Insert the listing
-        c.execute("""
-            INSERT OR IGNORE INTO listings (title, price, link, image_url, source, created_at, user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (title, price, link, image_url, source, datetime.now(), user_id))
-        
-        # Get the listing ID for analytics
-        listing_id = c.lastrowid
-        if listing_id > 0:  # New listing was inserted
-            is_new_listing = True
-        elif listing_id == 0 and existing:  # Duplicate listing
-            listing_id = existing[0]
-        
-        conn.commit()
+        try:
+            # Use a transaction to ensure atomicity
+            # First, try to insert the listing
+            c.execute("""
+                INSERT OR IGNORE INTO listings (title, price, link, image_url, source, created_at, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (title, price, link, image_url, source, datetime.now(), user_id))
+            
+            # Check if we got a new row (lastrowid > 0 means successful insert)
+            listing_id = c.lastrowid
+            if listing_id > 0:
+                # New listing was successfully inserted
+                is_new_listing = True
+            else:
+                # Insert was ignored (duplicate), get the existing listing ID
+                c.execute("SELECT id FROM listings WHERE link = ?", (link,))
+                existing = c.fetchone()
+                if existing:
+                    listing_id = existing[0]
+                else:
+                    # This shouldn't happen, but handle it gracefully
+                    logger.warning(f"Failed to insert listing and couldn't find existing: {link}")
+                    conn.rollback()
+                    return None
+            
+            conn.commit()
+            
+        except Exception as e:
+            logger.error(f"Error saving listing: {e}")
+            conn.rollback()
+            return None
         
         # Save analytics data if we have a valid listing ID
         if listing_id and is_new_listing:
@@ -896,14 +940,14 @@ def save_listing(title, price, link, image_url=None, source=None, user_id=None):
                 
                 for keyword in car_keywords:
                     if keyword in title_lower:
-                        # Determine price range
-                        if price < 5000:
+                        # Determine price range (inclusive boundaries)
+                        if price <= 5000:
                             price_range = "Under $5K"
-                        elif price < 10000:
+                        elif price <= 10000:
                             price_range = "$5K-$10K"
-                        elif price < 20000:
+                        elif price <= 20000:
                             price_range = "$10K-$20K"
-                        elif price < 30000:
+                        elif price <= 30000:
                             price_range = "$20K-$30K"
                         else:
                             price_range = "Over $30K"
@@ -924,6 +968,14 @@ def save_listing(title, price, link, image_url=None, source=None, user_id=None):
                 # Get all users with notifications enabled
                 users = get_users_with_notifications_enabled()
                 
+                # Track notification results
+                notification_results = {
+                    'total': len(users),
+                    'success': 0,
+                    'failed': 0,
+                    'failed_users': []
+                }
+                
                 # Send notifications to each user
                 for user in users:
                     try:
@@ -937,9 +989,18 @@ def save_listing(title, price, link, image_url=None, source=None, user_id=None):
                             listing_url=link,
                             listing_source=source or 'unknown'
                         )
+                        notification_results['success'] += 1
                     except Exception as e:
+                        notification_results['failed'] += 1
+                        notification_results['failed_users'].append(user['username'])
                         logger.error(f"Error sending notification to user {user['username']}: {e}")
                         # Continue to next user even if one fails
+                
+                # Log summary
+                if notification_results['failed'] > 0:
+                    logger.warning(f"Notification summary for listing {listing_id}: {notification_results['success']}/{notification_results['total']} succeeded. Failed for: {', '.join(notification_results['failed_users'])}")
+                else:
+                    logger.info(f"All {notification_results['success']} notifications sent successfully for listing {listing_id}")
                         
             except Exception as e:
                 logger.error(f"Error processing notifications for listing {listing_id}: {e}")
@@ -955,7 +1016,7 @@ def get_listings(limit=100, user_id=None):
         c = conn.cursor()
         if user_id:
             c.execute("""
-                SELECT title, price, link, image_url, source, created_at 
+                SELECT id, title, price, link, image_url, source, created_at 
                 FROM listings 
                 WHERE user_id = ? 
                 ORDER BY created_at DESC 
@@ -963,7 +1024,7 @@ def get_listings(limit=100, user_id=None):
             """, (user_id, limit))
         else:
             c.execute("""
-                SELECT title, price, link, image_url, source, created_at 
+                SELECT id, title, price, link, image_url, source, created_at 
                 FROM listings 
                 ORDER BY created_at DESC 
                 LIMIT ?
@@ -992,7 +1053,7 @@ def get_listings_paginated(limit=50, offset=0, user_id=None):
         c = conn.cursor()
         if user_id:
             c.execute("""
-                SELECT title, price, link, image_url, source, created_at 
+                SELECT id, title, price, link, image_url, source, created_at 
                 FROM listings 
                 WHERE user_id = ?
                 ORDER BY created_at DESC 
@@ -1000,7 +1061,7 @@ def get_listings_paginated(limit=50, offset=0, user_id=None):
             """, (user_id, limit, offset))
         else:
             c.execute("""
-                SELECT title, price, link, image_url, source, created_at 
+                SELECT id, title, price, link, image_url, source, created_at 
                 FROM listings 
                 ORDER BY created_at DESC 
                 LIMIT ? OFFSET ?
@@ -1249,6 +1310,11 @@ def get_hourly_activity(days=7, keyword=None, user_id=None):
 @log_errors()
 def get_price_distribution(days=30, bins=10, keyword=None, user_id=None):
     """Get price distribution data for histograms"""
+    # Validate bins parameter to prevent division by zero
+    if bins <= 0:
+        logger.warning(f"Invalid bins parameter: {bins}, using default of 10")
+        bins = 10
+    
     with get_pool().get_connection() as conn:
         c = conn.cursor()
         
@@ -1287,8 +1353,13 @@ def get_price_distribution(days=30, bins=10, keyword=None, user_id=None):
                 'end': max_price
             }]
         
-        # Calculate bin size
+        # Calculate bin size (bins is already validated to be > 0)
         bin_size = (max_price - min_price) / bins
+        
+        # Additional safety check
+        if bin_size <= 0:
+            logger.warning("Invalid bin_size calculated, returning empty distribution")
+            return []
         
         price_ranges = []
         for i in range(bins):
@@ -1504,14 +1575,14 @@ def get_market_insights(days=30, keyword=None, user_id=None):
 # ======================
 
 @log_errors()
-def create_seller_listing(username, title, description, price, category, location, images, marketplaces):
+def create_seller_listing(username, title, description, price, category, location, images, marketplaces, original_cost=None):
     """Create a new seller listing"""
     with get_pool().get_connection() as conn:
         c = conn.cursor()
         c.execute("""
-            INSERT INTO seller_listings (username, title, description, price, category, location, images, marketplaces)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (username, title, description, price, category, location, images, marketplaces))
+            INSERT INTO seller_listings (username, title, description, price, original_cost, category, location, images, marketplaces)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (username, title, description, price, original_cost, category, location, images, marketplaces))
         conn.commit()
         return c.lastrowid
 
@@ -1564,7 +1635,7 @@ def update_seller_listing(listing_id, **kwargs):
         c = conn.cursor()
         
         # Build update query dynamically based on provided kwargs
-        allowed_fields = ['title', 'description', 'price', 'category', 'location', 'images', 'marketplaces', 'status']
+        allowed_fields = ['title', 'description', 'price', 'original_cost', 'category', 'location', 'images', 'marketplaces', 'status']
         updates = []
         values = []
         
@@ -1632,6 +1703,36 @@ def update_seller_listing_urls(listing_id, craigslist_url=None, facebook_url=Non
 
 
 @log_errors()
+def update_seller_listing_status(listing_id, username, status, sold_on_marketplace=None, actual_sale_price=None):
+    """Update the status of a seller listing"""
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        
+        # Build update query based on what's being updated
+        updates = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
+        values = [status]
+        
+        # If marking as sold, update additional fields
+        if status == 'sold':
+            updates.append("sold_at = CURRENT_TIMESTAMP")
+            if sold_on_marketplace:
+                updates.append("sold_on_marketplace = ?")
+                values.append(sold_on_marketplace)
+            if actual_sale_price is not None:
+                updates.append("actual_sale_price = ?")
+                values.append(actual_sale_price)
+        
+        # Add WHERE clause parameters
+        values.extend([listing_id, username])
+        
+        query = f"UPDATE seller_listings SET {', '.join(updates)} WHERE id = ? AND username = ?"
+        c.execute(query, values)
+        
+        conn.commit()
+        return c.rowcount > 0
+
+
+@log_errors()
 def get_seller_listing_stats(username):
     """Get statistics about user's seller listings"""
     with get_pool().get_connection() as conn:
@@ -1642,17 +1743,73 @@ def get_seller_listing_stats(username):
                 COUNT(*) as total_listings,
                 SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft_count,
                 SUM(CASE WHEN status = 'posted' THEN 1 ELSE 0 END) as posted_count,
-                AVG(price) as avg_price
+                SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold_count,
+                SUM(CASE WHEN status = 'sold' THEN COALESCE(actual_sale_price, price) ELSE 0 END) as gross_revenue,
+                SUM(CASE WHEN status = 'sold' AND original_cost IS NOT NULL THEN COALESCE(actual_sale_price, price) - original_cost ELSE 0 END) as true_profit,
+                SUM(CASE WHEN status = 'sold' AND original_cost IS NOT NULL THEN original_cost ELSE 0 END) as total_costs,
+                SUM(CASE WHEN status = 'sold' THEN price ELSE 0 END) as original_value,
+                AVG(price) as avg_listing_price,
+                AVG(CASE WHEN status = 'sold' THEN COALESCE(actual_sale_price, price) END) as avg_sale_price
             FROM seller_listings
             WHERE username = ?
         """, (username,))
         
         row = c.fetchone()
+        
+        # Validate row structure before accessing indices
+        if not row or len(row) < 10:
+            logger.error(f"Invalid seller listing stats row structure: {row}")
+            return {
+                'total_listings': 0,
+                'draft_count': 0,
+                'posted_count': 0,
+                'sold_count': 0,
+                'gross_revenue': 0,
+                'true_profit': 0,
+                'total_costs': 0,
+                'net_revenue': 0,
+                'avg_listing_price': 0,
+                'avg_sale_price': 0,
+                'marketplace_breakdown': {}
+            }
+        
+        gross_revenue = row[4] if row[4] is not None else 0
+        true_profit = row[5] if row[5] is not None else 0  # Actual profit: (sale price - original cost)
+        total_costs = row[6] if row[6] is not None else 0
+        original_value = row[7] if row[7] is not None else 0
+        net_revenue = gross_revenue - original_value  # Price adjustments: (sale price - listing price)
+        
+        # Get marketplace breakdown for sold items
+        c.execute("""
+            SELECT 
+                sold_on_marketplace,
+                COUNT(*) as count,
+                SUM(COALESCE(actual_sale_price, price)) as revenue
+            FROM seller_listings
+            WHERE username = ? AND status = 'sold' AND sold_on_marketplace IS NOT NULL
+            GROUP BY sold_on_marketplace
+        """, (username,))
+        
+        marketplace_data = {}
+        for mp_row in c.fetchall():
+            marketplace = mp_row[0]
+            marketplace_data[marketplace] = {
+                'count': mp_row[1],
+                'revenue': mp_row[2] or 0
+            }
+        
         return {
             'total_listings': row[0] or 0,
             'draft_count': row[1] or 0,
             'posted_count': row[2] or 0,
-            'avg_price': row[3] or 0
+            'sold_count': row[3] or 0,
+            'gross_revenue': gross_revenue,  # Total money received
+            'true_profit': true_profit,  # Actual profit after costs
+            'total_costs': total_costs,  # Total original costs
+            'net_revenue': net_revenue,  # Price adjustment profit/loss
+            'avg_listing_price': row[8] or 0,
+            'avg_sale_price': row[9] or 0,
+            'marketplace_breakdown': marketplace_data
         }
 
 

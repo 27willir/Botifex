@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Market Analytics - Super Bot</title>
+    <title>Market Analytics - Botifex</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Exo+2:wght@300;400;500;600;700;800&family=Rajdhani:wght@300;400;500;600;700&family=Roboto+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -400,6 +400,9 @@
                     <option value="facebook">Facebook</option>
                     <option value="craigslist">Craigslist</option>
                     <option value="ksl">KSL</option>
+                    <option value="ebay">eBay</option>
+                    <option value="poshmark">Poshmark <span style="color: #667eea;">(Pro Only)</span></option>
+                    <option value="mercari">Mercari <span style="color: #667eea;">(Pro Only)</span></option>
                 </select>
             </div>
             <div class="control-group">
@@ -416,6 +419,50 @@
 
         <div id="statsContainer" class="stats-grid">
             <!-- Stats will be loaded here -->
+        </div>
+
+        <!-- Selling Analytics Section -->
+        <div id="sellingAnalyticsSection" style="margin: 40px 0; display: none;">
+            <div style="background: rgba(26, 26, 46, 0.85); backdrop-filter: blur(20px); border-radius: 20px; padding: 32px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 30px rgba(0, 191, 255, 0.15); border: 1px solid rgba(0, 191, 255, 0.2);">
+                <h2 style="color: #00bfff; font-size: 2rem; margin-bottom: 24px; text-align: center; text-shadow: 0 0 20px rgba(0, 191, 255, 0.5);">💰 Your Selling Performance</h2>
+                
+                <!-- Selling Stats Cards -->
+                <div id="sellingStatsGrid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 32px;">
+                    <!-- Stats cards will be loaded here -->
+                </div>
+                
+                <!-- Selling Charts -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 24px; margin-top: 24px;">
+                    <!-- Listings by Status -->
+                    <div style="background: rgba(26, 26, 46, 0.8); border-radius: 16px; padding: 24px; border: 1px solid rgba(0, 191, 255, 0.2);">
+                        <h3 style="color: #00bfff; margin-bottom: 16px; font-size: 1.2rem;">Listings by Status</h3>
+                        <div id="sellingStatusChart" style="min-height: 200px;">
+                            <!-- Chart will be rendered here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Sales by Marketplace Pie Chart -->
+                    <div style="background: rgba(26, 26, 46, 0.8); border-radius: 16px; padding: 24px; border: 1px solid rgba(0, 191, 255, 0.2);">
+                        <h3 style="color: #00bfff; margin-bottom: 16px; font-size: 1.2rem;">Sales by Marketplace 🥧</h3>
+                        <div id="sellingMarketplaceChart" style="min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                            <!-- Chart will be rendered here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Performance Metrics -->
+                    <div style="background: rgba(26, 26, 46, 0.8); border-radius: 16px; padding: 24px; border: 1px solid rgba(0, 191, 255, 0.2);">
+                        <h3 style="color: #00bfff; margin-bottom: 16px; font-size: 1.2rem;">Performance Metrics</h3>
+                        <div id="sellingPerformanceMetrics" style="display: flex; flex-direction: column; gap: 12px;">
+                            <!-- Metrics will be rendered here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Market Analytics Charts -->
+        <div style="margin-top: 40px;">
+            <h2 style="color: #00bfff; font-size: 2rem; margin-bottom: 24px; text-align: center; text-shadow: 0 0 20px rgba(0, 191, 255, 0.5);">📊 Market Insights</h2>
         </div>
 
         <div class="charts-grid">
@@ -479,6 +526,7 @@
             
             loadAnalytics();
             loadKeywords();
+            loadSellingAnalytics();
         });
 
         async function loadAnalytics() {
@@ -964,6 +1012,227 @@
                 console.error('Error updating trends:', error);
                 showError('Failed to update trends');
             }
+        }
+
+        async function loadSellingAnalytics() {
+            try {
+                const response = await fetch('/api/seller-listings/stats', {
+                    credentials: 'same-origin'
+                });
+                
+                if (!response.ok) {
+                    console.log('No selling data available');
+                    return;
+                }
+                
+                const data = await response.json();
+                console.log('Selling analytics loaded:', data);
+                
+                if (data.stats && data.stats.total_listings > 0) {
+                    document.getElementById('sellingAnalyticsSection').style.display = 'block';
+                    renderSellingStats(data.stats);
+                    renderSellingCharts(data.stats);
+                }
+            } catch (error) {
+                console.error('Error loading selling analytics:', error);
+            }
+        }
+
+        function renderSellingStats(stats) {
+            const container = document.getElementById('sellingStatsGrid');
+            
+            container.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value">${stats.total_listings || 0}</div>
+                    <div class="stat-label">Total Listings</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.draft_count || 0}</div>
+                    <div class="stat-label">Drafts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.posted_count || 0}</div>
+                    <div class="stat-label">Active</div>
+                </div>
+                <div class="stat-card" style="background: linear-gradient(135deg, rgba(40, 167, 69, 0.2) 0%, rgba(34, 139, 58, 0.2) 100%); border-color: rgba(40, 167, 69, 0.4);">
+                    <div class="stat-value" style="color: #28a745;">${stats.sold_count || 0}</div>
+                    <div class="stat-label">Sold Items 🎉</div>
+                </div>
+                <div class="stat-card" style="background: linear-gradient(135deg, rgba(255, 193, 7, 0.2) 0%, rgba(255, 152, 0, 0.2) 100%); border-color: rgba(255, 193, 7, 0.4);">
+                    <div class="stat-value" style="color: #ffc107;">$${Math.round(stats.gross_revenue || 0).toLocaleString()}</div>
+                    <div class="stat-label">Gross Revenue 💰</div>
+                </div>
+                <div class="stat-card" style="background: linear-gradient(135deg, rgba(34, 211, 137, 0.2) 0%, rgba(34, 167, 113, 0.2) 100%); border-color: rgba(34, 211, 137, 0.4);">
+                    <div class="stat-value" style="color: ${(stats.true_profit || 0) >= 0 ? '#22d389' : '#ff6b6b'};">$${Math.round(stats.true_profit || 0).toLocaleString()}</div>
+                    <div class="stat-label">True Profit 💎</div>
+                </div>
+            `;
+        }
+
+        function renderSellingCharts(stats) {
+            // Render status chart
+            const total = stats.total_listings || 1;
+            const draftPct = ((stats.draft_count / total) * 100).toFixed(1);
+            const activePct = ((stats.posted_count / total) * 100).toFixed(1);
+            const soldPct = ((stats.sold_count / total) * 100).toFixed(1);
+            
+            document.getElementById('sellingStatusChart').innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                    <div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="color: rgba(255,255,255,0.9);">Drafts</span>
+                            <span style="color: #007bff; font-weight: bold;">${stats.draft_count} (${draftPct}%)</span>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.1); border-radius: 8px; height: 12px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, #007bff, #00bfff); height: 100%; width: ${draftPct}%; transition: width 0.5s;"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="color: rgba(255,255,255,0.9);">Active</span>
+                            <span style="color: #00bfff; font-weight: bold;">${stats.posted_count} (${activePct}%)</span>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.1); border-radius: 8px; height: 12px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, #00bfff, #00d4ff); height: 100%; width: ${activePct}%; transition: width 0.5s;"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="color: rgba(255,255,255,0.9);">Sold 🎉</span>
+                            <span style="color: #28a745; font-weight: bold;">${stats.sold_count} (${soldPct}%)</span>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.1); border-radius: 8px; height: 12px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, #28a745, #34d058); height: 100%; width: ${soldPct}%; transition: width 0.5s;"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Render marketplace pie chart
+            renderSellingMarketplacePieChart(stats.marketplace_breakdown || {}, stats.sold_count || 0);
+            
+            // Render performance metrics
+            const conversionRate = stats.posted_count > 0 
+                ? ((stats.sold_count / stats.posted_count) * 100).toFixed(1) 
+                : 0;
+            const avgRevPerSale = stats.sold_count > 0 
+                ? (stats.gross_revenue / stats.sold_count).toFixed(0) 
+                : 0;
+            
+            const trueProfit = stats.true_profit || 0;
+            const profitColor = trueProfit >= 0 ? '#22d389' : '#ff6b6b';
+            const profitLabel = trueProfit >= 0 ? 'Profit' : 'Loss';
+            
+            const totalCosts = stats.total_costs || 0;
+            const profitMargin = stats.gross_revenue > 0 && totalCosts > 0 ? ((trueProfit / stats.gross_revenue) * 100).toFixed(1) : 0;
+            const costsTracked = totalCosts > 0;
+            
+            document.getElementById('sellingPerformanceMetrics').innerHTML = `
+                <div style="padding: 12px; background: rgba(0,191,255,0.1); border-radius: 8px; border-left: 3px solid #00bfff;">
+                    <div style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">Conversion Rate</div>
+                    <div style="color: #00bfff; font-size: 1.8rem; font-weight: bold; margin-top: 4px;">${conversionRate}%</div>
+                    <div style="color: rgba(255,255,255,0.5); font-size: 0.85rem; margin-top: 4px;">Posted → Sold</div>
+                </div>
+                <div style="padding: 12px; background: rgba(255,193,7,0.1); border-radius: 8px; border-left: 3px solid #ffc107;">
+                    <div style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">Gross Revenue</div>
+                    <div style="color: #ffc107; font-size: 1.8rem; font-weight: bold; margin-top: 4px;">$${Math.round(stats.gross_revenue || 0).toLocaleString()}</div>
+                    <div style="color: rgba(255,255,255,0.5); font-size: 0.85rem; margin-top: 4px;">Total Received</div>
+                </div>
+                <div style="padding: 12px; background: rgba(40,167,69,0.1); border-radius: 8px; border-left: 3px solid ${costsTracked ? '#28a745' : 'rgba(255,193,7,0.6)'};">
+                    <div style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">Total Costs</div>
+                    <div style="color: ${costsTracked ? '#28a745' : 'rgba(255,193,7,0.8)'}; font-size: 1.8rem; font-weight: bold; margin-top: 4px;">${costsTracked ? '$' : ''}${costsTracked ? Math.round(totalCosts).toLocaleString() : 'N/A'}</div>
+                    <div style="color: rgba(255,255,255,0.5); font-size: 0.85rem; margin-top: 4px;">${costsTracked ? 'What You Paid' : 'Add costs'}</div>
+                </div>
+                <div style="padding: 12px; background: rgba(34,211,137,0.1); border-radius: 8px; border-left: 3px solid ${costsTracked ? profitColor : 'rgba(255,193,7,0.6)'};">
+                    <div style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">True ${costsTracked ? profitLabel : 'Profit'} 💎</div>
+                    <div style="color: ${costsTracked ? profitColor : 'rgba(255,193,7,0.8)'}; font-size: 1.8rem; font-weight: bold; margin-top: 4px;">${costsTracked ? (trueProfit >= 0 ? '+' : '') + '$' + Math.round(trueProfit).toLocaleString() : 'N/A'}</div>
+                    <div style="color: rgba(255,255,255,0.5); font-size: 0.85rem; margin-top: 4px;">${costsTracked ? `Margin: ${profitMargin}%` : 'Track costs'}</div>
+                </div>
+            `;
+        }
+
+        function renderSellingMarketplacePieChart(marketplaceData, totalSold) {
+            const container = document.getElementById('sellingMarketplaceChart');
+            
+            if (totalSold === 0 || Object.keys(marketplaceData).length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; color: rgba(255,255,255,0.6); padding: 40px 20px;">
+                        <div style="font-size: 3rem; margin-bottom: 12px;">📊</div>
+                        <p>No sales data yet</p>
+                        <p style="font-size: 0.9rem; margin-top: 8px;">Mark items as sold to see breakdown</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Marketplace colors
+            const colors = {
+                'craigslist': '#6B46C1',
+                'facebook': '#1877F2',
+                'ksl': '#00A9E0',
+                'ebay': '#E53238',
+                'poshmark': '#667eea',
+                'mercari': '#FF6B6B',
+                'other': '#FFC107'
+            };
+            
+            const labels = {
+                'craigslist': 'Craigslist',
+                'facebook': 'Facebook',
+                'ksl': 'KSL',
+                'ebay': 'eBay',
+                'poshmark': 'Poshmark',
+                'mercari': 'Mercari',
+                'other': 'Other'
+            };
+            
+            // Create pie chart segments
+            let currentAngle = 0;
+            const segments = [];
+            
+            Object.entries(marketplaceData).forEach(([marketplace, data]) => {
+                const percentage = (data.count / totalSold) * 100;
+                const angle = (data.count / totalSold) * 360;
+                
+                segments.push({
+                    marketplace,
+                    count: data.count,
+                    percentage: percentage.toFixed(1),
+                    revenue: data.revenue,
+                    angle,
+                    startAngle: currentAngle,
+                    color: colors[marketplace] || colors['other'],
+                    label: labels[marketplace] || marketplace
+                });
+                
+                currentAngle += angle;
+            });
+            
+            // Create visual pie chart using conic gradient
+            const gradientStops = segments.map((seg) => {
+                const start = seg.startAngle;
+                const end = start + seg.angle;
+                return `${seg.color} ${start}deg ${end}deg`;
+            }).join(', ');
+            
+            container.innerHTML = `
+                <div style="width: 160px; height: 160px; border-radius: 50%; background: conic-gradient(${gradientStops}); margin: 0 auto 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);"></div>
+                
+                <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
+                    ${segments.map(seg => `
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid ${seg.color};">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <div style="width: 12px; height: 12px; border-radius: 50%; background: ${seg.color};"></div>
+                                <span style="color: rgba(255,255,255,0.9); font-size: 0.9rem;">${seg.label}</span>
+                            </div>
+                            <div style="text-align: right;">
+                                <div style="color: #00bfff; font-weight: bold;">${seg.count} (${seg.percentage}%)</div>
+                                <div style="color: rgba(255,255,255,0.6); font-size: 0.85rem;">$${Math.round(seg.revenue).toLocaleString()}</div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
         }
 
         function showLoading() {

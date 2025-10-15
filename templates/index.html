@@ -439,6 +439,91 @@
             background: rgba(0, 191, 255, 0.9);
             border: 1px solid rgba(0, 191, 255, 0.5);
         }
+
+        /* Favorite Button Styles */
+        .favorite-btn {
+            background: transparent;
+            border: 1px solid rgba(0, 191, 255, 0.3);
+            color: rgba(255, 255, 255, 0.7);
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 16px;
+        }
+
+        .favorite-btn:hover {
+            background: rgba(0, 191, 255, 0.1);
+            border-color: rgba(0, 191, 255, 0.6);
+            color: #00bfff;
+            transform: scale(1.1);
+        }
+
+        .favorite-btn.favorited {
+            color: #ffd700;
+            border-color: #ffd700;
+        }
+
+        .favorite-btn.favorited i {
+            font-weight: 900;
+        }
+
+        /* Saved Searches Section */
+        .saved-searches-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: rgba(20, 20, 35, 0.95);
+            border-radius: 12px;
+            border: 1px solid rgba(0, 123, 255, 0.3);
+        }
+
+        .saved-search-item {
+            padding: 15px;
+            margin: 10px 0;
+            background: rgba(0, 123, 255, 0.05);
+            border: 1px solid rgba(0, 123, 255, 0.2);
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .saved-search-item:hover {
+            background: rgba(0, 123, 255, 0.1);
+            border-color: rgba(0, 123, 255, 0.4);
+            transform: translateX(4px);
+        }
+
+        .search-info {
+            flex: 1;
+        }
+
+        .search-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .search-actions button {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid rgba(0, 191, 255, 0.3);
+            background: transparent;
+            color: rgba(255, 255, 255, 0.8);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .search-actions button:hover {
+            background: rgba(0, 191, 255, 0.2);
+            border-color: rgba(0, 191, 255, 0.6);
+        }
+
+        .search-actions button.delete:hover {
+            background: rgba(255, 68, 68, 0.2);
+            border-color: rgba(255, 68, 68, 0.6);
+            color: #ff4444;
+        }
     </style>
 </head>
 <body>
@@ -447,11 +532,15 @@
     <!-- ====================== -->
     <div class="sidebar">
         <div class="logo-container">
-            <img src="{{ url_for('static', filename='images/botifex-logo.svg') }}" alt="Botifex" class="logo">
+            <a href="{{ url_for('dashboard') }}">
+                <img src="{{ url_for('static', filename='images/botifex-logo.svg') }}" alt="Botifex" class="logo">
+            </a>
         </div>
+        <a href="{{ url_for('dashboard') }}"><i class="fas fa-home"></i> Dashboard</a>
         <a href="#settings"><i class="fas fa-cog"></i> Settings</a>
         <a href="{{ url_for('profile_page') }}"><i class="fas fa-user"></i> Profile</a>
         <a href="{{ url_for('favorites_page') }}"><i class="fas fa-star"></i> Favorites</a>
+        <a href="{{ url_for('alerts_page') }}"><i class="fas fa-bell"></i> Price Alerts</a>
         <a href="/analytics"><i class="fas fa-chart-line"></i> Analytics</a>
         <a href="/selling"><i class="fas fa-dollar-sign"></i> Sell Items</a>
         <a href="#bot-control"><i class="fas fa-play-circle"></i> Bot Control</a>
@@ -497,11 +586,40 @@
         <input type="number" name="interval" value="{{ settings.get('interval',60) }}"><br>
 
         <input type="submit" value="Update Settings">
+        <button type="button" onclick="saveCurrentSearch()" style="margin-left: 10px; background: linear-gradient(135deg, #28a745, #20c997); border: none; padding: 10px 20px; border-radius: 8px; color: white; cursor: pointer; font-family: 'Orbitron', sans-serif; transition: all 0.3s;">
+            <i class="fas fa-save"></i> Save as Search
+        </button>
     </form>
+
+    <!-- Saved Searches Section -->
+    <div class="saved-searches-section">
+        <h3 style="margin-bottom: 15px; color: #00bfff;">
+            <i class="fas fa-bookmark"></i> Saved Searches
+        </h3>
+        <div id="savedSearchesList">
+            <p style="text-align: center; color: rgba(255,255,255,0.5);">Loading...</p>
+        </div>
+    </div>
 </div>
         <!-- BOT CONTROL CARD -->
         <div id="bot-control" class="card">
             <h2><i class="fas fa-play-circle"></i> Bot Control</h2>
+            
+            <!-- Start/Stop All Buttons -->
+            <div style="margin-bottom: 20px; text-align: center; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+                <a href="/start-all">
+                    <button style="background: linear-gradient(135deg, #28a745, #20c997); font-size: 16px; padding: 14px 28px; border-radius: 10px; border: none; color: white; cursor: pointer; font-weight: 700; letter-spacing: 0.5px; box-shadow: 0 4px 16px rgba(40, 167, 69, 0.3); transition: all 0.3s ease;">
+                        <i class="fas fa-rocket"></i> Start All Scrapers
+                    </button>
+                </a>
+                <a href="/stop-all">
+                    <button style="background: linear-gradient(135deg, #dc3545, #c82333); font-size: 16px; padding: 14px 28px; border-radius: 10px; border: none; color: white; cursor: pointer; font-weight: 700; letter-spacing: 0.5px; box-shadow: 0 4px 16px rgba(220, 53, 69, 0.3); transition: all 0.3s ease;">
+                        <i class="fas fa-stop-circle"></i> Stop All Scrapers
+                    </button>
+                </a>
+            </div>
+            
+            <div class="table-container">
             <table>
                 <tr>
                     <th>Site</th>
@@ -510,7 +628,14 @@
                 </tr>
                 {% for site, stat in status.items() %}
                 <tr>
-                    <td>{{ site.capitalize() }}</td>
+                    <td>
+                        {{ site.capitalize() }}
+                        {% if (site == 'poshmark' or site == 'mercari') and user_tier != 'pro' %}
+                            <span style="background: linear-gradient(135deg, #667eea, #764ba2); padding: 2px 8px; border-radius: 10px; font-size: 0.7em; margin-left: 5px; color: white;">
+                                <i class="fas fa-crown"></i> PRO
+                            </span>
+                        {% endif %}
+                    </td>
                     <td>
                         {% if stat %}
                             <span class="status-running">Running</span>
@@ -519,7 +644,11 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if not stat %}
+                        {% if (site == 'poshmark' or site == 'mercari') and user_tier != 'pro' %}
+                            <a href="/subscription/plans"><button style="background: linear-gradient(135deg, #667eea, #764ba2); border: none; color: white;">
+                                <i class="fas fa-lock"></i> Upgrade to Pro
+                            </button></a>
+                        {% elif not stat %}
                             <a href="/start/{{ site }}"><button>Start</button></a>
                         {% else %}
                             <a href="/stop/{{ site }}"><button>Stop</button></a>
@@ -528,6 +657,7 @@
                 </tr>
                 {% endfor %}
             </table>
+            </div>
         </div>
 
         <!-- RECENT LISTINGS CARD -->
@@ -542,17 +672,30 @@
                         <th>Link</th>
                         <th>Image</th>
                         <th>Created At</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="listings_table">
                     {% for l in listings %}
-                    <tr>
-                        <td>{{ l[0] }}</td>
+                    <tr data-listing-id="{{ l[0] }}">
                         <td>{{ l[1] }}</td>
-                        <td>{{ l[4] }}</td>
-                        <td><a href="{{ l[2] }}" target="_blank">Link</a></td>
-                        <td>{% if l[3] %}<img src="{{ l[3] }}" width="80">{% endif %}</td>
+                        <td>{{ l[2] }}</td>
                         <td>{{ l[5] }}</td>
+                        <td><a href="{{ l[3] }}" target="_blank">Link</a></td>
+                        <td>{% if l[4] %}<img src="{{ l[4] }}" width="80">{% endif %}</td>
+                        <td>{{ l[6] }}</td>
+                        <td>
+                            <button class="favorite-btn" 
+                                    data-id="{{ l[0] }}" 
+                                    data-title="{{ l[1] }}" 
+                                    data-price="{{ l[2] }}" 
+                                    data-link="{{ l[3] }}" 
+                                    data-image="{{ l[4] or '' }}" 
+                                    data-source="{{ l[5] }}" 
+                                    title="Add to Favorites">
+                                <i class="far fa-star"></i>
+                            </button>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -690,23 +833,31 @@
                     tbody.innerHTML = ""; // clear current rows
                     
                     data.listings.forEach(l => {
-                        if (!Array.isArray(l) || l.length < 6) {
+                        if (!Array.isArray(l) || l.length < 7) {
                             console.warn('Invalid listing data:', l);
                             return;
                         }
                         
-                        const link = l[2] || '';
+                        const listingId = l[0] || '';
+                        const title = l[1] || '';
+                        const price = l[2] || '';
+                        const link = l[3] || '';
+                        const imageUrl = l[4] || '';
+                        const source = l[5] || '';
+                        const createdAt = l[6] || '';
+                        
                         const tr = document.createElement("tr");
+                        tr.setAttribute('data-listing-id', listingId);
                         
                         // Create cells with proper escaping
                         const titleCell = document.createElement("td");
-                        titleCell.textContent = l[0] || '';
+                        titleCell.textContent = title;
                         
                         const priceCell = document.createElement("td");
-                        priceCell.textContent = l[1] || '';
+                        priceCell.textContent = price;
                         
                         const sourceCell = document.createElement("td");
-                        sourceCell.textContent = l[4] || '';
+                        sourceCell.textContent = source;
                         
                         const linkCell = document.createElement("td");
                         if (link) {
@@ -719,9 +870,9 @@
                         }
                         
                         const imageCell = document.createElement("td");
-                        if (l[3]) {
+                        if (imageUrl) {
                             const img = document.createElement("img");
-                            img.src = l[3];
+                            img.src = imageUrl;
                             img.width = 80;
                             img.alt = "Listing image";
                             img.onerror = function() { this.style.display = 'none'; };
@@ -729,7 +880,20 @@
                         }
                         
                         const dateCell = document.createElement("td");
-                        dateCell.textContent = l[5] || '';
+                        dateCell.textContent = createdAt;
+                        
+                        // Actions cell with favorite button
+                        const actionsCell = document.createElement("td");
+                        const favoriteBtn = document.createElement("button");
+                        favoriteBtn.className = "favorite-btn";
+                        favoriteBtn.title = "Add to Favorites";
+                        favoriteBtn.onclick = function() {
+                            toggleFavorite(listingId, title, price, link, imageUrl, source);
+                        };
+                        const icon = document.createElement("i");
+                        icon.className = "far fa-star";
+                        favoriteBtn.appendChild(icon);
+                        actionsCell.appendChild(favoriteBtn);
                         
                         // Append all cells
                         tr.appendChild(titleCell);
@@ -738,6 +902,7 @@
                         tr.appendChild(linkCell);
                         tr.appendChild(imageCell);
                         tr.appendChild(dateCell);
+                        tr.appendChild(actionsCell);
                         
                         // Highlight new listings
                         if (link && !knownListings.has(link)) {
@@ -790,6 +955,188 @@
             }, 5000);
         }
 
+        // Favorite functionality
+        async function toggleFavorite(listingId, title, price, link, imageUrl, source) {
+            const button = event.target.closest('.favorite-btn');
+            
+            // If called from data attributes, read them
+            if (!listingId && button) {
+                listingId = button.dataset.id;
+                title = button.dataset.title;
+                price = button.dataset.price;
+                link = button.dataset.link;
+                imageUrl = button.dataset.image;
+                source = button.dataset.source;
+            }
+            
+            const isFavorited = button.classList.contains('favorited');
+
+            try {
+                if (isFavorited) {
+                    // Remove from favorites
+                    const response = await fetch(`/api/favorites/${listingId}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+
+                    if (response.ok) {
+                        button.classList.remove('favorited');
+                        button.querySelector('i').classList.remove('fas');
+                        button.querySelector('i').classList.add('far');
+                        showNotification('Removed from favorites', 'info');
+                    } else {
+                        throw new Error('Failed to remove favorite');
+                    }
+                } else {
+                    // Add to favorites
+                    const response = await fetch(`/api/favorites/${listingId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            notes: ''
+                        })
+                    });
+
+                    if (response.ok) {
+                        button.classList.add('favorited');
+                        button.querySelector('i').classList.remove('far');
+                        button.querySelector('i').classList.add('fas');
+                        showNotification('Added to favorites!', 'success');
+                    } else {
+                        throw new Error('Failed to add favorite');
+                    }
+                }
+            } catch (error) {
+                console.error('Error toggling favorite:', error);
+                showNotification('Error updating favorite', 'error');
+            }
+        }
+
+        // Load saved searches
+        async function loadSavedSearches() {
+            try {
+                const response = await fetch('/api/saved-searches');
+                const data = await response.json();
+                
+                const container = document.getElementById('savedSearchesList');
+                if (!container) return;
+
+                if (data.searches && data.searches.length > 0) {
+                    container.innerHTML = data.searches.map(search => `
+                        <div class="saved-search-item">
+                            <div class="search-info">
+                                <strong>${escapeHtml(search.name)}</strong><br>
+                                <small>
+                                    ${search.keywords ? `Keywords: ${escapeHtml(search.keywords)}` : ''} 
+                                    ${search.min_price ? `| Min: $${search.min_price}` : ''} 
+                                    ${search.max_price ? `| Max: $${search.max_price}` : ''}
+                                </small>
+                            </div>
+                            <div class="search-actions">
+                                <button onclick="runSavedSearch(${search.id})" title="Run this search">
+                                    <i class="fas fa-play"></i>
+                                </button>
+                                <button class="delete" onclick="deleteSavedSearch(${search.id})" title="Delete">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<p style="text-align: center; color: rgba(255,255,255,0.5);">No saved searches yet</p>';
+                }
+            } catch (error) {
+                console.error('Error loading saved searches:', error);
+            }
+        }
+
+        // Create saved search from current settings
+        async function saveCurrentSearch() {
+            const name = prompt('Enter a name for this search:');
+            if (!name) return;
+
+            const keywords = document.querySelector('input[name="keywords"]').value;
+            const minPrice = document.querySelector('input[name="min_price"]').value;
+            const maxPrice = document.querySelector('input[name="max_price"]').value;
+            const location = document.querySelector('input[name="location"]').value;
+            const radius = document.querySelector('input[name="radius"]').value;
+
+            try {
+                const response = await fetch('/api/saved-searches', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        keywords: keywords,
+                        min_price: minPrice ? parseInt(minPrice) : null,
+                        max_price: maxPrice ? parseInt(maxPrice) : null,
+                        location: location,
+                        radius: radius ? parseInt(radius) : null,
+                        notify_new: true
+                    })
+                });
+
+                if (response.ok) {
+                    showNotification('Search saved successfully!', 'success');
+                    loadSavedSearches();
+                } else {
+                    throw new Error('Failed to save search');
+                }
+            } catch (error) {
+                console.error('Error saving search:', error);
+                showNotification('Failed to save search', 'error');
+            }
+        }
+
+        // Delete a saved search
+        async function deleteSavedSearch(searchId) {
+            if (!confirm('Delete this saved search?')) return;
+
+            try {
+                const response = await fetch(`/api/saved-searches/${searchId}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    showNotification('Search deleted', 'info');
+                    loadSavedSearches();
+                } else {
+                    throw new Error('Failed to delete search');
+                }
+            } catch (error) {
+                console.error('Error deleting search:', error);
+                showNotification('Failed to delete search', 'error');
+            }
+        }
+
+        // Run a saved search (load its settings)
+        async function runSavedSearch(searchId) {
+            try {
+                const response = await fetch('/api/saved-searches');
+                const data = await response.json();
+                const search = data.searches.find(s => s.id === searchId);
+                
+                if (search) {
+                    if (search.keywords) document.querySelector('input[name="keywords"]').value = search.keywords;
+                    if (search.min_price) document.querySelector('input[name="min_price"]').value = search.min_price;
+                    if (search.max_price) document.querySelector('input[name="max_price"]').value = search.max_price;
+                    if (search.location) document.querySelector('input[name="location"]').value = search.location;
+                    if (search.radius) document.querySelector('input[name="radius"]').value = search.radius;
+                    
+                    showNotification(`Loaded search: ${search.name}`, 'success');
+                }
+            } catch (error) {
+                console.error('Error running saved search:', error);
+                showNotification('Failed to load search', 'error');
+            }
+        }
+
         // Function to start polling
         function startPolling() {
             // Clear existing intervals to prevent memory leaks
@@ -814,6 +1161,15 @@
         // Start polling when page loads
         document.addEventListener('DOMContentLoaded', function() {
             startPolling();
+            loadSavedSearches();
+            
+            // Add event listeners for favorite buttons
+            document.addEventListener('click', function(e) {
+                if (e.target.closest('.favorite-btn')) {
+                    e.preventDefault();
+                    toggleFavorite();
+                }
+            });
         });
 
         // Stop polling when page is about to unload (prevents memory leaks)

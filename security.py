@@ -47,7 +47,6 @@ class SecurityConfig:
                     # Replace or append SECRET_KEY
                     if 'SECRET_KEY=' in env_content:
                         # Replace existing SECRET_KEY
-                        import re
                         env_content = re.sub(
                             r'SECRET_KEY=.*',
                             f'SECRET_KEY={secret_key}',

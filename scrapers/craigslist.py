@@ -9,6 +9,7 @@ from lxml import html
 from utils import debug_scraper_output, logger
 from db import get_settings, save_listing
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
+from location_utils import geocode_location, get_location_coords, miles_to_km
 
 # ======================
 # CONFIGURATION
@@ -52,7 +53,9 @@ def is_new_listing(link):
     """Return True if this listing is new or last seen more than 24h ago."""
     normalized_link = normalize_url(link)
     if not normalized_link:
-        return False
+        # If URL normalization failed, treat as new to attempt processing
+        logger.debug(f"URL normalization failed for {link}, treating as new")
+        return True
     
     with _seen_listings_lock:
         if normalized_link not in seen_listings:
@@ -160,14 +163,23 @@ def check_craigslist(flag_name="craigslist"):
     min_price = settings["min_price"]
     max_price = settings["max_price"]
     check_interval = settings["interval"]
+    location = settings.get("location", "boise")
+    radius = settings.get("radius", 50)
 
     results = []
     max_retries = 3
     base_retry_delay = 2
     
+    # Get location coordinates for distance filtering
+    location_coords = get_location_coords(location)
+    if location_coords:
+        logger.debug(f"Craigslist: Searching {location} within {radius} miles")
+    else:
+        logger.warning(f"Could not geocode location '{location}', using default")
+    
     for attempt in range(max_retries):
         try:
-            url = f"https://{settings['location']}.craigslist.org/search/sss"
+            url = f"https://{location}.craigslist.org/search/sss"
             params = {"query": " ".join(keywords), "min_price": min_price, "max_price": max_price}
             full_url = url + "?" + urllib.parse.urlencode(params)
 

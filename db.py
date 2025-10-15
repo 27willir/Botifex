@@ -100,6 +100,10 @@ from db_enhanced import (
     cancel_subscription,
     get_all_subscriptions,
     get_subscription_stats,
+    get_subscription_by_customer_id,
+    
+    # Terms of Service
+    record_tos_agreement,
 )
 
 # Re-export all functions for backward compatibility
@@ -151,6 +155,8 @@ __all__ = [
     'cancel_subscription',
     'get_all_subscriptions',
     'get_subscription_stats',
+    'get_subscription_by_customer_id',
+    'record_tos_agreement',
     'create_verification_token',
     'verify_email_token',
     'create_password_reset_token',

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Profile - Super Bot</title>
+    <title>Profile - Botifex</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Exo+2:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -30,6 +30,7 @@
             margin-bottom: 10px;
             background: linear-gradient(135deg, #00d4ff, #007bff);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             text-align: center;
         }
@@ -212,7 +213,7 @@
         <p class="subtitle">Manage your account & view activity</p>
 
         <div class="nav">
-            <a href="{{ url_for('index') }}"><i class="fas fa-home"></i> Dashboard</a>
+            <a href="{{ url_for('dashboard') }}"><i class="fas fa-home"></i> Dashboard</a>
             <a href="{{ url_for('favorites_page') }}"><i class="fas fa-star"></i> Favorites</a>
             <a href="{{ url_for('settings') }}"><i class="fas fa-cog"></i> Settings</a>
             <a href="{{ url_for('subscription_page') }}"><i class="fas fa-crown"></i> Subscription</a>
@@ -300,12 +301,32 @@
                     <p style="color: #aaa; font-size: 0.9em; margin-bottom: 15px;">Download all your data (GDPR compliance)</p>
                     
                     <a href="/api/export/user-data" class="btn btn-primary" style="width: 100%;" download>
-                        <i class="fas fa-file-download"></i> Download My Data (JSON)
+                        <i class="fas fa-file-download"></i> Download Complete Data (JSON)
                     </a>
                     
-                    <a href="/api/export/favorites?format=csv" class="btn btn-primary" style="width: 100%; margin-top: 10px;" download>
-                        <i class="fas fa-file-csv"></i> Export Favorites (CSV)
-                    </a>
+                    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
+                        <p style="color: #aaa; font-size: 0.9em; margin-bottom: 10px;"><strong>Specialized Exports:</strong></p>
+                        
+                        <a href="/api/export/seller-listings?format=csv" class="btn btn-primary" style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #6B46C1 0%, #8B5CF6 100%);" download>
+                            <i class="fas fa-store"></i> Export Seller Listings (CSV)
+                        </a>
+                        
+                        <a href="/api/export/seller-listings" class="btn btn-primary" style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #6B46C1 0%, #8B5CF6 100%);" download>
+                            <i class="fas fa-store"></i> Export Seller Listings (JSON)
+                        </a>
+                        
+                        <a href="/api/export/selling-analytics" class="btn btn-primary" style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #22d389 0%, #28a745 100%);" download>
+                            <i class="fas fa-chart-pie"></i> Export Selling Analytics (JSON)
+                        </a>
+                        
+                        <a href="/api/export/market-analytics?days=30" class="btn btn-primary" style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);" download>
+                            <i class="fas fa-chart-line"></i> Export Market Analytics (JSON)
+                        </a>
+                        
+                        <a href="/api/export/favorites?format=csv" class="btn btn-primary" style="width: 100%; margin-top: 10px;" download>
+                            <i class="fas fa-file-csv"></i> Export Favorites (CSV)
+                        </a>
+                    </div>
                 </div>
             </div>
 

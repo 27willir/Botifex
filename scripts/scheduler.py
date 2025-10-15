@@ -3,13 +3,15 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import time, random, traceback
+import time, random, traceback, threading
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from db import get_settings
 from scrapers.facebook import check_facebook
 from scrapers.craigslist import check_craigslist
 from scrapers.ksl import check_ksl
+from price_alert_worker import check_price_alerts
 
 def make_driver():
     opts = Options()
@@ -47,7 +49,25 @@ def run_scrapers(driver, settings):
         print(f"❌ Error in check_ksl: {e}")
         traceback.print_exc()
 
+def price_alert_checker():
+    """Background thread that checks price alerts every 5 minutes"""
+    print("🚨 Price Alert Checker Started (runs every 5 minutes)")
+    while True:
+        try:
+            check_price_alerts()
+        except Exception as e:
+            print(f"❌ Error in price alert checker: {e}")
+            traceback.print_exc()
+        
+        # Wait 5 minutes before next check
+        time.sleep(300)
+
 def start_scheduler():
+    # Start price alert checker in background thread
+    alert_thread = threading.Thread(target=price_alert_checker, daemon=True)
+    alert_thread.start()
+    print("✅ Price alert checker thread started")
+    
     driver = None
     while True:
         try:

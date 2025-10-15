@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Super Bot Settings</title>
+    <title>Botifex Settings</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -107,6 +107,37 @@
         .sidebar a i { 
             margin-right: 12px; 
             color: #00bfff;
+        }
+
+        .logo-container {
+            margin-bottom: 32px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(0, 191, 255, 0.2);
+            position: relative;
+        }
+
+        .logo-container::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #00bfff, transparent);
+        }
+
+        .logo {
+            max-width: 120px;
+            height: auto;
+            transition: all 0.3s ease;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .logo:hover {
+            filter: drop-shadow(0 0 15px rgba(0, 191, 255, 0.8));
+            transform: scale(1.05);
         }
         
         .main { 
@@ -234,8 +265,12 @@
 <body>
     <!-- SIDEBAR -->
     <div class="sidebar">
-        <h1><i class="fas fa-robot"></i> Super Bot</h1>
-        <a href="{{ url_for('index') }}"><i class="fas fa-home"></i> Dashboard</a>
+        <div class="logo-container">
+            <a href="{{ url_for('dashboard') }}">
+                <img src="{{ url_for('static', filename='images/botifex-logo.svg') }}" alt="Botifex" class="logo">
+            </a>
+        </div>
+        <a href="{{ url_for('dashboard') }}"><i class="fas fa-home"></i> Dashboard</a>
         <a href="{{ url_for('profile_page') }}"><i class="fas fa-user"></i> Profile</a>
         <a href="{{ url_for('favorites_page') }}"><i class="fas fa-star"></i> Favorites</a>
         <a href="{{ url_for('settings') }}"><i class="fas fa-cog"></i> Settings</a>
@@ -306,25 +341,6 @@
                         Email: {{ notifications.email if notifications else 'Not set' }}
                     </p>
                 </div>
-
-                <!-- SMS Notifications -->
-                <div style="margin-bottom: 20px;">
-                    <label style="display: flex; align-items: center; cursor: pointer;">
-                        <input type="checkbox" name="sms_notifications" value="1" 
-                               {% if notifications and notifications.sms_notifications %}checked{% endif %}
-                               style="width: auto; margin-right: 10px; cursor: pointer;">
-                        <span><i class="fas fa-mobile-alt" style="color: #00bfff; margin-right: 8px;"></i> SMS Notifications</span>
-                    </label>
-                </div>
-
-                <!-- Phone Number -->
-                <label for="phone_number">Phone Number (for SMS):</label><br>
-                <input type="text" id="phone_number" name="phone_number" 
-                       value="{{ notifications.phone_number if notifications and notifications.phone_number else '' }}" 
-                       placeholder="+1234567890">
-                <p style="color: rgba(255, 255, 255, 0.6); font-size: 12px; margin-top: -10px; margin-bottom: 15px;">
-                    <i class="fas fa-info-circle"></i> Enter phone number in E.164 format (e.g., +1234567890)
-                </p>
                 
                 <input type="submit" value="Save Notification Settings">
             </form>
@@ -332,7 +348,7 @@
             <div style="margin-top: 20px; padding: 15px; background: rgba(0, 191, 255, 0.1); border-radius: 8px; border: 1px solid rgba(0, 191, 255, 0.2);">
                 <p style="font-size: 13px; color: rgba(255, 255, 255, 0.8);">
                     <i class="fas fa-info-circle" style="color: #00bfff;"></i> <strong>Note:</strong> 
-                    SMS notifications require Twilio configuration. Contact your administrator if SMS is not working.
+                    Enable email notifications to receive instant alerts when new listings matching your criteria are found.
                 </p>
             </div>
         </div>

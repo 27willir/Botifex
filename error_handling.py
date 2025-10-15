@@ -4,6 +4,7 @@ Centralized error handling utilities for the super-bot application.
 Provides consistent error handling, logging, and recovery mechanisms.
 """
 
+import json
 import logging
 import traceback
 import time
@@ -168,6 +169,3 @@ def safe_json_operation(operation: str, path: Union[str, Path], data: Any = None
     except Exception as e:
         logger.error(f"JSON operation failed for {path}: {e}")
         return {} if operation == "read" else False
-
-# Import json at module level
-import json

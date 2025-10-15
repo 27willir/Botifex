@@ -3,21 +3,29 @@ import urllib.parse
 import threading
 from datetime import datetime
 from lxml import html
-from utils import debug_scraper_output, logger, is_selenium_available
+from selenium.webdriver.common.by import By
+from utils import debug_scraper_output, logger
 from db import get_settings, save_listing
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
-
-# Make selenium imports optional
-try:
-    from selenium.webdriver.common.by import By
-except ImportError:
-    # Selenium not available - Facebook scraper will be disabled
-    pass
+from location_utils import geocode_location, get_location_coords, miles_to_km
 
 # ======================
 # CONFIGURATION
 # ======================
-facebook_url = "https://www.facebook.com/marketplace/108420222512131/?radius_in_km=402"
+# Facebook Marketplace Location IDs for common cities (fallback)
+LOCATION_IDS = {
+    "boise": "108420222512131",
+    "salt lake city": "108659242498155",
+    "portland": "108423525857649",
+    "seattle": "108092845880969",
+    "phoenix": "108124175896772",
+    "los angeles": "108424279189115",
+    "las vegas": "108118525888573",
+    "denver": "108427449197415",
+    "san francisco": "108659242498155",
+    "sacramento": "108108715896878",
+}
+
 seen_listings = {}
 _seen_listings_lock = threading.Lock()  # Thread safety for seen_listings
 
@@ -63,7 +71,9 @@ def is_new_listing(link):
     """Check if a listing has been seen within the last 24 hours."""
     normalized_link = normalize_url(link)
     if not normalized_link:
-        return False
+        # If URL normalization failed, treat as new to attempt processing
+        logger.debug(f"URL normalization failed for {link}, treating as new")
+        return True
     
     with _seen_listings_lock:
         if normalized_link not in seen_listings:
@@ -168,19 +178,53 @@ def load_settings():
 def get_facebook_url(settings):
     """
     Build the Marketplace URL based on current settings.
-    Now properly searches for keywords instead of location.
+    Uses geocoding to support any city worldwide.
+    Falls back to location IDs if geocoding fails.
     """
-    base_url = "https://www.facebook.com/marketplace/108420222512131/"
-    keywords = settings.get("keywords", ["Firebird", "Camaro", "Corvette"])
+    location = settings.get("location", "boise").strip()
+    location_lower = location.lower()
     
-    # Join keywords with OR for broader search
+    # Convert radius from miles to kilometers (Facebook uses km)
+    radius_miles = settings.get("radius", 50)
+    radius_km = int(radius_miles * 1.60934)  # Miles to km conversion
+    
+    # Get keywords for search query
+    keywords = settings.get("keywords", ["Firebird", "Camaro", "Corvette"])
     query = " ".join(keywords) if isinstance(keywords, list) else keywords
     
-    # Add search query parameter
-    if query:
-        return f"{base_url}?query={urllib.parse.quote(query)}"
+    # Try geocoding first for coordinates-based search
+    coords = geocode_location(location)
     
-    return base_url
+    if coords:
+        # Use coordinates-based URL (works for any location)
+        lat, lon = coords
+        base_url = "https://www.facebook.com/marketplace/category/vehicles"
+        params = []
+        if query:
+            params.append(f"query={urllib.parse.quote(query)}")
+        # Add location parameters
+        params.append(f"minPrice=0")
+        params.append(f"maxPrice=999999")
+        params.append(f"latitude={lat}")
+        params.append(f"longitude={lon}")
+        params.append(f"radius={radius_km}")
+        
+        return f"{base_url}?{'&'.join(params)}"
+    
+    else:
+        # Fallback to location ID method for known cities
+        location_id = LOCATION_IDS.get(location_lower, LOCATION_IDS["boise"])
+        base_url = f"https://www.facebook.com/marketplace/{location_id}/"
+        
+        params = []
+        if query:
+            params.append(f"query={urllib.parse.quote(query)}")
+        params.append(f"radius={radius_km}")
+        
+        if params:
+            return f"{base_url}?{'&'.join(params)}"
+        
+        return base_url
 
 # ======================
 # MAIN SCRAPER FUNCTION
@@ -193,8 +237,11 @@ def check_facebook(driver):
         min_price = settings["min_price"]
         max_price = settings["max_price"]
         check_interval = settings["interval"]
+        location = settings.get("location", "boise")
+        radius = settings.get("radius", 50)
 
         url = get_facebook_url(settings)  # dynamically generate URL
+        logger.debug(f"Facebook Marketplace: searching {location} within {radius} miles")
 
         # Navigate to page with network error handling
         ErrorHandler.handle_network_error(lambda: driver.get(url))

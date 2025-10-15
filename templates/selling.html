@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sell Items - Super Bot</title>
+    <title>Sell Items - Botifex</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Exo+2:wght@300;400;500;600;700;800&family=Rajdhani:wght@300;400;500;600;700&family=Roboto+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -422,6 +422,71 @@
             border: 1px solid #00bfff;
         }
 
+        .info-banner {
+            background: linear-gradient(135deg, rgba(255, 193, 7, 0.15) 0%, rgba(255, 152, 0, 0.15) 100%);
+            border: 2px solid rgba(255, 193, 7, 0.4);
+            border-radius: 16px;
+            padding: 24px 32px;
+            margin-bottom: 32px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(255, 193, 7, 0.15);
+        }
+
+        .info-banner::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #ffc107, transparent);
+            opacity: 0.8;
+        }
+
+        .info-banner h3 {
+            color: #ffc107;
+            font-size: 1.4rem;
+            margin-bottom: 12px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .info-banner h3::before {
+            content: 'ℹ️';
+            font-size: 1.5rem;
+        }
+
+        .info-banner p {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 1rem;
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+
+        .info-banner ul {
+            list-style: none;
+            margin-top: 12px;
+            padding-left: 0;
+        }
+
+        .info-banner ul li {
+            color: rgba(255, 255, 255, 0.85);
+            padding: 6px 0;
+            padding-left: 24px;
+            position: relative;
+        }
+
+        .info-banner ul li::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            color: #ffc107;
+            font-weight: bold;
+        }
+
         @media (max-width: 768px) {
             .form-grid {
                 grid-template-columns: 1fr;
@@ -450,6 +515,22 @@
 
         <div id="alertContainer"></div>
 
+        <!-- Info Banner -->
+        <div class="info-banner">
+            <h3>Manual Posting Mode</h3>
+            <p><strong>Automated posting is currently disabled</strong>, but you can still use this page for:</p>
+            <ul>
+                <li><strong>Creating Listing Templates</strong> - Build your listings with all details</li>
+                <li><strong>Tracking Your Inventory</strong> - Keep track of items you're selling</li>
+                <li><strong>Sales Analytics</strong> - Monitor your selling performance</li>
+                <li><strong>Price Management</strong> - Track pricing across items</li>
+            </ul>
+            <p style="margin-top: 12px; font-style: italic; color: rgba(255, 255, 255, 0.7);">
+                Create your listings here, then manually post them to your chosen marketplaces. 
+                Mark items as "Sold" to track your sales history.
+            </p>
+        </div>
+
         <!-- Stats Section -->
         <div id="statsContainer" class="stats-grid">
             <!-- Stats will be loaded here -->
@@ -466,8 +547,14 @@
                     </div>
                     
                     <div class="form-group">
-                        <label for="price">Price ($) *</label>
+                        <label for="price">Listing Price ($) *</label>
                         <input type="number" id="price" name="price" required min="0" placeholder="0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="original_cost">Original Cost ($)</label>
+                        <input type="number" id="original_cost" name="original_cost" min="0" placeholder="What you paid for it (optional)">
+                        <small style="color: rgba(255,255,255,0.6); display: block; margin-top: 8px;">Optional: Enter what you originally paid to track true profit</small>
                     </div>
                     
                     <div class="form-group">
@@ -516,11 +603,68 @@
                             <input type="checkbox" name="marketplaces" value="ebay">
                             <span>eBay</span>
                         </label>
+                        <label class="checkbox-label" style="position: relative;">
+                            <input type="checkbox" name="marketplaces" value="poshmark" id="poshmark-checkbox">
+                            <span>Poshmark <span style="background: linear-gradient(135deg, #667eea, #764ba2); padding: 2px 8px; border-radius: 10px; font-size: 0.7em; margin-left: 5px; color: white;">
+                                <i class="fas fa-crown"></i> PRO
+                            </span></span>
+                        </label>
+                        <label class="checkbox-label" style="position: relative;">
+                            <input type="checkbox" name="marketplaces" value="mercari" id="mercari-checkbox">
+                            <span>Mercari <span style="background: linear-gradient(135deg, #667eea, #764ba2); padding: 2px 8px; border-radius: 10px; font-size: 0.7em; margin-left: 5px; color: white;">
+                                <i class="fas fa-crown"></i> PRO
+                            </span></span>
+                        </label>
                     </div>
+                    <small style="color: rgba(255,255,255,0.6); display: block; margin-top: 8px;">Poshmark and Mercari are available for Pro subscribers only</small>
                 </div>
                 
                 <button type="submit" class="btn">Create Listing</button>
             </form>
+        </div>
+
+        <!-- Analytics Section -->
+        <div class="section" id="analyticsSection" style="display: none;">
+            <h2 class="section-title">📊 Sales Analytics</h2>
+            
+            <!-- Cost Tracking Notice -->
+            <div id="costTrackingNotice" style="display: none; background: rgba(255, 193, 7, 0.15); border: 2px solid rgba(255, 193, 7, 0.3); border-radius: 12px; padding: 16px 20px; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 1.5rem;">💡</span>
+                    <div>
+                        <strong style="color: #ffc107; font-size: 1rem;">Track Your True Profit!</strong>
+                        <p style="color: rgba(255,255,255,0.8); margin: 4px 0 0 0; font-size: 0.9rem;">
+                            Add "Original Cost" to your listings (click Edit) to see your actual profit. This shows the difference between what you sold for and what you paid!
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; margin-bottom: 24px;">
+                <!-- Status Breakdown Chart -->
+                <div style="background: rgba(26, 26, 46, 0.8); border-radius: 16px; padding: 24px; border: 1px solid rgba(0, 191, 255, 0.2);">
+                    <h3 style="color: #00bfff; margin-bottom: 16px; font-size: 1.2rem;">Listings by Status</h3>
+                    <div id="statusChart" style="min-height: 200px;">
+                        <!-- Chart will be rendered here -->
+                    </div>
+                </div>
+                
+                <!-- Marketplace Breakdown Pie Chart -->
+                <div style="background: rgba(26, 26, 46, 0.8); border-radius: 16px; padding: 24px; border: 1px solid rgba(0, 191, 255, 0.2);">
+                    <h3 style="color: #00bfff; margin-bottom: 16px; font-size: 1.2rem;">Sales by Marketplace 🥧</h3>
+                    <div id="marketplaceChart" style="min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                        <!-- Chart will be rendered here -->
+                    </div>
+                </div>
+                
+                <!-- Performance Metrics -->
+                <div style="background: rgba(26, 26, 46, 0.8); border-radius: 16px; padding: 24px; border: 1px solid rgba(0, 191, 255, 0.2);">
+                    <h3 style="color: #00bfff; margin-bottom: 16px; font-size: 1.2rem;">Performance</h3>
+                    <div id="performanceMetrics" style="display: flex; flex-direction: column; gap: 12px;">
+                        <!-- Metrics will be rendered here -->
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Your Listings -->
@@ -542,6 +686,9 @@
             
             // Setup form submission
             document.getElementById('createListingForm').addEventListener('submit', handleCreateListing);
+            
+            // Check Poshmark and Mercari checkbox availability
+            checkPremiumMarketplaceAvailability();
         });
 
         async function loadStats() {
@@ -549,7 +696,15 @@
                 const response = await fetch('/api/seller-listings/stats', {
                     credentials: 'same-origin'
                 });
+                
+                console.log('Stats API response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
                 const data = await response.json();
+                console.log('Stats data received:', data);
                 
                 if (data.stats) {
                     const stats = data.stats;
@@ -564,16 +719,42 @@
                         </div>
                         <div class="stat-card">
                             <div class="stat-value">${stats.posted_count || 0}</div>
-                            <div class="stat-label">Posted</div>
+                            <div class="stat-label">Active</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, rgba(40, 167, 69, 0.2) 0%, rgba(34, 139, 58, 0.2) 100%); border-color: rgba(40, 167, 69, 0.4);">
+                            <div class="stat-value" style="color: #28a745;">${stats.sold_count || 0}</div>
+                            <div class="stat-label">Sold Items 🎉</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, rgba(255, 193, 7, 0.2) 0%, rgba(255, 152, 0, 0.2) 100%); border-color: rgba(255, 193, 7, 0.4);">
+                            <div class="stat-value" style="color: #ffc107;">$${Math.round(stats.gross_revenue || 0).toLocaleString()}</div>
+                            <div class="stat-label">Gross Revenue 💰</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, rgba(34, 211, 137, 0.2) 0%, rgba(34, 167, 113, 0.2) 100%); border-color: rgba(34, 211, 137, 0.4);">
+                            <div class="stat-value" style="color: ${(stats.true_profit || 0) >= 0 ? '#22d389' : '#ff6b6b'};">$${Math.round(stats.true_profit || 0).toLocaleString()}</div>
+                            <div class="stat-label">True Profit 💎</div>
                         </div>
                         <div class="stat-card">
                             <div class="stat-value">$${Math.round(stats.avg_price || 0).toLocaleString()}</div>
                             <div class="stat-label">Average Price</div>
                         </div>
                     `;
+                    
+                    // Show and render analytics if there are any listings
+                    if (stats.total_listings > 0) {
+                        document.getElementById('analyticsSection').style.display = 'block';
+                        renderAnalytics(stats);
+                        console.log('Analytics section displayed');
+                    } else {
+                        console.log('No listings yet - analytics hidden');
+                    }
+                } else {
+                    console.error('No stats data in response:', data);
+                    showAlert('Failed to load analytics data - invalid response format', 'error');
                 }
             } catch (error) {
                 console.error('Error loading stats:', error);
+                showAlert('Failed to load analytics: ' + error.message, 'error');
+                document.getElementById('statsContainer').innerHTML = '<p style="text-align: center; color: rgba(255,255,255,0.6);">Failed to load statistics. Please refresh the page.</p>';
             }
         }
 
@@ -626,6 +807,9 @@
                             ${listing.status === 'draft' ? `
                                 <button onclick="postListing(${listing.id})" class="btn btn-success btn-small">Post</button>
                             ` : ''}
+                            ${listing.status !== 'sold' ? `
+                                <button onclick="markAsSold(${listing.id})" class="btn btn-success btn-small">✓ Mark Sold</button>
+                            ` : ''}
                             <button onclick="editListing(${listing.id})" class="btn btn-secondary btn-small">Edit</button>
                             <button onclick="deleteListing(${listing.id})" class="btn btn-danger btn-small">Delete</button>
                         </div>
@@ -648,12 +832,16 @@
             const listingData = {
                 title: formData.get('title'),
                 price: formData.get('price'),
+                original_cost: formData.get('original_cost') || null,
                 category: formData.get('category'),
                 location: formData.get('location'),
                 description: formData.get('description'),
                 marketplaces: marketplaces,
                 images: ''
             };
+            
+            // Debug logging
+            console.log('Creating listing with data:', listingData);
             
             try {
                 const response = await fetch('/api/seller-listings', {
@@ -665,7 +853,9 @@
                     body: JSON.stringify(listingData)
                 });
                 
+                console.log('Response status:', response.status);
                 const data = await response.json();
+                console.log('Response data:', data);
                 
                 if (response.ok) {
                     showAlert('Listing created successfully!', 'success');
@@ -673,11 +863,14 @@
                     loadStats();
                     loadListings();
                 } else {
-                    showAlert(data.error || 'Failed to create listing', 'error');
+                    // Show the specific error message from the server
+                    const errorMsg = data.error || 'Failed to create listing';
+                    console.error('Server error:', errorMsg);
+                    showAlert(errorMsg, 'error');
                 }
             } catch (error) {
                 console.error('Error creating listing:', error);
-                showAlert('Failed to create listing', 'error');
+                showAlert('Network error: ' + error.message, 'error');
             }
         }
 
@@ -708,8 +901,172 @@
         }
 
         async function editListing(listingId) {
-            // For now, just show an alert. You can implement a modal or separate edit form later
-            showAlert('Edit functionality coming soon! For now, you can delete and recreate the listing.', 'error');
+            const listing = currentListings.find(l => l.id === listingId);
+            if (!listing) {
+                showAlert('Listing not found', 'error');
+                return;
+            }
+            
+            const marketplacesArray = listing.marketplaces ? listing.marketplaces.split(',') : [];
+            const marketplacesCheckboxes = ['craigslist', 'facebook', 'ksl', 'ebay', 'poshmark', 'mercari'].map(mp => {
+                const checked = marketplacesArray.includes(mp) ? 'checked' : '';
+                const labels = {
+                    craigslist: 'Craigslist',
+                    facebook: 'Facebook Marketplace',
+                    ksl: 'KSL Classifieds',
+                    ebay: 'eBay',
+                    poshmark: 'Poshmark',
+                    mercari: 'Mercari'
+                };
+                const isPremium = mp === 'poshmark' || mp === 'mercari';
+                return `
+                    <label class="checkbox-label" style="color: white; display: flex; align-items: center; gap: 8px; margin: 8px 0;">
+                        <input type="checkbox" value="${mp}" ${checked} ${isPremium ? `id="edit-${mp}-checkbox"` : ''}>
+                        <span>${labels[mp]}${isPremium ? ' <span style="background: linear-gradient(135deg, #667eea, #764ba2); padding: 2px 6px; border-radius: 8px; font-size: 0.7em; color: white;"><i class="fas fa-crown"></i> PRO</span>' : ''}</span>
+                    </label>
+                `;
+            }).join('');
+            
+            const editDialog = `
+                <div id="editDialog" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 10000; overflow-y: auto;">
+                    <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 16px; padding: 32px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.5); border: 2px solid rgba(0, 191, 255, 0.3); margin: 20px;">
+                        <h2 style="color: #00bfff; margin-bottom: 24px; font-size: 1.8rem;">Edit Listing</h2>
+                        
+                        <div style="margin-bottom: 16px;">
+                            <label style="color: #00bfff; display: block; margin-bottom: 8px;">Title *</label>
+                            <input type="text" id="editTitle" value="${listing.title}" style="width: 100%; padding: 12px; background: rgba(26, 26, 46, 0.8); border: 1px solid rgba(0, 191, 255, 0.3); border-radius: 8px; color: white;">
+                        </div>
+                        
+                        <div style="margin-bottom: 16px;">
+                            <label style="color: #00bfff; display: block; margin-bottom: 8px;">Listing Price ($) *</label>
+                            <input type="number" id="editPrice" value="${listing.price}" min="0" style="width: 100%; padding: 12px; background: rgba(26, 26, 46, 0.8); border: 1px solid rgba(0, 191, 255, 0.3); border-radius: 8px; color: white;">
+                        </div>
+                        
+                        <div style="margin-bottom: 16px;">
+                            <label style="color: #00bfff; display: block; margin-bottom: 8px;">Original Cost ($)</label>
+                            <input type="number" id="editOriginalCost" value="${listing.original_cost || ''}" min="0" placeholder="What you paid" style="width: 100%; padding: 12px; background: rgba(26, 26, 46, 0.8); border: 1px solid rgba(0, 191, 255, 0.3); border-radius: 8px; color: white;">
+                        </div>
+                        
+                        <div style="margin-bottom: 16px;">
+                            <label style="color: #00bfff; display: block; margin-bottom: 8px;">Category</label>
+                            <select id="editCategory" style="width: 100%; padding: 12px; background: rgba(26, 26, 46, 0.8); border: 1px solid rgba(0, 191, 255, 0.3); border-radius: 8px; color: white;">
+                                <option value="">Select a category</option>
+                                <option value="vehicles" ${listing.category === 'vehicles' ? 'selected' : ''}>Vehicles</option>
+                                <option value="electronics" ${listing.category === 'electronics' ? 'selected' : ''}>Electronics</option>
+                                <option value="furniture" ${listing.category === 'furniture' ? 'selected' : ''}>Furniture</option>
+                                <option value="clothing" ${listing.category === 'clothing' ? 'selected' : ''}>Clothing</option>
+                                <option value="sports" ${listing.category === 'sports' ? 'selected' : ''}>Sports & Outdoors</option>
+                                <option value="home" ${listing.category === 'home' ? 'selected' : ''}>Home & Garden</option>
+                                <option value="toys" ${listing.category === 'toys' ? 'selected' : ''}>Toys & Games</option>
+                                <option value="books" ${listing.category === 'books' ? 'selected' : ''}>Books & Media</option>
+                                <option value="other" ${listing.category === 'other' ? 'selected' : ''}>Other</option>
+                            </select>
+                        </div>
+                        
+                        <div style="margin-bottom: 16px;">
+                            <label style="color: #00bfff; display: block; margin-bottom: 8px;">Location</label>
+                            <input type="text" id="editLocation" value="${listing.location || ''}" placeholder="City, State" style="width: 100%; padding: 12px; background: rgba(26, 26, 46, 0.8); border: 1px solid rgba(0, 191, 255, 0.3); border-radius: 8px; color: white;">
+                        </div>
+                        
+                        <div style="margin-bottom: 16px;">
+                            <label style="color: #00bfff; display: block; margin-bottom: 8px;">Description</label>
+                            <textarea id="editDescription" rows="4" style="width: 100%; padding: 12px; background: rgba(26, 26, 46, 0.8); border: 1px solid rgba(0, 191, 255, 0.3); border-radius: 8px; color: white;">${listing.description || ''}</textarea>
+                        </div>
+                        
+                        <div style="margin-bottom: 24px;">
+                            <label style="color: #00bfff; display: block; margin-bottom: 8px;">Marketplaces *</label>
+                            <div id="editMarketplaces">
+                                ${marketplacesCheckboxes}
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; gap: 12px;">
+                            <button onclick="saveEditedListing(${listingId})" class="btn" style="flex: 1;">Save Changes</button>
+                            <button onclick="closeEditDialog()" class="btn btn-secondary" style="flex: 1;">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', editDialog);
+            
+            // Check Poshmark and Mercari availability in edit dialog
+            const userTier = '{{ user_tier|default("free") }}';
+            if (userTier !== 'pro') {
+                const editPoshmarkCheckbox = document.getElementById('edit-poshmark-checkbox');
+                const editMercariCheckbox = document.getElementById('edit-mercari-checkbox');
+                if (editPoshmarkCheckbox) {
+                    editPoshmarkCheckbox.disabled = true;
+                    editPoshmarkCheckbox.title = 'Upgrade to Pro to use Poshmark';
+                }
+                if (editMercariCheckbox) {
+                    editMercariCheckbox.disabled = true;
+                    editMercariCheckbox.title = 'Upgrade to Pro to use Mercari';
+                }
+            }
+        }
+        
+        function closeEditDialog() {
+            const dialog = document.getElementById('editDialog');
+            if (dialog) {
+                dialog.remove();
+            }
+        }
+        
+        async function saveEditedListing(listingId) {
+            const title = document.getElementById('editTitle').value;
+            const price = document.getElementById('editPrice').value;
+            const originalCost = document.getElementById('editOriginalCost').value;
+            const category = document.getElementById('editCategory').value;
+            const location = document.getElementById('editLocation').value;
+            const description = document.getElementById('editDescription').value;
+            
+            const checkboxes = document.querySelectorAll('#editMarketplaces input[type="checkbox"]:checked');
+            const marketplaces = Array.from(checkboxes).map(cb => cb.value);
+            
+            if (!title || !price) {
+                showAlert('Title and price are required', 'error');
+                return;
+            }
+            
+            if (marketplaces.length === 0) {
+                showAlert('Please select at least one marketplace', 'error');
+                return;
+            }
+            
+            closeEditDialog();
+            
+            try {
+                const response = await fetch(`/api/seller-listings/${listingId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        title,
+                        price: parseInt(price),
+                        original_cost: originalCost ? parseInt(originalCost) : null,
+                        category,
+                        location,
+                        description,
+                        marketplaces
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showAlert('Listing updated successfully!', 'success');
+                    loadStats();
+                    loadListings();
+                } else {
+                    showAlert(data.error || 'Failed to update listing', 'error');
+                }
+            } catch (error) {
+                console.error('Error updating listing:', error);
+                showAlert('Failed to update listing', 'error');
+            }
         }
 
         async function postListing(listingId) {
@@ -738,6 +1095,278 @@
             }
         }
 
+        async function markAsSold(listingId) {
+            // Find the listing to get its original price
+            const listing = currentListings.find(l => l.id === listingId);
+            if (!listing) {
+                showAlert('Listing not found', 'error');
+                return;
+            }
+            
+            // Create a custom dialog
+            const soldDialog = `
+                <div id="soldDialog" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+                    <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 16px; padding: 32px; max-width: 500px; width: 90%; box-shadow: 0 12px 40px rgba(0,0,0,0.5); border: 2px solid rgba(0, 191, 255, 0.3);">
+                        <h2 style="color: #00bfff; margin-bottom: 24px; font-size: 1.8rem;">Mark as Sold 🎉</h2>
+                        <p style="color: rgba(255,255,255,0.8); margin-bottom: 20px;">Listing: <strong>${listing.title}</strong></p>
+                        <p style="color: rgba(255,255,255,0.8); margin-bottom: 20px;">Original Price: <strong>$${listing.price.toLocaleString()}</strong></p>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="color: #00bfff; display: block; margin-bottom: 8px; font-weight: 600;">Sold On Marketplace *</label>
+                            <select id="soldMarketplace" style="width: 100%; padding: 12px; background: rgba(26, 26, 46, 0.8); border: 1px solid rgba(0, 191, 255, 0.3); border-radius: 8px; color: white; font-size: 1rem;">
+                                <option value="">Select marketplace...</option>
+                                <option value="craigslist">Craigslist</option>
+                                <option value="facebook">Facebook Marketplace</option>
+                                <option value="ksl">KSL Classifieds</option>
+                                <option value="ebay">eBay</option>
+                                <option value="poshmark">Poshmark</option>
+                                <option value="mercari">Mercari</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        
+                        <div style="margin-bottom: 24px;">
+                            <label style="color: #00bfff; display: block; margin-bottom: 8px; font-weight: 600;">Actual Sale Price ($)</label>
+                            <input type="number" id="soldPrice" placeholder="${listing.price}" value="${listing.price}" min="0" style="width: 100%; padding: 12px; background: rgba(26, 26, 46, 0.8); border: 1px solid rgba(0, 191, 255, 0.3); border-radius: 8px; color: white; font-size: 1rem;">
+                            <small style="color: rgba(255,255,255,0.6); display: block; margin-top: 8px;">Leave as original price or enter the actual amount you sold it for</small>
+                        </div>
+                        
+                        <div style="display: flex; gap: 12px;">
+                            <button onclick="confirmSold(${listingId})" class="btn" style="flex: 1;">Confirm Sale</button>
+                            <button onclick="closeSoldDialog()" class="btn btn-secondary" style="flex: 1;">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', soldDialog);
+        }
+        
+        function closeSoldDialog() {
+            const dialog = document.getElementById('soldDialog');
+            if (dialog) {
+                dialog.remove();
+            }
+        }
+        
+        async function confirmSold(listingId) {
+            const marketplace = document.getElementById('soldMarketplace').value;
+            const soldPrice = document.getElementById('soldPrice').value;
+            
+            if (!marketplace) {
+                showAlert('Please select the marketplace where you sold the item', 'error');
+                return;
+            }
+            
+            closeSoldDialog();
+            
+            try {
+                const payload = {
+                    status: 'sold',
+                    sold_on_marketplace: marketplace,
+                    actual_sale_price: soldPrice ? parseInt(soldPrice) : null
+                };
+                
+                const response = await fetch(`/api/seller-listings/${listingId}/status`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(payload)
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showAlert('Item marked as sold! 🎉', 'success');
+                    loadStats();
+                    loadListings();
+                } else {
+                    showAlert(data.error || 'Failed to update listing', 'error');
+                }
+            } catch (error) {
+                console.error('Error marking as sold:', error);
+                showAlert('Failed to update listing', 'error');
+            }
+        }
+
+        function renderAnalytics(stats) {
+            // Render marketplace pie chart
+            renderMarketplacePieChart(stats.marketplace_breakdown || {}, stats.sold_count || 0);
+            
+            // Render status chart (simple bar chart)
+            const total = stats.total_listings || 1;
+            const draftPct = ((stats.draft_count / total) * 100).toFixed(1);
+            const activePct = ((stats.posted_count / total) * 100).toFixed(1);
+            const soldPct = ((stats.sold_count / total) * 100).toFixed(1);
+            
+            document.getElementById('statusChart').innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                    <div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="color: rgba(255,255,255,0.9);">Drafts</span>
+                            <span style="color: #007bff; font-weight: bold;">${stats.draft_count} (${draftPct}%)</span>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.1); border-radius: 8px; height: 12px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, #007bff, #00bfff); height: 100%; width: ${draftPct}%; transition: width 0.5s;"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="color: rgba(255,255,255,0.9);">Active</span>
+                            <span style="color: #00bfff; font-weight: bold;">${stats.posted_count} (${activePct}%)</span>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.1); border-radius: 8px; height: 12px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, #00bfff, #00d4ff); height: 100%; width: ${activePct}%; transition: width 0.5s;"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="color: rgba(255,255,255,0.9);">Sold 🎉</span>
+                            <span style="color: #28a745; font-weight: bold;">${stats.sold_count} (${soldPct}%)</span>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.1); border-radius: 8px; height: 12px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, #28a745, #34d058); height: 100%; width: ${soldPct}%; transition: width 0.5s;"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Render performance metrics
+            const conversionRate = stats.posted_count > 0 
+                ? ((stats.sold_count / stats.posted_count) * 100).toFixed(1) 
+                : 0;
+            const avgRevPerSale = stats.sold_count > 0 
+                ? (stats.gross_revenue / stats.sold_count).toFixed(0) 
+                : 0;
+            
+            const trueProfit = stats.true_profit || 0;
+            const profitColor = trueProfit >= 0 ? '#22d389' : '#ff6b6b';
+            const profitLabel = trueProfit >= 0 ? 'Profit' : 'Loss';
+            
+            const totalCosts = stats.total_costs || 0;
+            const profitMargin = stats.gross_revenue > 0 && totalCosts > 0 ? ((trueProfit / stats.gross_revenue) * 100).toFixed(1) : 0;
+            
+            // Check if costs are being tracked
+            const costsTracked = totalCosts > 0;
+            const costNote = costsTracked ? 'What You Paid' : 'Add costs to track profit';
+            const profitNote = costsTracked ? `Revenue - Costs (${profitMargin}%)` : 'Edit listings to add costs';
+            
+            // Show/hide cost tracking notice
+            const noticeEl = document.getElementById('costTrackingNotice');
+            if (noticeEl) {
+                noticeEl.style.display = costsTracked ? 'none' : 'block';
+            }
+            
+            document.getElementById('performanceMetrics').innerHTML = `
+                <div style="padding: 12px; background: rgba(0,191,255,0.1); border-radius: 8px; border-left: 3px solid #00bfff;">
+                    <div style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">Conversion Rate</div>
+                    <div style="color: #00bfff; font-size: 1.8rem; font-weight: bold; margin-top: 4px;">${conversionRate}%</div>
+                    <div style="color: rgba(255,255,255,0.5); font-size: 0.85rem; margin-top: 4px;">Posted → Sold</div>
+                </div>
+                <div style="padding: 12px; background: rgba(255,193,7,0.1); border-radius: 8px; border-left: 3px solid #ffc107;">
+                    <div style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">Gross Revenue</div>
+                    <div style="color: #ffc107; font-size: 1.8rem; font-weight: bold; margin-top: 4px;">$${Math.round(stats.gross_revenue || 0).toLocaleString()}</div>
+                    <div style="color: rgba(255,255,255,0.5); font-size: 0.85rem; margin-top: 4px;">Total Received</div>
+                </div>
+                <div style="padding: 12px; background: rgba(40,167,69,0.1); border-radius: 8px; border-left: 3px solid ${costsTracked ? '#28a745' : 'rgba(255,193,7,0.6)'};">
+                    <div style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">Total Costs</div>
+                    <div style="color: ${costsTracked ? '#28a745' : 'rgba(255,193,7,0.8)'}; font-size: 1.8rem; font-weight: bold; margin-top: 4px;">${costsTracked ? '$' : ''}${costsTracked ? Math.round(totalCosts).toLocaleString() : 'N/A'}</div>
+                    <div style="color: rgba(255,255,255,0.5); font-size: 0.85rem; margin-top: 4px;">${costNote}</div>
+                </div>
+                <div style="padding: 12px; background: rgba(34,211,137,0.1); border-radius: 8px; border-left: 3px solid ${costsTracked ? profitColor : 'rgba(255,193,7,0.6)'};">
+                    <div style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">True ${costsTracked ? profitLabel : 'Profit'} 💎</div>
+                    <div style="color: ${costsTracked ? profitColor : 'rgba(255,193,7,0.8)'}; font-size: 1.8rem; font-weight: bold; margin-top: 4px;">${costsTracked ? (trueProfit >= 0 ? '+' : '') + '$' + Math.round(trueProfit).toLocaleString() : 'N/A'}</div>
+                    <div style="color: rgba(255,255,255,0.5); font-size: 0.85rem; margin-top: 4px;">${profitNote}</div>
+                </div>
+            `;
+        }
+
+        function renderMarketplacePieChart(marketplaceData, totalSold) {
+            const container = document.getElementById('marketplaceChart');
+            
+            if (totalSold === 0 || Object.keys(marketplaceData).length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; color: rgba(255,255,255,0.6); padding: 40px 20px;">
+                        <div style="font-size: 3rem; margin-bottom: 12px;">📊</div>
+                        <p>No sales data yet</p>
+                        <p style="font-size: 0.9rem; margin-top: 8px;">Mark items as sold to see breakdown</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Marketplace colors
+            const colors = {
+                'craigslist': '#6B46C1',
+                'facebook': '#1877F2',
+                'ksl': '#00A9E0',
+                'ebay': '#E53238',
+                'poshmark': '#667eea',
+                'mercari': '#FF6B6B',
+                'other': '#FFC107'
+            };
+            
+            const labels = {
+                'craigslist': 'Craigslist',
+                'facebook': 'Facebook',
+                'ksl': 'KSL',
+                'ebay': 'eBay',
+                'poshmark': 'Poshmark',
+                'mercari': 'Mercari',
+                'other': 'Other'
+            };
+            
+            // Create pie chart using CSS
+            let currentAngle = 0;
+            const segments = [];
+            
+            Object.entries(marketplaceData).forEach(([marketplace, data]) => {
+                const percentage = (data.count / totalSold) * 100;
+                const angle = (data.count / totalSold) * 360;
+                
+                segments.push({
+                    marketplace,
+                    count: data.count,
+                    percentage: percentage.toFixed(1),
+                    revenue: data.revenue,
+                    angle,
+                    startAngle: currentAngle,
+                    color: colors[marketplace] || colors['other'],
+                    label: labels[marketplace] || marketplace
+                });
+                
+                currentAngle += angle;
+            });
+            
+            // Create visual pie chart using conic gradient
+            const gradientStops = segments.map((seg, idx) => {
+                const start = seg.startAngle;
+                const end = start + seg.angle;
+                return `${seg.color} ${start}deg ${end}deg`;
+            }).join(', ');
+            
+            container.innerHTML = `
+                <div style="width: 160px; height: 160px; border-radius: 50%; background: conic-gradient(${gradientStops}); margin: 0 auto 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);"></div>
+                
+                <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
+                    ${segments.map(seg => `
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid ${seg.color};">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <div style="width: 12px; height: 12px; border-radius: 50%; background: ${seg.color};"></div>
+                                <span style="color: rgba(255,255,255,0.9); font-size: 0.9rem;">${seg.label}</span>
+                            </div>
+                            <div style="text-align: right;">
+                                <div style="color: #00bfff; font-weight: bold;">${seg.count} (${seg.percentage}%)</div>
+                                <div style="color: rgba(255,255,255,0.6); font-size: 0.85rem;">$${Math.round(seg.revenue).toLocaleString()}</div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
         function showAlert(message, type) {
             const container = document.getElementById('alertContainer');
             const alertDiv = document.createElement('div');
@@ -748,6 +1377,49 @@
             setTimeout(() => {
                 alertDiv.remove();
             }, type === 'error' ? 5000 : 3000);
+        }
+        
+        async function checkPremiumMarketplaceAvailability() {
+            try {
+                // Check user's subscription tier
+                const response = await fetch('/api/status', {credentials: 'same-origin'});
+                const data = await response.json();
+                
+                // Get user tier from page context (if available)
+                const userTier = '{{ user_tier|default("free") }}';
+                const poshmarkCheckbox = document.getElementById('poshmark-checkbox');
+                const mercariCheckbox = document.getElementById('mercari-checkbox');
+                
+                if (userTier !== 'pro') {
+                    // Disable Poshmark checkbox for non-pro users
+                    if (poshmarkCheckbox) {
+                        poshmarkCheckbox.disabled = true;
+                        poshmarkCheckbox.title = 'Upgrade to Pro to use Poshmark';
+                        
+                        // Add click handler to show upgrade message
+                        poshmarkCheckbox.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            showAlert('Poshmark is only available for Pro subscribers. Please upgrade your plan.', 'error');
+                            window.location.href = '/subscription/plans';
+                        });
+                    }
+                    
+                    // Disable Mercari checkbox for non-pro users
+                    if (mercariCheckbox) {
+                        mercariCheckbox.disabled = true;
+                        mercariCheckbox.title = 'Upgrade to Pro to use Mercari';
+                        
+                        // Add click handler to show upgrade message
+                        mercariCheckbox.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            showAlert('Mercari is only available for Pro subscribers. Please upgrade your plan.', 'error');
+                            window.location.href = '/subscription/plans';
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking premium marketplace availability:', error);
+            }
         }
     </script>
 </body>

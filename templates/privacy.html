@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Privacy Policy - Super-Bot</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.svg') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Exo+2:wght@300;400;500;600;700;800&family=Rajdhani:wght@300;400;500;600;700&family=Roboto+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: "Exo 2", "Rajdhani", "Roboto Mono", sans-serif;
+            background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #16213e 100%);
+            background-attachment: fixed;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: rgba(26, 26, 46, 0.8);
+            backdrop-filter: blur(20px);
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 191, 255, 0.1);
+            border: 1px solid rgba(0, 191, 255, 0.2);
+        }
+
+        h1 {
+            color: #00bfff;
+            text-align: center;
+            font-family: "Orbitron", sans-serif;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px rgba(0, 191, 255, 0.5);
+        }
+
+        .last-updated {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 30px;
+            font-size: 0.9em;
+        }
+
+        h2 {
+            color: #00bfff;
+            font-family: "Orbitron", sans-serif;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+            border-bottom: 2px solid rgba(0, 191, 255, 0.3);
+            padding-bottom: 5px;
+        }
+
+        h3 {
+            color: #00d4ff;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+        }
+
+        p {
+            margin-bottom: 15px;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        ul, ol {
+            margin-left: 20px;
+            margin-bottom: 15px;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        .highlight {
+            background: rgba(0, 191, 255, 0.1);
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #00d4ff;
+        }
+
+        .contact-info {
+            background: rgba(0, 191, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #00bfff;
+            margin: 20px 0;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 30px;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #00bfff, #0080ff);
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .back-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 191, 255, 0.4);
+        }
+
+        .important {
+            background: rgba(255, 193, 7, 0.1);
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+
+        .important strong {
+            color: #ffc107;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(0, 191, 255, 0.2);
+        }
+
+        th {
+            background: rgba(0, 191, 255, 0.1);
+            color: #00bfff;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background: rgba(0, 191, 255, 0.05);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Privacy Policy</h1>
+        <p class="last-updated">Last Updated: December 2024</p>
+
+        <h2>1. Introduction</h2>
+        <p>
+            Welcome to Super-Bot ("we," "our," or "us"). We are committed to protecting your personal information and your right to privacy. 
+            This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our service.
+        </p>
+
+        <div class="important">
+            <strong>Important:</strong> Please read this Privacy Policy carefully. By using our service, you agree to the collection 
+            and use of information in accordance with this policy.
+        </div>
+
+        <h2>2. Information We Collect</h2>
+
+        <h3>2.1 Information You Provide</h3>
+        <p>We collect information that you voluntarily provide to us when you:</p>
+        <ul>
+            <li><strong>Register an account:</strong> Username, email address, password (hashed)</li>
+            <li><strong>Update your profile:</strong> Profile information, preferences</li>
+            <li><strong>Subscribe to a plan:</strong> Payment information (processed securely through Stripe)</li>
+            <li><strong>Contact us:</strong> Name, email address, message content</li>
+            <li><strong>Set up notifications:</strong> Phone number (optional, for SMS alerts)</li>
+        </ul>
+
+        <h3>2.2 Information Automatically Collected</h3>
+        <p>When you use our service, we automatically collect certain information, including:</p>
+        <ul>
+            <li><strong>Usage Data:</strong> Pages visited, features used, time spent on service</li>
+            <li><strong>Device Information:</strong> IP address, browser type, operating system</li>
+            <li><strong>Cookies and Tracking:</strong> Session cookies, authentication tokens</li>
+            <li><strong>Scraping Activity:</strong> Search queries, saved searches, favorite items</li>
+            <li><strong>Analytics Data:</strong> User behavior, feature usage, error logs</li>
+        </ul>
+
+        <h3>2.3 Information from Third Parties</h3>
+        <p>We may receive information from third-party services:</p>
+        <ul>
+            <li><strong>Stripe:</strong> Payment confirmation, subscription status</li>
+            <li><strong>Twilio:</strong> SMS delivery status (if SMS notifications enabled)</li>
+            <li><strong>Email Service:</strong> Email delivery status</li>
+        </ul>
+
+        <h2>3. How We Use Your Information</h2>
+        <p>We use the information we collect for the following purposes:</p>
+
+        <table>
+            <tr>
+                <th>Purpose</th>
+                <th>Legal Basis</th>
+            </tr>
+            <tr>
+                <td>To provide and maintain our service</td>
+                <td>Contract performance</td>
+            </tr>
+            <tr>
+                <td>To process payments and manage subscriptions</td>
+                <td>Contract performance</td>
+            </tr>
+            <tr>
+                <td>To send notifications (email/SMS)</td>
+                <td>Consent</td>
+            </tr>
+            <tr>
+                <td>To improve and optimize our service</td>
+                <td>Legitimate interest</td>
+            </tr>
+            <tr>
+                <td>To analyze usage patterns and trends</td>
+                <td>Legitimate interest</td>
+            </tr>
+            <tr>
+                <td>To detect and prevent fraud</td>
+                <td>Legitimate interest</td>
+            </tr>
+            <tr>
+                <td>To comply with legal obligations</td>
+                <td>Legal obligation</td>
+            </tr>
+            <tr>
+                <td>To communicate with you</td>
+                <td>Consent</td>
+            </tr>
+        </table>
+
+        <h2>4. How We Share Your Information</h2>
+        <p>We may share your information in the following situations:</p>
+
+        <h3>4.1 Service Providers</h3>
+        <p>We work with third-party service providers who perform services on our behalf:</p>
+        <ul>
+            <li><strong>Stripe:</strong> Payment processing and subscription management</li>
+            <li><strong>Twilio:</strong> SMS notification delivery</li>
+            <li><strong>Email Service Providers:</strong> Email delivery</li>
+            <li><strong>Hosting Providers:</strong> Cloud infrastructure and data storage</li>
+        </ul>
+
+        <h3>4.2 Legal Requirements</h3>
+        <p>We may disclose your information if required to do so by law or in response to valid requests by public authorities.</p>
+
+        <h3>4.3 Business Transfers</h3>
+        <p>In the event of a merger, acquisition, or sale of assets, your information may be transferred to the acquiring entity.</p>
+
+        <h3>4.4 With Your Consent</h3>
+        <p>We may share your information with your explicit consent for any other purpose.</p>
+
+        <h2>5. Data Security</h2>
+        <p>We implement appropriate technical and organizational security measures to protect your personal information:</p>
+        <ul>
+            <li><strong>Encryption:</strong> Passwords are hashed using bcrypt</li>
+            <li><strong>Secure Connections:</strong> All data transmitted over HTTPS/TLS</li>
+            <li><strong>Access Controls:</strong> Limited access to personal data on a need-to-know basis</li>
+            <li><strong>Regular Audits:</strong> Security assessments and vulnerability testing</li>
+            <li><strong>Data Backups:</strong> Regular encrypted backups of your data</li>
+        </ul>
+
+        <div class="important">
+            <strong>Important:</strong> While we strive to protect your personal information, no method of transmission over the Internet 
+            or electronic storage is 100% secure. We cannot guarantee absolute security.
+        </div>
+
+        <h2>6. Data Retention</h2>
+        <p>We retain your personal information for as long as necessary to fulfill the purposes outlined in this Privacy Policy, unless a longer retention period is required or permitted by law.</p>
+
+        <h3>Retention Periods:</h3>
+        <ul>
+            <li><strong>Account Data:</strong> Retained while your account is active</li>
+            <li><strong>Transaction Records:</strong> 7 years (tax and legal requirements)</li>
+            <li><strong>Logs and Analytics:</strong> 90 days</li>
+            <li><strong>Backup Data:</strong> 30 days</li>
+        </ul>
+
+        <p>When you delete your account, we will delete or anonymize your personal information within 30 days, except where we are required to retain it for legal or regulatory purposes.</p>
+
+        <h2>7. Your Privacy Rights</h2>
+        <p>Depending on your location, you may have the following rights regarding your personal information:</p>
+
+        <h3>7.1 Access and Portability</h3>
+        <ul>
+            <li>Request access to your personal information</li>
+            <li>Request a copy of your data in a portable format</li>
+        </ul>
+
+        <h3>7.2 Correction and Deletion</h3>
+        <ul>
+            <li>Request correction of inaccurate information</li>
+            <li>Request deletion of your personal information</li>
+        </ul>
+
+        <h3>7.3 Restriction and Objection</h3>
+        <ul>
+            <li>Request restriction of processing</li>
+            <li>Object to certain types of processing</li>
+        </ul>
+
+        <h3>7.4 Consent Withdrawal</h3>
+        <ul>
+            <li>Withdraw consent for processing based on consent</li>
+            <li>Unsubscribe from marketing communications</li>
+        </ul>
+
+        <p>To exercise these rights, please contact us at <span class="highlight">privacy@yourdomain.com</span></p>
+
+        <h2>8. Cookies and Tracking Technologies</h2>
+        <p>We use cookies and similar tracking technologies to track activity on our service and hold certain information.</p>
+
+        <h3>Types of Cookies We Use:</h3>
+        <ul>
+            <li><strong>Essential Cookies:</strong> Required for the service to function (session, authentication)</li>
+            <li><strong>Analytics Cookies:</strong> Help us understand how users interact with our service</li>
+            <li><strong>Preference Cookies:</strong> Remember your settings and preferences</li>
+        </ul>
+
+        <p>You can instruct your browser to refuse all cookies or to indicate when a cookie is being sent. However, if you do not accept cookies, you may not be able to use some portions of our service.</p>
+
+        <h2>9. International Data Transfers</h2>
+        <p>Your information may be transferred to and maintained on computers located outside of your state, province, country, or other governmental jurisdiction where data protection laws may differ.</p>
+
+        <p>If you are located outside the United States and choose to provide information to us, please note that we transfer and process your data in the United States.</p>
+
+        <h2>10. Children's Privacy</h2>
+        <p>Our service is not intended for children under the age of 18. We do not knowingly collect personal information from children under 18.</p>
+
+        <p>If you are a parent or guardian and believe your child has provided us with personal information, please contact us immediately.</p>
+
+        <h2>11. California Privacy Rights</h2>
+        <p>If you are a California resident, you have additional rights under the California Consumer Privacy Act (CCPA):</p>
+        <ul>
+            <li>Right to know what personal information is collected</li>
+            <li>Right to delete personal information</li>
+            <li>Right to opt-out of the sale of personal information</li>
+            <li>Right to non-discrimination for exercising your privacy rights</li>
+        </ul>
+
+        <h2>12. European Privacy Rights (GDPR)</h2>
+        <p>If you are located in the European Economic Area (EEA), you have certain rights under the General Data Protection Regulation (GDPR):</p>
+        <ul>
+            <li>Right of access (Article 15)</li>
+            <li>Right to rectification (Article 16)</li>
+            <li>Right to erasure (Article 17)</li>
+            <li>Right to restrict processing (Article 18)</li>
+            <li>Right to data portability (Article 20)</li>
+            <li>Right to object (Article 21)</li>
+            <li>Right to withdraw consent (Article 7)</li>
+        </ul>
+
+        <h2>13. Changes to This Privacy Policy</h2>
+        <p>We may update our Privacy Policy from time to time. We will notify you of any changes by:</p>
+        <ul>
+            <li>Posting the new Privacy Policy on this page</li>
+            <li>Sending an email notification (if you have an account)</li>
+            <li>Updating the "Last Updated" date at the top of this page</li>
+        </ul>
+
+        <p>You are advised to review this Privacy Policy periodically for any changes. Changes are effective when posted on this page.</p>
+
+        <h2>14. Contact Us</h2>
+        <p>If you have any questions about this Privacy Policy, please contact us:</p>
+
+        <div class="contact-info">
+            <p><strong>Email:</strong> privacy@yourdomain.com</p>
+            <p><strong>Support:</strong> support@yourdomain.com</p>
+            <p><strong>Address:</strong> [Your Company Address]</p>
+            <p><strong>Phone:</strong> [Your Phone Number]</p>
+        </div>
+
+        <h2>15. Data Protection Officer</h2>
+        <p>For privacy-related inquiries, you can contact our Data Protection Officer at:</p>
+        <p><strong>Email:</strong> dpo@yourdomain.com</p>
+
+        <h2>16. Supervisory Authority</h2>
+        <p>If you are located in the EEA and believe we have not addressed your privacy concerns, you have the right to lodge a complaint with your local supervisory authority.</p>
+
+        <hr style="border: none; border-top: 1px solid rgba(0, 191, 255, 0.2); margin: 40px 0;">
+
+        <p style="text-align: center; color: rgba(255, 255, 255, 0.6); font-size: 0.9em;">
+            This Privacy Policy is effective as of December 2024 and will remain in effect except with respect to any changes 
+            in its provisions in the future, which will take effect immediately upon being posted on this page.
+        </p>
+
+        <a href="{{ url_for('index') }}" class="back-link">← Back to Home</a>
+    </div>
+</body>
+</html>
+
+
