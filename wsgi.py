@@ -4,10 +4,11 @@ This file is used by gunicorn to start the application
 """
 import os
 
-# Import the app module to ensure everything is initialized
-from app import app, socketio
+# Import the Flask app
+from app import app
 
-# Export the socketio object as the WSGI application
-# Flask-SocketIO with gevent worker requires using the socketio object
-application = socketio
+# Export the Flask app as the WSGI application
+# Note: WebSocket functionality may not work with this setup
+# For full WebSocket support, consider using a different deployment method
+application = app
 
