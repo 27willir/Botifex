@@ -38,7 +38,8 @@ class DatabaseConnectionPool:
         conn = sqlite3.connect(
             self.database,
             check_same_thread=False,
-            timeout=CONNECTION_TIMEOUT
+            timeout=CONNECTION_TIMEOUT,
+            isolation_level='DEFERRED'  # Better for concurrent access
         )
         # Enable WAL mode for better concurrent access
         conn.execute("PRAGMA journal_mode=WAL")
@@ -46,6 +47,10 @@ class DatabaseConnectionPool:
         conn.execute("PRAGMA foreign_keys=ON")
         # Set busy timeout
         conn.execute(f"PRAGMA busy_timeout={CONNECTION_TIMEOUT * 1000}")
+        # Optimize for concurrent access
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.execute("PRAGMA mmap_size=268435456")  # 256MB memory map
         return conn
     
     @contextmanager

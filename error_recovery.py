@@ -69,13 +69,29 @@ class HealthMonitor:
         """Check network connectivity."""
         try:
             import requests
-            response = requests.get("https://httpbin.org/status/200", timeout=10)
-            if response.status_code == 200:
+            # Try multiple endpoints for reliability
+            endpoints = [
+                ("https://httpbin.org/status/200", 5),
+                ("https://api.github.com", 5),
+                ("https://www.google.com", 5)
+            ]
+            
+            success = False
+            for endpoint, timeout in endpoints:
+                try:
+                    response = requests.get(endpoint, timeout=timeout)
+                    if response.status_code in [200, 301, 302]:
+                        success = True
+                        break
+                except Exception:
+                    continue
+            
+            if success:
                 self.health_status["network"]["status"] = "healthy"
                 self.health_status["network"]["last_check"] = datetime.now()
                 self.health_status["network"]["error_count"] = 0
             else:
-                raise Exception(f"Unexpected status code: {response.status_code}")
+                raise Exception("All network endpoints failed")
         except Exception as e:
             self.health_status["network"]["status"] = "unhealthy"
             self.health_status["network"]["error_count"] += 1
@@ -156,10 +172,24 @@ class RecoveryManager:
             # Wait and retry
             time.sleep(5)
             import requests
-            response = requests.get("https://httpbin.org/status/200", timeout=10)
-            if response.status_code == 200:
-                logger.info("Network recovery successful")
-                return True
+            
+            # Try multiple endpoints
+            endpoints = [
+                ("https://httpbin.org/status/200", 5),
+                ("https://api.github.com", 5),
+                ("https://www.google.com", 5)
+            ]
+            
+            for endpoint, timeout in endpoints:
+                try:
+                    response = requests.get(endpoint, timeout=timeout)
+                    if response.status_code in [200, 301, 302]:
+                        logger.info(f"Network recovery successful via {endpoint}")
+                        return True
+                except Exception:
+                    continue
+                    
+            logger.error("Network recovery failed - all endpoints unreachable")
             return False
         except Exception as e:
             logger.error(f"Network recovery failed: {e}")

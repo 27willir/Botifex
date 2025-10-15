@@ -31,19 +31,61 @@ def geocode_location(location_name):
         if location_key in geocode_cache:
             return geocode_cache[location_key]
     
+    # Add predefined coordinates for common locations to avoid geocoding
+    predefined_coords = {
+        'boise': (43.6150, -116.2023),
+        'boise, id': (43.6150, -116.2023),
+        'salt lake city': (40.7608, -111.8910),
+        'salt lake city, ut': (40.7608, -111.8910),
+        'portland': (45.5152, -122.6784),
+        'portland, or': (45.5152, -122.6784),
+        'seattle': (47.6062, -122.3321),
+        'seattle, wa': (47.6062, -122.3321),
+        'san francisco': (37.7749, -122.4194),
+        'san francisco, ca': (37.7749, -122.4194),
+        'los angeles': (34.0522, -118.2437),
+        'los angeles, ca': (34.0522, -118.2437),
+        'denver': (39.7392, -104.9903),
+        'denver, co': (39.7392, -104.9903),
+        'phoenix': (33.4484, -112.0740),
+        'phoenix, az': (33.4484, -112.0740),
+        'las vegas': (36.1699, -115.1398),
+        'las vegas, nv': (36.1699, -115.1398)
+    }
+    
+    # Check if we have predefined coordinates
+    if location_key in predefined_coords:
+        coords = predefined_coords[location_key]
+        with _geocode_lock:
+            geocode_cache[location_key] = coords
+        logger.debug(f"Using predefined coordinates for '{location_name}': {coords}")
+        return coords
+    
     try:
-        # Try to geocode the location
-        location = geolocator.geocode(location_name, timeout=10)
-        if location:
-            coords = (location.latitude, location.longitude)
-            # Cache the result
-            with _geocode_lock:
-                geocode_cache[location_key] = coords
-            logger.debug(f"Geocoded '{location_name}' to {coords}")
-            return coords
-        else:
-            logger.warning(f"Could not geocode location: {location_name}")
-            return None
+        # Try to geocode the location with a shorter timeout
+        # Set recursion limit temporarily
+        import sys
+        old_limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(100)
+        
+        try:
+            location = geolocator.geocode(location_name, timeout=5)
+            if location:
+                coords = (location.latitude, location.longitude)
+                # Cache the result
+                with _geocode_lock:
+                    geocode_cache[location_key] = coords
+                logger.debug(f"Geocoded '{location_name}' to {coords}")
+                return coords
+            else:
+                logger.warning(f"Could not geocode location: {location_name}")
+                return None
+        finally:
+            sys.setrecursionlimit(old_limit)
+            
+    except RecursionError as e:
+        logger.error(f"Recursion error in geocoding for '{location_name}': {e}")
+        return None
     except (GeocoderTimedOut, GeocoderServiceError) as e:
         logger.warning(f"Geocoding service error for '{location_name}': {e}")
         return None

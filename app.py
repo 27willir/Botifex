@@ -1372,11 +1372,63 @@ def api_listings():
 def api_system_status():
     """Get comprehensive system status including error recovery information."""
     try:
+        # Get base system status from error recovery
         status = get_system_status()
+        
+        # Add scraper status
+        status['scrapers_running'] = {
+            "facebook": is_facebook_running(),
+            "craigslist": is_craigslist_running(),
+            "ksl": is_ksl_running(),
+            "ebay": is_ebay_running(),
+            "poshmark": is_poshmark_running(),
+            "mercari": is_mercari_running()
+        }
+        
+        # Add database pool info
+        status['database'] = {
+            'pool_size': db_enhanced.POOL_SIZE,
+            'file': db_enhanced.DB_FILE
+        }
+        
+        # Add timestamp
+        status['timestamp'] = datetime.now().isoformat()
+        
+        # Add cache status
+        try:
+            cache = get_cache()
+            status['cache'] = {
+                'active': cache is not None,
+                'stats': cache.stats() if cache and hasattr(cache, 'stats') else {}
+            }
+        except Exception:
+            status['cache'] = {'active': False, 'error': 'Failed to get cache stats'}
+        
         return jsonify(status)
     except Exception as e:
         logger.error(f"Error getting system status: {e}")
         return jsonify({"error": "Failed to get system status"}), 500
+
+@app.route("/health")
+def health_check():
+    """Health check endpoint for monitoring services."""
+    try:
+        # Check database connection
+        with db_enhanced.get_pool().get_connection() as conn:
+            c = conn.cursor()
+            c.execute("SELECT 1")
+            
+        return jsonify({
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 503
 
 # ======================
 # ANALYTICS API ROUTES
