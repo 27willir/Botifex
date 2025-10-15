@@ -1,2 +1,2 @@
-web: gunicorn --config gunicorn_config.py app:socketio
+web: gunicorn --config gunicorn_config.py app:app
 

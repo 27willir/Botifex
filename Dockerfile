@@ -26,5 +26,5 @@ EXPOSE 5000
 ENV PORT=5000
 
 # Run gunicorn with gevent worker
-CMD ["gunicorn", "--config", "gunicorn_config.py", "app:socketio"]
+CMD ["gunicorn", "--config", "gunicorn_config.py", "app:app"]
 
