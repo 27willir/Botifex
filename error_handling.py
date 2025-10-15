@@ -28,12 +28,25 @@ class ErrorHandler:
             try:
                 return func(*args, **kwargs)
             except Exception as e:
-                logger.error(f"Database operation failed (attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay * (attempt + 1))
+                error_msg = str(e).lower()
+                # Check for specific database locking errors
+                if 'database is locked' in error_msg or 'database locked' in error_msg:
+                    logger.error(f"Database locked (attempt {attempt + 1}/{max_retries}): {e}")
+                    if attempt < max_retries - 1:
+                        # Exponential backoff for database locks
+                        wait_time = retry_delay * (2 ** attempt)
+                        logger.info(f"Waiting {wait_time} seconds before retry...")
+                        time.sleep(wait_time)
+                        continue
                 else:
-                    logger.error(f"Database operation failed after {max_retries} attempts: {e}")
-                    raise
+                    logger.error(f"Database operation failed (attempt {attempt + 1}/{max_retries}): {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (attempt + 1))
+                        continue
+                
+                # If we've exhausted retries or it's not a lock error, raise
+                logger.error(f"Database operation failed after {max_retries} attempts: {e}")
+                raise
     
     @staticmethod
     def handle_network_error(func: Callable, *args, **kwargs) -> Any:

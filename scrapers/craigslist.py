@@ -171,11 +171,15 @@ def check_craigslist(flag_name="craigslist"):
     base_retry_delay = 2
     
     # Get location coordinates for distance filtering
-    location_coords = get_location_coords(location)
-    if location_coords:
-        logger.debug(f"Craigslist: Searching {location} within {radius} miles")
-    else:
-        logger.warning(f"Could not geocode location '{location}', using default")
+    try:
+        location_coords = get_location_coords(location)
+        if location_coords:
+            logger.debug(f"Craigslist: Searching {location} within {radius} miles")
+        else:
+            logger.warning(f"Could not geocode location '{location}', proceeding without distance filtering")
+    except Exception as e:
+        logger.error(f"Error getting location coordinates: {e}")
+        location_coords = None
     
     for attempt in range(max_retries):
         try:
@@ -200,6 +204,12 @@ def check_craigslist(flag_name="craigslist"):
                 return []
         except Exception as e:
             logger.error(f"Unexpected error in Craigslist scraper: {e}")
+            # Report to error recovery system
+            try:
+                from error_recovery import handle_error
+                handle_error(e, "scrapers", "craigslist_check")
+            except ImportError:
+                pass
             return []
 
     # Process the results if we successfully got the page
