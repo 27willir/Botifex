@@ -8,7 +8,9 @@ import os
 from app import app
 
 # Export the Flask app as the WSGI application
-# Note: WebSocket functionality may not work with this setup
-# For full WebSocket support, consider using a different deployment method
+# This is the callable application that gunicorn expects
 application = app
+
+# For WebSocket support with gunicorn, use gevent worker class
+# The gunicorn_config.py is already configured for this
 
