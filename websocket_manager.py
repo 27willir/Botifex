@@ -15,12 +15,14 @@ socketio = None
 def init_socketio(app):
     """Initialize SocketIO with the Flask app"""
     global socketio
+    # Use gevent async mode for production (compatible with gunicorn gevent worker)
+    # or let it auto-detect based on available packages
     socketio = SocketIO(
         app,
         cors_allowed_origins="*",
         logger=False,
         engineio_logger=False,
-        async_mode='threading'
+        async_mode='gevent'  # Use gevent for production with gunicorn
     )
     
     # Register event handlers
