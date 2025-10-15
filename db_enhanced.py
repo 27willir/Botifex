@@ -1,6 +1,7 @@
 # db_enhanced.py - Enhanced database module for handling 1000+ users
 import sqlite3
 import threading
+import time
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from queue import Queue, Empty
@@ -483,6 +484,19 @@ def init_db():
     except Exception as e:
         logger.error(f"Unexpected error initializing database: {e}")
         raise
+# Lightweight health check that performs a read-only query
+@log_errors()
+def ping_db() -> bool:
+    """Simple read-only database health check (avoids schema writes)."""
+    try:
+        with get_pool().get_connection() as conn:
+            c = conn.cursor()
+            c.execute("SELECT 1")
+            _ = c.fetchone()
+        return True
+    except Exception as e:
+        logger.warning(f"Database ping failed: {e}")
+        return False
 
 
 # ======================
@@ -492,14 +506,27 @@ def init_db():
 @log_errors()
 def get_user_by_username(username):
     """Get user by username"""
-    with get_pool().get_connection() as conn:
-        c = conn.cursor()
-        c.execute("""
-            SELECT username, email, password, verified, role, active, created_at, last_login, login_count 
-            FROM users WHERE username = ?
-        """, (username,))
-        user = c.fetchone()
-        return user
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with get_pool().get_connection() as conn:
+                c = conn.cursor()
+                c.execute(
+                    """
+                    SELECT username, email, password, verified, role, active, created_at, last_login, login_count 
+                    FROM users WHERE username = ?
+                    """,
+                    (username,)
+                )
+                user = c.fetchone()
+                return user
+        except sqlite3.OperationalError as e:
+            # Retry specifically on locked database
+            if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                backoff = 0.2 * (attempt + 1)
+                time.sleep(backoff)
+                continue
+            raise
 
 
 @log_errors()

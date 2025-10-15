@@ -3,6 +3,7 @@ Shared location and distance utilities for all scrapers.
 Provides geocoding and distance calculation functionality.
 """
 import threading
+import time
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from geopy.distance import geodesic
@@ -14,6 +15,24 @@ from utils import logger
 geolocator = Nominatim(user_agent="super-bot-marketplace-scraper")
 geocode_cache = {}  # Cache for geocoded locations
 _geocode_lock = threading.Lock()  # Thread safety for geocoding
+
+# Cache failed geocoding attempts to avoid hammering the service on repeated failures
+_geocode_fail_cache = {}  # {location_key: last_failure_epoch_seconds}
+_geocode_fail_ttl_seconds = 600  # 10 minutes
+
+# Minimal fallback coordinates for common cities when geocoding is unavailable
+_fallback_coords = {
+    "boise": (43.6150, -116.2023),
+    "salt lake city": (40.7608, -111.8910),
+    "portland": (45.5152, -122.6784),
+    "seattle": (47.6062, -122.3321),
+    "phoenix": (33.4484, -112.0740),
+    "los angeles": (34.0522, -118.2437),
+    "las vegas": (36.1699, -115.1398),
+    "denver": (39.7392, -104.9903),
+    "san francisco": (37.7749, -122.4194),
+    "sacramento": (38.5816, -121.4944),
+}
 
 # ======================
 # GEOCODING FUNCTIONS
@@ -30,6 +49,13 @@ def geocode_location(location_name):
     with _geocode_lock:
         if location_key in geocode_cache:
             return geocode_cache[location_key]
+        # If we recently failed for this location, avoid retrying immediately
+        last_fail_ts = _geocode_fail_cache.get(location_key)
+        if last_fail_ts is not None and (time.time() - last_fail_ts) < _geocode_fail_ttl_seconds:
+            # Use fallback coords if available
+            if location_key in _fallback_coords:
+                return _fallback_coords[location_key]
+            return None
     
     try:
         # Try to geocode the location
@@ -39,16 +65,31 @@ def geocode_location(location_name):
             # Cache the result
             with _geocode_lock:
                 geocode_cache[location_key] = coords
+                _geocode_fail_cache.pop(location_key, None)
             logger.debug(f"Geocoded '{location_name}' to {coords}")
             return coords
         else:
             logger.warning(f"Could not geocode location: {location_name}")
+            # Remember failure and attempt fallback
+            with _geocode_lock:
+                _geocode_fail_cache[location_key] = time.time()
+            if location_key in _fallback_coords:
+                return _fallback_coords[location_key]
             return None
-    except (GeocoderTimedOut, GeocoderServiceError) as e:
+    except (GeocoderTimedOut, GeocoderServiceError, RecursionError) as e:
+        # Treat recursion from underlying library as a service error
         logger.warning(f"Geocoding service error for '{location_name}': {e}")
+        with _geocode_lock:
+            _geocode_fail_cache[location_key] = time.time()
+        if location_key in _fallback_coords:
+            return _fallback_coords[location_key]
         return None
     except Exception as e:
         logger.error(f"Unexpected error geocoding '{location_name}': {e}")
+        with _geocode_lock:
+            _geocode_fail_cache[location_key] = time.time()
+        if location_key in _fallback_coords:
+            return _fallback_coords[location_key]
         return None
 
 def calculate_distance(coord1, coord2):
