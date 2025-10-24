@@ -66,20 +66,49 @@ class HealthMonitor:
             logger.warning(f"Database health check failed: {e}")
     
     def _check_network_health(self):
-        """Check network connectivity."""
+        """Check network connectivity with multiple fallback endpoints."""
         try:
             import requests
-            response = requests.get("https://httpbin.org/status/200", timeout=10)
-            if response.status_code == 200:
+            
+            # List of health check endpoints to try
+            health_endpoints = [
+                "https://httpbin.org/status/200",
+                "https://www.google.com",
+                "https://www.cloudflare.com",
+                "https://httpbin.org/get"
+            ]
+            
+            success = False
+            last_error = None
+            
+            for endpoint in health_endpoints:
+                try:
+                    response = requests.get(endpoint, timeout=5, allow_redirects=True)
+                    # Accept 200, 301, 302, etc. as healthy responses
+                    if response.status_code in [200, 301, 302, 304]:
+                        success = True
+                        break
+                    else:
+                        last_error = f"Status {response.status_code} from {endpoint}"
+                except requests.exceptions.RequestException as e:
+                    last_error = f"Request failed for {endpoint}: {str(e)}"
+                    continue
+            
+            if success:
                 self.health_status["network"]["status"] = "healthy"
                 self.health_status["network"]["last_check"] = datetime.now()
                 self.health_status["network"]["error_count"] = 0
             else:
-                raise Exception(f"Unexpected status code: {response.status_code}")
+                raise Exception(f"All network checks failed. Last error: {last_error}")
+                
         except Exception as e:
             self.health_status["network"]["status"] = "unhealthy"
             self.health_status["network"]["error_count"] += 1
-            logger.warning(f"Network health check failed: {e}")
+            # Only log as warning if we've had multiple consecutive failures
+            if self.health_status["network"]["error_count"] > 3:
+                logger.warning(f"Network health check failed (attempt {self.health_status['network']['error_count']}): {e}")
+            else:
+                logger.debug(f"Network health check failed: {e}")
     
     def _check_scraper_health(self):
         """Check scraper system health."""
@@ -153,13 +182,27 @@ class RecoveryManager:
         """Recover from network errors."""
         try:
             logger.info("Attempting network recovery...")
-            # Wait and retry
+            # Wait and retry with multiple endpoints
             time.sleep(5)
             import requests
-            response = requests.get("https://httpbin.org/status/200", timeout=10)
-            if response.status_code == 200:
-                logger.info("Network recovery successful")
-                return True
+            
+            # Try multiple endpoints for recovery
+            recovery_endpoints = [
+                "https://www.google.com",
+                "https://www.cloudflare.com", 
+                "https://httpbin.org/get"
+            ]
+            
+            for endpoint in recovery_endpoints:
+                try:
+                    response = requests.get(endpoint, timeout=5, allow_redirects=True)
+                    if response.status_code in [200, 301, 302, 304]:
+                        logger.info(f"Network recovery successful using {endpoint}")
+                        return True
+                except requests.exceptions.RequestException:
+                    continue
+            
+            logger.warning("Network recovery failed - all endpoints unreachable")
             return False
         except Exception as e:
             logger.error(f"Network recovery failed: {e}")
