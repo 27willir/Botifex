@@ -510,6 +510,18 @@ def init_db():
                 )
             """)
             
+            # Security events table
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS security_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ip_address TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    user_agent TEXT,
+                    reason TEXT NOT NULL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             # Favorites/Bookmarks
             c.execute("""
                 CREATE TABLE IF NOT EXISTS favorites (
@@ -2123,6 +2135,46 @@ def create_or_update_subscription(username, tier, status='active', stripe_custom
         
         conn.commit()
         return True
+
+
+@log_errors()
+def log_security_event(ip, path, user_agent, reason, timestamp=None):
+    """Log security events for monitoring and analysis"""
+    if timestamp is None:
+        timestamp = datetime.now()
+    
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO security_events (ip_address, path, user_agent, reason, timestamp)
+            VALUES (?, ?, ?, ?, ?)
+        """, (ip, path, user_agent, reason, timestamp))
+        conn.commit()
+        return True
+
+
+@log_errors()
+def get_security_events(limit=100, hours=24):
+    """Get recent security events"""
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        c.execute("""
+            SELECT ip_address, path, user_agent, reason, timestamp
+            FROM security_events
+            WHERE timestamp > ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """, (cutoff_time, limit))
+        
+        rows = c.fetchall()
+        return [{
+            'ip_address': row[0],
+            'path': row[1],
+            'user_agent': row[2],
+            'reason': row[3],
+            'timestamp': row[4]
+        } for row in rows]
 
 
 @log_errors()

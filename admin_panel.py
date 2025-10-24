@@ -7,6 +7,7 @@ import db_enhanced
 from utils import logger
 from rate_limiter import reset_user_rate_limits
 from cache_manager import get_cache
+from security_middleware import get_security_stats
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -285,6 +286,49 @@ def cleanup_cache():
         logger.error(f"Error cleaning up cache: {e}")
         flash("Error cleaning up cache", "error")
         return redirect(url_for("admin.cache_management"))
+
+
+@admin_bp.route('/security')
+@login_required
+@admin_required
+def security_monitoring():
+    """Security monitoring page"""
+    try:
+        # Get security statistics
+        security_stats = get_security_stats()
+        
+        # Get recent security events
+        security_events = db_enhanced.get_security_events(limit=100, hours=24)
+        
+        return render_template('admin/security.html', 
+                            stats=security_stats, 
+                            events=security_events)
+    
+    except Exception as e:
+        logger.error(f"Error loading security page: {e}")
+        flash("Error loading security monitoring page", "error")
+        return redirect(url_for("admin.dashboard"))
+
+
+@admin_bp.route('/security/events')
+@login_required
+@admin_required
+def security_events():
+    """Get security events as JSON"""
+    try:
+        hours = request.args.get('hours', 24, type=int)
+        limit = request.args.get('limit', 100, type=int)
+        
+        events = db_enhanced.get_security_events(limit=limit, hours=hours)
+        
+        return jsonify({
+            'events': events,
+            'count': len(events)
+        })
+    
+    except Exception as e:
+        logger.error(f"Error getting security events: {e}")
+        return jsonify({'error': 'Failed to get security events'}), 500
 
 
 # API endpoints for admin dashboard

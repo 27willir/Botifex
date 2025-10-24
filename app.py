@@ -22,6 +22,7 @@ from utils import logger
 from rate_limiter import rate_limit, add_rate_limit_headers
 from cache_manager import cache_get, cache_set, cache_clear, get_cache
 from admin_panel import admin_bp
+from security_middleware import security_before_request, add_security_headers, get_security_stats
 # Import subscription modules
 from subscriptions import SubscriptionManager, StripeManager, get_all_tiers, format_price
 from subscription_middleware import (
@@ -64,10 +65,16 @@ csrf = CSRFProtect(app)
 # Register admin blueprint
 app.register_blueprint(admin_bp)
 
+# Security middleware - must be first
+@app.before_request
+def before_request():
+    return security_before_request()
+
 # Add rate limit headers to all responses
 @app.after_request
 def after_request(response):
-    return add_rate_limit_headers(response)
+    response = add_rate_limit_headers(response)
+    return add_security_headers(response)
 
 # Add subscription context to all templates
 @app.context_processor
