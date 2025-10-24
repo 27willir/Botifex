@@ -155,8 +155,17 @@ class RecoveryManager:
         """Recover from database errors."""
         try:
             logger.info("Attempting database recovery...")
-            from db_enhanced import init_db
+            from db_enhanced import init_db, maintain_database, cleanup_old_connections
+            
+            # Clean up old connections first
+            cleanup_old_connections()
+            
+            # Perform database maintenance
+            maintain_database()
+            
+            # Reinitialize database if needed
             init_db()
+            
             logger.info("Database recovery successful")
             return True
         except Exception as e:

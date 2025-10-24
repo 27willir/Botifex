@@ -38,18 +38,22 @@ class DatabaseConnectionPool:
         conn = sqlite3.connect(
             self.database,
             check_same_thread=False,
-            timeout=CONNECTION_TIMEOUT
+            timeout=CONNECTION_TIMEOUT,
+            isolation_level=None  # Autocommit mode to reduce locking
         )
         # Enable WAL mode for better concurrent access
         conn.execute("PRAGMA journal_mode=WAL")
         # Enable foreign keys
         conn.execute("PRAGMA foreign_keys=ON")
-        # Set busy timeout (in milliseconds)
-        conn.execute(f"PRAGMA busy_timeout={CONNECTION_TIMEOUT * 1000}")
+        # Set busy timeout (in milliseconds) - increased for better locking handling
+        conn.execute(f"PRAGMA busy_timeout={CONNECTION_TIMEOUT * 2000}")
         # Optimize for concurrent access
         conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size=10000")
+        conn.execute("PRAGMA cache_size=20000")  # Increased cache size
         conn.execute("PRAGMA temp_store=MEMORY")
+        # Additional settings for better concurrency
+        conn.execute("PRAGMA read_uncommitted=1")  # Allow dirty reads
+        conn.execute("PRAGMA locking_mode=NORMAL")  # Use normal locking
         # Enable query planner optimizations
         conn.execute("PRAGMA optimize")
         return conn
@@ -60,13 +64,29 @@ class DatabaseConnectionPool:
         conn = None
         try:
             conn = self.pool.get(timeout=CONNECTION_TIMEOUT)
+            # Test the connection before yielding
+            try:
+                conn.execute("SELECT 1").fetchone()
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e).lower():
+                    # Create a new connection if the pooled one is locked
+                    logger.warning("Pooled connection is locked, creating new connection")
+                    conn.close()
+                    conn = self._create_connection()
             yield conn
         except Empty:
             logger.error("Connection pool exhausted - consider increasing pool size")
             raise DatabaseError("Database connection pool exhausted")
         finally:
             if conn:
-                self.pool.put(conn)
+                try:
+                    # Ensure connection is in a good state before returning to pool
+                    conn.execute("SELECT 1").fetchone()
+                    self.pool.put(conn)
+                except sqlite3.OperationalError:
+                    # If connection is bad, close it and don't return to pool
+                    logger.warning("Removing bad connection from pool")
+                    conn.close()
     
     def close_all(self):
         """Close all connections in the pool"""
@@ -91,8 +111,48 @@ def get_pool():
         _connection_pool = DatabaseConnectionPool(DB_FILE)
     return _connection_pool
 
+def maintain_database():
+    """Perform database maintenance to prevent locking issues"""
+    try:
+        with get_pool().get_connection() as conn:
+            c = conn.cursor()
+            # Analyze database for better query planning
+            c.execute("ANALYZE")
+            # Clean up any pending transactions
+            c.execute("PRAGMA optimize")
+            # Check database integrity
+            c.execute("PRAGMA integrity_check")
+            logger.info("Database maintenance completed")
+    except Exception as e:
+        logger.error(f"Database maintenance failed: {e}")
 
-def retry_db_operation(operation_func, max_retries=3, base_delay=0.1):
+def cleanup_old_connections():
+    """Clean up old or problematic connections from the pool"""
+    try:
+        pool = get_pool()
+        with pool.lock:
+            # Test all connections and remove bad ones
+            good_connections = []
+            for conn in pool.all_connections:
+                try:
+                    conn.execute("SELECT 1").fetchone()
+                    good_connections.append(conn)
+                except Exception:
+                    conn.close()
+                    logger.warning("Removed bad connection from pool")
+            
+            # Rebuild the pool with good connections
+            pool.all_connections = good_connections
+            pool.pool = Queue(maxsize=pool.pool_size)
+            for conn in good_connections:
+                pool.pool.put(conn)
+            
+            logger.info(f"Cleaned up connection pool, {len(good_connections)} connections remaining")
+    except Exception as e:
+        logger.error(f"Connection cleanup failed: {e}")
+
+
+def retry_db_operation(operation_func, max_retries=5, base_delay=0.1):
     """
     Retry database operations with exponential backoff for handling locking issues
     
@@ -111,19 +171,33 @@ def retry_db_operation(operation_func, max_retries=3, base_delay=0.1):
         try:
             return operation_func()
         except sqlite3.OperationalError as e:
-            if "database is locked" in str(e).lower():
+            error_msg = str(e).lower()
+            if "database is locked" in error_msg or "database table is locked" in error_msg:
                 if attempt < max_retries - 1:
                     # Exponential backoff with jitter
-                    delay = base_delay * (2 ** attempt) + random.uniform(0, 0.1)
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 0.2)
                     logger.warning(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
                     time.sleep(delay)
                     continue
                 else:
                     logger.error(f"Database locked after {max_retries} attempts")
                     return None
+            elif "database is busy" in error_msg:
+                if attempt < max_retries - 1:
+                    # Shorter delay for busy database
+                    delay = base_delay * (1.5 ** attempt) + random.uniform(0, 0.1)
+                    logger.warning(f"Database busy, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Database busy after {max_retries} attempts")
+                    return None
             else:
                 logger.error(f"Database error: {e}")
                 return None
+        except sqlite3.DatabaseError as e:
+            logger.error(f"Database integrity error: {e}")
+            return None
         except Exception as e:
             logger.error(f"Unexpected error in database operation: {e}")
             return None
