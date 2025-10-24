@@ -21,18 +21,57 @@ class ErrorHandler:
     @staticmethod
     def handle_database_error(func: Callable, *args, **kwargs) -> Any:
         """Handle database-related errors with retry logic."""
-        max_retries = 3
-        retry_delay = 1
+        import sqlite3
+        import random
+        
+        max_retries = 5
+        base_delay = 0.1
         
         for attempt in range(max_retries):
             try:
                 return func(*args, **kwargs)
+            except sqlite3.OperationalError as e:
+                error_msg = str(e).lower()
+                if "database is locked" in error_msg or "database table is locked" in error_msg:
+                    if attempt < max_retries - 1:
+                        # Exponential backoff with jitter for locking errors
+                        delay = base_delay * (2 ** attempt) + random.uniform(0, 0.2)
+                        logger.warning(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"Database locked after {max_retries} attempts")
+                        raise
+                elif "database is busy" in error_msg:
+                    if attempt < max_retries - 1:
+                        # Shorter delay for busy database
+                        delay = base_delay * (1.5 ** attempt) + random.uniform(0, 0.1)
+                        logger.warning(f"Database busy, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"Database busy after {max_retries} attempts")
+                        raise
+                else:
+                    logger.error(f"Database error: {e}")
+                    raise
+            except sqlite3.DatabaseError as e:
+                logger.error(f"Database integrity error: {e}")
+                raise
             except Exception as e:
                 logger.error(f"Database operation failed (attempt {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    time.sleep(retry_delay * (attempt + 1))
+                    time.sleep(base_delay * (attempt + 1))
                 else:
                     logger.error(f"Database operation failed after {max_retries} attempts: {e}")
+                    # Try to perform database maintenance on final failure
+                    try:
+                        from db_enhanced import maintain_database, cleanup_old_connections
+                        cleanup_old_connections()
+                        maintain_database()
+                        logger.info("Performed database maintenance after operation failure")
+                    except Exception as maintenance_error:
+                        logger.error(f"Database maintenance failed: {maintenance_error}")
                     raise
     
     @staticmethod
