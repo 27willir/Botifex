@@ -155,13 +155,18 @@ class RecoveryManager:
         """Recover from database errors."""
         try:
             logger.info("Attempting database recovery...")
-            from db_enhanced import init_db, maintain_database, cleanup_old_connections
+            from db_enhanced import init_db, maintain_database, cleanup_old_connections, reset_connection_pool
             
             # Clean up old connections first
             cleanup_old_connections()
             
             # Perform database maintenance
             maintain_database()
+            
+            # If still having issues, reset the entire connection pool
+            if "database is locked" in str(error).lower():
+                logger.warning("Persistent locking detected, resetting connection pool")
+                reset_connection_pool()
             
             # Reinitialize database if needed
             init_db()

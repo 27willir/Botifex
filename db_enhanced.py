@@ -151,6 +151,21 @@ def cleanup_old_connections():
     except Exception as e:
         logger.error(f"Connection cleanup failed: {e}")
 
+def reset_connection_pool():
+    """Reset the entire connection pool when locking issues persist"""
+    try:
+        global _connection_pool
+        if _connection_pool:
+            logger.warning("Resetting connection pool due to persistent locking issues")
+            _connection_pool.close_all()
+            _connection_pool = None
+        
+        # Create a new pool
+        _connection_pool = DatabaseConnectionPool(DB_FILE)
+        logger.info("Connection pool reset successfully")
+    except Exception as e:
+        logger.error(f"Connection pool reset failed: {e}")
+
 
 def retry_db_operation(operation_func, max_retries=5, base_delay=0.1):
     """
@@ -181,6 +196,11 @@ def retry_db_operation(operation_func, max_retries=5, base_delay=0.1):
                     continue
                 else:
                     logger.error(f"Database locked after {max_retries} attempts")
+                    # Try to reset connection pool on final failure
+                    try:
+                        reset_connection_pool()
+                    except Exception as reset_error:
+                        logger.error(f"Connection pool reset failed: {reset_error}")
                     return None
             elif "database is busy" in error_msg:
                 if attempt < max_retries - 1:
@@ -978,7 +998,7 @@ def check_rate_limit(username, endpoint, max_requests=60, window_minutes=1):
     import time
     import random
     
-    max_retries = 3
+    max_retries = 5
     base_delay = 0.1  # Base delay in seconds
     
     for attempt in range(max_retries):
