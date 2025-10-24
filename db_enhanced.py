@@ -2141,18 +2141,29 @@ def create_or_update_subscription(username, tier, status='active', stripe_custom
 
 @log_errors()
 def log_security_event(ip, path, user_agent, reason, timestamp=None):
-    """Log security events for monitoring and analysis"""
+    """Log security events for monitoring and analysis with enhanced error handling"""
     if timestamp is None:
         timestamp = datetime.now()
     
-    with get_pool().get_connection() as conn:
-        c = conn.cursor()
-        c.execute("""
-            INSERT INTO security_events (ip_address, path, user_agent, reason, timestamp)
-            VALUES (?, ?, ?, ?, ?)
-        """, (ip, path, user_agent, reason, timestamp))
-        conn.commit()
-        return True
+    try:
+        with get_pool().get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO security_events (ip_address, path, user_agent, reason, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+            """, (ip, path, user_agent, reason, timestamp))
+            conn.commit()
+            return True
+    except sqlite3.OperationalError as e:
+        if "database is locked" in str(e).lower():
+            logger.warning(f"Database locked while logging security event for IP {ip}")
+            raise  # Re-raise to trigger retry mechanism
+        else:
+            logger.error(f"Database error logging security event: {e}")
+            raise
+    except Exception as e:
+        logger.error(f"Unexpected error logging security event: {e}")
+        raise
 
 
 @log_errors()

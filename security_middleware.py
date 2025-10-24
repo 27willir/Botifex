@@ -206,23 +206,36 @@ class SecurityMiddleware:
         return False, None
     
     def log_security_event(self, ip, path, user_agent, reason):
-        """Log security events to database with retry logic"""
-        max_retries = 3
+        """Log security events to database with enhanced retry logic"""
+        max_retries = 5
         for attempt in range(max_retries):
             try:
-                db_enhanced.log_security_event(
-                    ip=ip,
-                    path=path,
-                    user_agent=user_agent,
-                    reason=reason,
-                    timestamp=datetime.now()
-                )
-                return  # Success, exit retry loop
+                # Use the retry mechanism from db_enhanced
+                def log_operation():
+                    return db_enhanced.log_security_event(
+                        ip=ip,
+                        path=path,
+                        user_agent=user_agent,
+                        reason=reason,
+                        timestamp=datetime.now()
+                    )
+                
+                # Use the database retry mechanism
+                result = db_enhanced.retry_db_operation(log_operation, max_retries=3, base_delay=0.1)
+                if result:
+                    return  # Success
+                else:
+                    raise Exception("Database operation failed after retries")
+                    
             except Exception as e:
-                if "database is locked" in str(e).lower() and attempt < max_retries - 1:
-                    # Wait briefly before retry
+                error_msg = str(e).lower()
+                if ("database is locked" in error_msg or "database table is locked" in error_msg) and attempt < max_retries - 1:
+                    # Enhanced exponential backoff with jitter
                     import time
-                    time.sleep(0.1 * (attempt + 1))  # Exponential backoff
+                    import random
+                    delay = 0.1 * (2 ** attempt) + random.uniform(0, 0.1)
+                    logger.warning(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(delay)
                     continue
                 else:
                     logger.error(f"Failed to log security event after {attempt + 1} attempts: {e}")
