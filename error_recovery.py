@@ -54,9 +54,11 @@ class HealthMonitor:
     def _check_database_health(self):
         """Check database connectivity and performance."""
         try:
-            from db_enhanced import init_db
-            # Simple database health check
-            init_db()
+            from db_enhanced import get_pool
+            # Simple database health check without reinitializing
+            pool = get_pool()
+            with pool.get_connection() as conn:
+                conn.execute("SELECT 1").fetchone()
             self.health_status["database"]["status"] = "healthy"
             self.health_status["database"]["last_check"] = datetime.now()
             self.health_status["database"]["error_count"] = 0

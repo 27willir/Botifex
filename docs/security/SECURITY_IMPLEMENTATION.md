@@ -6,31 +6,79 @@ This document describes the comprehensive security measures implemented to prote
 
 ## Security Features Implemented
 
-### 1. Request Filtering Middleware
+### 1. Enhanced Request Filtering Middleware
 
 **File**: `security_middleware.py`
 
 The security middleware automatically blocks malicious requests by:
 
-- **Suspicious File Patterns**: Blocks access to sensitive files like:
-  - Configuration files (`.env`, `.ini`, `.conf`, `.yml`, `.yaml`)
+- **Comprehensive Suspicious File Patterns**: Blocks access to sensitive files including:
+  - Environment files (`.env`, `.env.local`, `.env.production`, etc.)
+  - Configuration files (`.ini`, `.conf`, `.config`, `.yml`, `.yaml`)
   - Database files (`.sql`, `.db`, `.database`)
-  - Backup files (`.bak`, `.backup`, `.old`)
+  - Backup files (`.bak`, `.backup`, `.old`, `.tmp`)
   - Version control files (`.git`, `.svn`, `.hg`)
   - Script files (`.sh`, `.bat`, `.cmd`, `.ps1`)
   - PHP/ASP files (`.php`, `.asp`, `.jsp`)
   - Security files (`.htaccess`, `.htpasswd`)
+  - AWS credentials (`.aws/credentials`)
+  - Development files (`composer.json`, `package.json`, `Dockerfile`)
 
-- **Malicious User Agents**: Detects and blocks requests from known attack tools:
-  - `sqlmap`, `nikto`, `nmap`, `masscan`
-  - `zap`, `burp`, `scanner`, `bot`, `crawler`
+- **Enhanced Malicious User Agent Detection**: Detects and blocks requests from:
+  - Security scanners: `sqlmap`, `nikto`, `nmap`, `masscan`
+  - Testing tools: `zap`, `burp`, `scanner`, `bot`, `crawler`
+  - HTTP clients: `python-requests`, `curl`, `wget`, `httpie`
+  - Programming languages: `go-http-client`, `java`, `perl`, `ruby`, `php`
 
-- **Rate Limiting**: Implements IP-based rate limiting:
-  - Maximum 30 requests per minute per IP
-  - Automatic blocking after 5 suspicious requests
-  - 60-minute block duration
+- **Multi-Level Rate Limiting**: Implements aggressive IP-based rate limiting:
+  - Maximum 20 requests per minute per IP (reduced from 30)
+  - Maximum 5 requests per second per IP
+  - Maximum 10 requests per 10 seconds (rapid-fire protection)
+  - Automatic blocking after 3 suspicious requests (reduced from 5)
+  - 120-minute block duration (increased from 60)
+  - Immediate blocking for high-risk file access patterns
 
-### 2. Security Headers
+### 2. Honeypot Routes
+
+**File**: `honeypot_routes.py`
+
+Advanced honeypot system that attracts and immediately blocks automated scanners:
+
+- **Environment File Honeypots**: Disguised routes for `.env` files
+- **Configuration Honeypots**: Routes for `wp-config.php`, `config.js`, etc.
+- **PHP Info Honeypots**: Routes for `phpinfo.php`, `info.php`, etc.
+- **Admin Interface Honeypots**: Routes for `/admin/`, `/wp-admin/`, etc.
+- **Version Control Honeypots**: Routes for `/.git/`, `/.svn/`, etc.
+- **Development File Honeypots**: Routes for `composer.json`, `Dockerfile`, etc.
+- **AWS Credential Honeypots**: Routes for AWS configuration files
+- **Framework-Specific Honeypots**: Routes for Laravel, Node.js, React apps
+- **Decoy Routes**: Legitimate-looking routes like `/robots.txt`, `/sitemap.xml`
+
+### 3. Enhanced Rate Limiting
+
+**File**: `rate_limiter.py`
+
+Improved rate limiting with security integration:
+
+- **Reduced Rate Limits**: More aggressive limits for all endpoints
+  - API endpoints: 30 requests/minute (reduced from 60)
+  - Scraper operations: 5 requests/minute (reduced from 10)
+  - Settings updates: 15 requests/minute (reduced from 30)
+  - Login attempts: 3 requests/minute (reduced from 5)
+  - Registration: 2 requests/minute (reduced from 3)
+
+- **Security Integration**: Rate limiter now checks:
+  - Security middleware blocked IPs
+  - Honeypot-triggered IPs
+  - Suspicious IP reputation
+  - Applies stricter limits for suspicious IPs (1 request/minute)
+
+- **Enhanced Headers**: Added security information to responses:
+  - `X-RateLimit-Remaining`: Remaining requests
+  - `X-Security-Level`: Security level indicator
+  - `X-Content-Security`: Security status
+
+### 4. Security Headers
 
 **Implementation**: Added comprehensive security headers to all responses:
 
@@ -69,25 +117,59 @@ Features:
 
 Based on your logs, the following attack patterns are now automatically blocked:
 
-1. **Configuration File Access**:
-   - `/application.yml`
-   - `/composer.json`
-   - `/docker-compose.yml`
-   - `/web.config`
-   - `/config.js`
-   - `/settings.php`
+### 1. Environment File Access (High Priority)
+- `/.env`, `/.env.local`, `/.env.production`, `/.env.staging`
+- `/.env.backup`, `/.env.old`, `/.env.sample`, `/.env.example`
+- `/.env.production.local`, `/.env.stage`, `/.env.prod`
 
-2. **Database File Access**:
-   - `/db.php`
-   - `/database.php`
+### 2. Configuration File Access
+- `/application.yml`, `/composer.json`, `/docker-compose.yml`
+- `/web.config`, `/config.js`, `/settings.php`
+- `/config.json`, `/config.yml`, `/config.yaml`
+- `/database.php`, `/db.php`
 
-3. **Backup File Access**:
-   - `/.env.bak`
-   - `/.gitconfig`
+### 3. PHP Information Disclosure
+- `/phpinfo.php`, `/info.php`, `/test.php`
+- `/server-info.php`, `/server_info.php`
+- `/_phpinfo.php`, `/_profiler/phpinfo`
+- `/dashboard/phpinfo.php`, `/admin/server_info.php`
+- `/secured/phpinfo.php`
 
-4. **Directory Traversal Attempts**:
-   - `/admin/`, `/wp-admin/`, `/phpmyadmin/`
-   - `/.git/`, `/.svn/`, `/.hg/`
+### 4. WordPress and CMS Access
+- `/wp-config.php`, `/wp-config.php.bak`, `/wp-config`
+- `/wp-admin/`, `/admin/`, `/phpmyadmin/`, `/adminer/`
+
+### 5. Version Control Access
+- `/.git/`, `/.svn/`, `/.hg/`
+- `/.git/config`, `/.git/HEAD`
+- `/.vscode/`, `/.idea/`
+
+### 6. Development Framework Access
+- `/xampp/`, `/lara/phpinfo.php`, `/laravel/info.php`
+- `/laravel/.env`, `/laravel/core/.env`
+- `/node_modules/`, `/node/.env_example`
+- `/scripts/nodemailer.js`
+
+### 7. AWS and Cloud Credentials
+- `/aws-secret.yaml`, `/.aws/credentials`, `/.aws/config`
+
+### 8. Application-Specific Paths
+- `/app/`, `/new/`, `/dev/`, `/prod/`, `/staging/`
+- `/development/`, `/backend/`, `/frontend/`
+- `/website/`, `/site/`, `/public/`, `/main/`
+- `/core/`, `/local/`, `/apps/`, `/application/`
+- `/web/`, `/crm/`, `/kyc/`, `/mail/`, `/mailer/`
+- `/nginx/`, `/docker/`, `/api/shared/`
+
+### 9. Static Asset Access (React/Vue apps)
+- `/static/js/main.*.js`, `/static/js/2.*.chunk.js`
+- `/static/js/*.chunk.js`
+
+### 10. Service and Database Files
+- `/service/email_service.py`
+- `/server/config/database.js`
+- `/api/shared/config/config.env`
+- `/api/shared/config.env`
 
 ## Implementation Details
 
@@ -190,8 +272,7 @@ Make multiple rapid requests to trigger rate limiting.
 Visit `/admin/security` to see:
 - Blocked IPs
 - Security events
-- Real-time statistics
-
+- Real-time s](../../../Downloads/Botifex-main.zip)
 ## Maintenance
 
 ### Regular Tasks

@@ -15,24 +15,72 @@ class SecurityMiddleware:
     def __init__(self):
         # Suspicious file patterns that attackers commonly try to access
         self.suspicious_patterns = [
+            # Environment and config files
             r'\.(env|bak|backup|old|tmp|temp)$',
+            r'\.(env\.local|\.env\.production|\.env\.staging|\.env\.development)$',
+            r'\.(env\.backup|\.env\.old|\.env\.sample|\.env\.example)$',
+            
+            # Version control and development files
             r'\.(git|svn|hg)$',
+            r'/(\.git|\.svn|\.hg)/',
+            r'/(\.vscode|\.idea)/',
+            
+            # Database and data files
             r'\.(sql|db|database)$',
             r'\.(log|logs)$',
+            
+            # Configuration files
             r'\.(ini|conf|config)$',
-            r'\.(php|asp|jsp)$',
-            r'\.(xml|yml|yaml|json)$',
-            r'\.(sh|bat|cmd|ps1)$',
-            r'\.(key|pem|crt|cert)$',
-            r'\.(htaccess|htpasswd)$',
-            r'/(admin|wp-admin|phpmyadmin|adminer)/',
-            r'/(\.git|\.svn|\.hg)/',
-            r'/(config|database|backup)/',
+            r'/(config|database|backup|conf)/',
             r'/(composer\.json|package\.json|requirements\.txt)$',
             r'/(docker-compose\.yml|Dockerfile)$',
             r'/(web\.config|\.htaccess)$',
             r'/(settings\.php|config\.js)$',
-            r'/(\.env|\.env\.local|\.env\.production)$'
+            
+            # Server-side scripts
+            r'\.(php|asp|jsp)$',
+            r'/(phpinfo|info\.php|test\.php|server-info)$',
+            r'/(_profiler|_phpinfo|phpinfo\.php)$',
+            
+            # Data and config files
+            r'\.(xml|yml|yaml|json)$',
+            r'/(aws-secret\.yaml|config\.env)$',
+            
+            # Scripts and executables
+            r'\.(sh|bat|cmd|ps1)$',
+            
+            # Security and certificates
+            r'\.(key|pem|crt|cert)$',
+            r'\.(htaccess|htpasswd)$',
+            r'/(\.aws/credentials)$',
+            
+            # Admin and management interfaces
+            r'/(admin|wp-admin|phpmyadmin|adminer)/',
+            r'/(wp-config|server_info|server-info)$',
+            
+            # Common attack targets
+            r'/(xampp|laravel|laravel/core|laravel/info\.php)$',
+            r'/(lara/phpinfo|lara/info\.php)$',
+            r'/(dashboard/phpinfo|admin/server_info)$',
+            r'/(secured/phpinfo|server-info\.php)$',
+            
+            # Node.js and development files
+            r'/(node_modules|node/\.env_example)$',
+            r'/(scripts/nodemailer\.js)$',
+            
+            # Application-specific paths
+            r'/(app|new|dev|prod|staging|development|backend|frontend)/',
+            r'/(website|site|public|main|core|local|apps|application|web)/',
+            r'/(crm|kyc|mail|mailer|nginx|docker)/',
+            r'/(api/shared|api/config|api/shared/config)/',
+            r'/(service/email_service\.py)$',
+            
+            # Static files that shouldn't be accessible
+            r'/(static/js/main\.|static/js/2\.|static/js/.*\.chunk\.js)$',
+            
+            # Backup and old files
+            r'/(env\.backup|env\.old|env\.sample|env\.prod)$',
+            r'/(\.env\.production\.local|\.env\.stage)$'
         ]
         
         # Compile patterns for better performance
@@ -43,10 +91,15 @@ class SecurityMiddleware:
         self.blocked_ips = set()
         self.suspicious_ips = defaultdict(int)
         
-        # Rate limiting thresholds
-        self.max_requests_per_minute = 30
-        self.max_suspicious_requests = 5
-        self.block_duration_minutes = 60
+        # Rate limiting thresholds - more aggressive for security
+        self.max_requests_per_minute = 20  # Reduced from 30
+        self.max_suspicious_requests = 3   # Reduced from 5
+        self.block_duration_minutes = 120  # Increased from 60
+        
+        # Additional security thresholds
+        self.max_requests_per_second = 5   # New: limit per second
+        self.suspicious_ip_block_threshold = 2  # Block after 2 suspicious requests
+        self.rapid_fire_threshold = 10  # Block if 10+ requests in 10 seconds
         
     def is_suspicious_request(self, path):
         """Check if the request path matches suspicious patterns"""
@@ -62,16 +115,20 @@ class SecurityMiddleware:
             
         suspicious_agents = [
             'sqlmap', 'nikto', 'nmap', 'masscan', 'zap', 'burp',
-            'scanner', 'bot', 'crawler', 'spider', 'harvester'
+            'scanner', 'bot', 'crawler', 'spider', 'harvester',
+            'python-requests', 'curl', 'wget', 'httpie', 'postman',
+            'go-http-client', 'java', 'perl', 'ruby', 'php'
         ]
         
         user_agent_lower = user_agent.lower()
         return any(agent in user_agent_lower for agent in suspicious_agents)
     
     def track_ip_activity(self, ip):
-        """Track IP activity for rate limiting"""
+        """Track IP activity for rate limiting with multiple thresholds"""
         now = time.time()
         minute_ago = now - 60
+        second_ago = now - 1
+        ten_seconds_ago = now - 10
         
         # Clean old requests
         while self.ip_requests[ip] and self.ip_requests[ip][0] < minute_ago:
@@ -80,7 +137,21 @@ class SecurityMiddleware:
         # Add current request
         self.ip_requests[ip].append(now)
         
-        # Check if IP should be blocked
+        # Check rapid-fire requests (10+ in 10 seconds)
+        recent_requests = [req for req in self.ip_requests[ip] if req > ten_seconds_ago]
+        if len(recent_requests) > self.rapid_fire_threshold:
+            self.blocked_ips.add(ip)
+            logger.warning(f"IP {ip} blocked for rapid-fire requests: {len(recent_requests)} in 10 seconds")
+            return False
+        
+        # Check per-second rate limit
+        second_requests = [req for req in self.ip_requests[ip] if req > second_ago]
+        if len(second_requests) > self.max_requests_per_second:
+            self.blocked_ips.add(ip)
+            logger.warning(f"IP {ip} blocked for excessive per-second requests: {len(second_requests)}")
+            return False
+        
+        # Check per-minute rate limit
         if len(self.ip_requests[ip]) > self.max_requests_per_minute:
             self.blocked_ips.add(ip)
             logger.warning(f"IP {ip} blocked for excessive requests: {len(self.ip_requests[ip])} in last minute")
@@ -107,10 +178,18 @@ class SecurityMiddleware:
             self.suspicious_ips[ip] += 1
             logger.warning(f"Suspicious file access attempt from {ip}: {path}")
             
-            # Block IP if too many suspicious requests
-            if self.suspicious_ips[ip] >= self.max_suspicious_requests:
+            # Block IP immediately for certain high-risk patterns
+            high_risk_patterns = [
+                r'\.env', r'phpinfo', r'server-info', r'wp-config',
+                r'_profiler', r'admin', r'config\.js', r'aws-secret'
+            ]
+            
+            is_high_risk = any(re.search(pattern, path, re.IGNORECASE) for pattern in high_risk_patterns)
+            
+            # Block immediately for high-risk patterns or after threshold
+            if is_high_risk or self.suspicious_ips[ip] >= self.suspicious_ip_block_threshold:
                 self.blocked_ips.add(ip)
-                logger.warning(f"IP {ip} blocked for {self.max_suspicious_requests} suspicious requests")
+                logger.warning(f"IP {ip} blocked for suspicious file access: {path} (high_risk={is_high_risk}, count={self.suspicious_ips[ip]})")
                 return True, "IP blocked for suspicious file access attempts"
             
             return True, "Suspicious file access blocked"
@@ -127,17 +206,29 @@ class SecurityMiddleware:
         return False, None
     
     def log_security_event(self, ip, path, user_agent, reason):
-        """Log security events to database"""
-        try:
-            db_enhanced.log_security_event(
-                ip=ip,
-                path=path,
-                user_agent=user_agent,
-                reason=reason,
-                timestamp=datetime.now()
-            )
-        except Exception as e:
-            logger.error(f"Failed to log security event: {e}")
+        """Log security events to database with retry logic"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                db_enhanced.log_security_event(
+                    ip=ip,
+                    path=path,
+                    user_agent=user_agent,
+                    reason=reason,
+                    timestamp=datetime.now()
+                )
+                return  # Success, exit retry loop
+            except Exception as e:
+                if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                    # Wait briefly before retry
+                    import time
+                    time.sleep(0.1 * (attempt + 1))  # Exponential backoff
+                    continue
+                else:
+                    logger.error(f"Failed to log security event after {attempt + 1} attempts: {e}")
+                    # Log to file as fallback
+                    logger.warning(f"Security event (fallback): IP={ip}, Path={path}, Reason={reason}")
+                    break
     
     def cleanup_old_data(self):
         """Clean up old tracking data"""

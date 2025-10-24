@@ -10,8 +10,8 @@ from utils import logger
 DB_FILE = "superbot.db"
 
 # Connection pool configuration
-POOL_SIZE = 50  # Number of connections to maintain in pool (increased for high concurrency)
-CONNECTION_TIMEOUT = 60  # Timeout for getting connection from pool (increased)
+POOL_SIZE = 15  # Number of connections to maintain in pool (optimized for SQLite)
+CONNECTION_TIMEOUT = 30  # Timeout for getting connection from pool (reduced for better performance)
 
 
 class DatabaseConnectionPool:
@@ -45,8 +45,8 @@ class DatabaseConnectionPool:
         conn.execute("PRAGMA journal_mode=WAL")
         # Enable foreign keys
         conn.execute("PRAGMA foreign_keys=ON")
-        # Set busy timeout (in milliseconds) - increased for better locking handling
-        conn.execute(f"PRAGMA busy_timeout={CONNECTION_TIMEOUT * 2000}")
+        # Set busy timeout (in milliseconds) - optimized for better performance
+        conn.execute("PRAGMA busy_timeout=1000")  # 1 second timeout
         # Optimize for concurrent access
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA cache_size=20000")  # Increased cache size
@@ -54,6 +54,8 @@ class DatabaseConnectionPool:
         # Additional settings for better concurrency
         conn.execute("PRAGMA read_uncommitted=1")  # Allow dirty reads
         conn.execute("PRAGMA locking_mode=NORMAL")  # Use normal locking
+        # WAL checkpoint optimization
+        conn.execute("PRAGMA wal_autocheckpoint=1000")  # More frequent checkpoints
         # Enable query planner optimizations
         conn.execute("PRAGMA optimize")
         return conn

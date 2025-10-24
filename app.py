@@ -23,6 +23,7 @@ from rate_limiter import rate_limit, add_rate_limit_headers
 from cache_manager import cache_get, cache_set, cache_clear, get_cache
 from admin_panel import admin_bp
 from security_middleware import security_before_request, add_security_headers, get_security_stats
+from honeypot_routes import create_honeypot_routes, get_honeypot_stats
 # Import subscription modules
 from subscriptions import SubscriptionManager, StripeManager, get_all_tiers, format_price
 from subscription_middleware import (
@@ -64,6 +65,9 @@ csrf = CSRFProtect(app)
 
 # Register admin blueprint
 app.register_blueprint(admin_bp)
+
+# Create honeypot routes to catch malicious bots
+create_honeypot_routes(app)
 
 # Security middleware - must be first
 @app.before_request
