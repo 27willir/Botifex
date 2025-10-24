@@ -66,49 +66,34 @@ class HealthMonitor:
             logger.warning(f"Database health check failed: {e}")
     
     def _check_network_health(self):
-        """Check network connectivity with multiple fallback endpoints."""
+        """Check network connectivity."""
         try:
             import requests
-            
-            # List of health check endpoints to try
-            health_endpoints = [
+            # Try multiple endpoints for better reliability
+            endpoints = [
                 "https://httpbin.org/status/200",
                 "https://www.google.com",
-                "https://www.cloudflare.com",
-                "https://httpbin.org/get"
+                "https://www.cloudflare.com"
             ]
             
-            success = False
-            last_error = None
-            
-            for endpoint in health_endpoints:
+            for endpoint in endpoints:
                 try:
-                    response = requests.get(endpoint, timeout=5, allow_redirects=True)
-                    # Accept 200, 301, 302, etc. as healthy responses
-                    if response.status_code in [200, 301, 302, 304]:
-                        success = True
-                        break
-                    else:
-                        last_error = f"Status {response.status_code} from {endpoint}"
-                except requests.exceptions.RequestException as e:
-                    last_error = f"Request failed for {endpoint}: {str(e)}"
+                    response = requests.get(endpoint, timeout=5)
+                    if response.status_code in [200, 301, 302]:  # Accept redirects as healthy
+                        self.health_status["network"]["status"] = "healthy"
+                        self.health_status["network"]["last_check"] = datetime.now()
+                        self.health_status["network"]["error_count"] = 0
+                        return
+                except Exception:
                     continue
             
-            if success:
-                self.health_status["network"]["status"] = "healthy"
-                self.health_status["network"]["last_check"] = datetime.now()
-                self.health_status["network"]["error_count"] = 0
-            else:
-                raise Exception(f"All network checks failed. Last error: {last_error}")
-                
+            # If all endpoints fail, mark as unhealthy
+            raise Exception("All network endpoints failed")
+            
         except Exception as e:
             self.health_status["network"]["status"] = "unhealthy"
             self.health_status["network"]["error_count"] += 1
-            # Only log as warning if we've had multiple consecutive failures
-            if self.health_status["network"]["error_count"] > 3:
-                logger.warning(f"Network health check failed (attempt {self.health_status['network']['error_count']}): {e}")
-            else:
-                logger.debug(f"Network health check failed: {e}")
+            logger.warning(f"Network health check failed: {e}")
     
     def _check_scraper_health(self):
         """Check scraper system health."""
@@ -182,27 +167,27 @@ class RecoveryManager:
         """Recover from network errors."""
         try:
             logger.info("Attempting network recovery...")
-            # Wait and retry with multiple endpoints
+            # Wait and retry
             time.sleep(5)
             import requests
             
-            # Try multiple endpoints for recovery
-            recovery_endpoints = [
+            # Try multiple endpoints for better reliability
+            endpoints = [
+                "https://httpbin.org/status/200",
                 "https://www.google.com",
-                "https://www.cloudflare.com", 
-                "https://httpbin.org/get"
+                "https://www.cloudflare.com"
             ]
             
-            for endpoint in recovery_endpoints:
+            for endpoint in endpoints:
                 try:
-                    response = requests.get(endpoint, timeout=5, allow_redirects=True)
-                    if response.status_code in [200, 301, 302, 304]:
-                        logger.info(f"Network recovery successful using {endpoint}")
+                    response = requests.get(endpoint, timeout=5)
+                    if response.status_code in [200, 301, 302]:
+                        logger.info("Network recovery successful")
                         return True
-                except requests.exceptions.RequestException:
+                except Exception:
                     continue
             
-            logger.warning("Network recovery failed - all endpoints unreachable")
+            logger.error("Network recovery failed - all endpoints unreachable")
             return False
         except Exception as e:
             logger.error(f"Network recovery failed: {e}")
@@ -289,8 +274,12 @@ class ErrorRecoverySystem:
         """Handle an error with automatic recovery."""
         self.error_counts[component] += 1
         
-        # Log the error
-        logger.error(f"Error in {component}: {error} (Context: {context})")
+        # Use basic logging to avoid recursion in error handling
+        try:
+            logger.error(f"Error in {component}: {error} (Context: {context})")
+        except (RecursionError, ImportError):
+            # Fallback to print if logger causes recursion
+            print(f"Error in {component}: {error} (Context: {context})")
         
         # Check if we should attempt recovery
         should_recover = self._should_attempt_recovery(component)
@@ -299,9 +288,15 @@ class ErrorRecoverySystem:
             success = self.recovery_manager.attempt_recovery(component, error)
             if success:
                 self.error_counts[component] = 0  # Reset on successful recovery
-                logger.info(f"Recovery successful for {component}")
+                try:
+                    logger.info(f"Recovery successful for {component}")
+                except (RecursionError, ImportError):
+                    print(f"Recovery successful for {component}")
             else:
-                logger.warning(f"Recovery failed for {component}")
+                try:
+                    logger.warning(f"Recovery failed for {component}")
+                except (RecursionError, ImportError):
+                    print(f"Recovery failed for {component}")
         
         # Adjust degradation level
         self.graceful_degradation.adjust_degradation_level(
@@ -342,7 +337,16 @@ def stop_error_recovery():
 
 def handle_error(error: Exception, component: str, context: str = ""):
     """Handle an error using the global recovery system."""
-    error_recovery_system.handle_error(error, component, context)
+    # Prevent recursion by checking if we're already handling an error
+    if hasattr(handle_error, '_handling_error'):
+        print(f"Recursion detected in error handling for {component}: {error}")
+        return
+    
+    handle_error._handling_error = True
+    try:
+        error_recovery_system.handle_error(error, component, context)
+    finally:
+        handle_error._handling_error = False
 
 def get_system_status() -> Dict:
     """Get current system status."""

@@ -88,6 +88,20 @@ class User(UserMixin):
         self.password_hash = password_hash
         self.role = role
 
+def check_suspicious_login_activity(username, ip_address):
+    """Check for suspicious login patterns"""
+    try:
+        # Get recent failed login attempts for this username or IP
+        recent_attempts = db_enhanced.get_recent_failed_logins(username, ip_address, hours=1)
+        
+        if len(recent_attempts) >= 5:  # 5 failed attempts in 1 hour
+            logger.warning(f"Suspicious login activity detected: {len(recent_attempts)} failed attempts for {username} from {ip_address}")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Error checking suspicious login activity: {e}")
+        return False
+
 @log_errors()
 def create_user(username, password, email):
     """Create a new user using database with security validation"""
@@ -269,6 +283,12 @@ def login():
                 flash("Username and password are required", "error")
                 return render_template("login.html")
             
+            # Check for suspicious login activity
+            if check_suspicious_login_activity(username, request.remote_addr):
+                logger.warning(f"Blocking suspicious login attempt for {username} from {request.remote_addr}")
+                flash("Too many failed login attempts. Please try again later.", "error")
+                return render_template("login.html")
+            
             user_data = ErrorHandler.handle_database_error(db_enhanced.get_user_by_username, username)
             if user_data:
                 # Use named tuple for safe access
@@ -315,7 +335,15 @@ def login():
                     flash("Invalid password", "error")
             else:
                 logger.warning(f"Login attempt for non-existent user: {username}")
-                flash("User not found", "error")
+                # Log failed login attempt for security monitoring
+                db_enhanced.log_user_activity(
+                    username, 
+                    'login_failed', 
+                    'Non-existent user login attempt', 
+                    request.remote_addr, 
+                    request.headers.get('User-Agent')
+                )
+                flash("Invalid username or password", "error")
             
             return render_template("login.html")
         except Exception as e:
@@ -1017,6 +1045,18 @@ def alerts_page():
         logger.error(f"Error loading alerts page: {e}")
         flash("Error loading alerts page", "error")
         return redirect(url_for("dashboard"))
+
+# Favicon and icon routes
+@app.route("/favicon.ico")
+def favicon():
+    """Serve favicon.ico"""
+    return app.send_static_file('images/favicon.ico')
+
+@app.route("/apple-touch-icon.png")
+@app.route("/apple-touch-icon-precomposed.png")
+def apple_touch_icon():
+    """Serve apple touch icon"""
+    return app.send_static_file('images/apple-touch-icon.png')
 
 @app.route("/profile")
 @login_required

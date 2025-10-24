@@ -5,8 +5,8 @@ Handles Stripe integration and subscription tier enforcement
 
 import os
 import stripe
+import logging
 from datetime import datetime, timedelta
-from utils import logger
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,6 +14,9 @@ load_dotenv()
 # Initialize Stripe
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
+
+# Create a dedicated logger for subscriptions to avoid circular imports
+logger = logging.getLogger('superbot.subscriptions')
 
 # Validate Stripe configuration
 def validate_stripe_config():
@@ -204,11 +207,17 @@ class StripeManager:
     def create_checkout_session(tier_name, user_email, username, success_url, cancel_url):
         """Create a Stripe checkout session for subscription"""
         try:
+            # Validate Stripe configuration first
+            if not stripe.api_key:
+                logger.error("Stripe API key not configured")
+                return None, "Payment system not configured"
+            
             tier = SUBSCRIPTION_TIERS.get(tier_name)
             if not tier or not tier['price_id']:
                 logger.error(f"Invalid tier or missing price_id for tier: {tier_name}")
                 return None, "Invalid subscription tier"
             
+            # Create session with timeout to prevent hanging
             session = stripe.checkout.Session.create(
                 customer_email=user_email,
                 line_items=[{
@@ -234,10 +243,16 @@ class StripeManager:
             return session, None
             
         except stripe.error.StripeError as e:
-            logger.error(f"Stripe error creating checkout session: {e}")
+            # Use basic logging to avoid recursion
+            print(f"Stripe error creating checkout session: {e}")
             return None, str(e)
+        except RecursionError as e:
+            # Handle recursion error specifically
+            print(f"Recursion error in Stripe checkout: {e}")
+            return None, "System error - please try again"
         except Exception as e:
-            logger.error(f"Error creating checkout session: {e}")
+            # Use basic logging to avoid recursion
+            print(f"Error creating checkout session: {e}")
             return None, str(e)
     
     @staticmethod
