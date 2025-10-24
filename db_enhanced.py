@@ -813,14 +813,50 @@ def update_setting(key, value, username=None):
 # ======================
 
 @log_errors()
+def get_recent_failed_logins(username, ip_address, hours=1):
+    """Get recent failed login attempts for security monitoring"""
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        c.execute("""
+            SELECT username, action, ip_address, timestamp
+            FROM user_activity 
+            WHERE (username = ? OR ip_address = ?) 
+            AND action = 'login_failed' 
+            AND timestamp > ?
+            ORDER BY timestamp DESC
+        """, (username, ip_address, cutoff_time))
+        return c.fetchall()
+
+@log_errors()
 def log_user_activity(username, action, details=None, ip_address=None, user_agent=None):
     """Log user activity for monitoring and security"""
     with get_pool().get_connection() as conn:
         c = conn.cursor()
-        c.execute("""
-            INSERT INTO user_activity (username, action, details, ip_address, user_agent, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (username, action, details, ip_address, user_agent, datetime.now()))
+        # Check if user exists before logging activity
+        c.execute("SELECT username FROM users WHERE username = ?", (username,))
+        user_exists = c.fetchone()
+        
+        if not user_exists and action in ['login_failed', 'login_attempt']:
+            # For failed login attempts, we can log even for non-existent users
+            # by temporarily disabling foreign key constraints
+            c.execute("PRAGMA foreign_keys=OFF")
+            c.execute("""
+                INSERT INTO user_activity (username, action, details, ip_address, user_agent, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (username, action, details, ip_address, user_agent, datetime.now()))
+            c.execute("PRAGMA foreign_keys=ON")
+        elif user_exists:
+            # Normal logging for existing users
+            c.execute("""
+                INSERT INTO user_activity (username, action, details, ip_address, user_agent, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (username, action, details, ip_address, user_agent, datetime.now()))
+        else:
+            # Skip logging for non-existent users on other actions
+            logger.warning(f"Skipping activity log for non-existent user: {username}")
+            return
+        
         conn.commit()
 
 
