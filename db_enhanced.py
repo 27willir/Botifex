@@ -10,8 +10,8 @@ from utils import logger
 DB_FILE = "superbot.db"
 
 # Connection pool configuration
-POOL_SIZE = 20  # Number of connections to maintain in pool (increased for scalability)
-CONNECTION_TIMEOUT = 30  # Timeout for getting connection from pool
+POOL_SIZE = 50  # Number of connections to maintain in pool (increased for high concurrency)
+CONNECTION_TIMEOUT = 60  # Timeout for getting connection from pool (increased)
 
 
 class DatabaseConnectionPool:
@@ -44,8 +44,14 @@ class DatabaseConnectionPool:
         conn.execute("PRAGMA journal_mode=WAL")
         # Enable foreign keys
         conn.execute("PRAGMA foreign_keys=ON")
-        # Set busy timeout
+        # Set busy timeout (in milliseconds)
         conn.execute(f"PRAGMA busy_timeout={CONNECTION_TIMEOUT * 1000}")
+        # Optimize for concurrent access
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=10000")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        # Enable query planner optimizations
+        conn.execute("PRAGMA optimize")
         return conn
     
     @contextmanager
@@ -84,6 +90,46 @@ def get_pool():
     if _connection_pool is None:
         _connection_pool = DatabaseConnectionPool(DB_FILE)
     return _connection_pool
+
+
+def retry_db_operation(operation_func, max_retries=3, base_delay=0.1):
+    """
+    Retry database operations with exponential backoff for handling locking issues
+    
+    Args:
+        operation_func: Function to execute (should return a result)
+        max_retries: Maximum number of retry attempts
+        base_delay: Base delay in seconds for exponential backoff
+    
+    Returns:
+        Result of the operation or None if all retries failed
+    """
+    import time
+    import random
+    
+    for attempt in range(max_retries):
+        try:
+            return operation_func()
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e).lower():
+                if attempt < max_retries - 1:
+                    # Exponential backoff with jitter
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 0.1)
+                    logger.warning(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Database locked after {max_retries} attempts")
+                    return None
+            else:
+                logger.error(f"Database error: {e}")
+                return None
+        except Exception as e:
+            logger.error(f"Unexpected error in database operation: {e}")
+            return None
+    
+    logger.warning(f"Database operation failed after {max_retries} attempts")
+    return None
 
 
 @log_errors()
@@ -819,70 +865,122 @@ def check_rate_limit(username, endpoint, max_requests=60, window_minutes=1):
     Check if user has exceeded rate limit for an endpoint
     Returns: (is_allowed, remaining_requests)
     """
-    with get_pool().get_connection() as conn:
-        c = conn.cursor()
-        
-        # Get current rate limit record
-        c.execute("""
-            SELECT request_count, window_start 
-            FROM rate_limits 
-            WHERE username = ? AND endpoint = ?
-        """, (username, endpoint))
-        
-        result = c.fetchone()
-        now = datetime.now()
-        
-        if result:
-            request_count, window_start = result
-            window_start = datetime.fromisoformat(window_start)
-            
-            # Check if we're still in the same window
-            time_diff = (now - window_start).total_seconds() / 60
-            
-            if time_diff < window_minutes:
-                # Still in same window
-                if request_count >= max_requests:
-                    logger.warning(f"Rate limit exceeded for {username} on {endpoint}")
-                    return False, 0
+    import time
+    import random
+    
+    max_retries = 3
+    base_delay = 0.1  # Base delay in seconds
+    
+    for attempt in range(max_retries):
+        try:
+            with get_pool().get_connection() as conn:
+                # Use immediate transaction mode to avoid locking
+                conn.execute("BEGIN IMMEDIATE")
+                c = conn.cursor()
                 
-                # Increment count
+                now = datetime.now()
+                
+                # Use UPSERT (INSERT OR REPLACE) to handle race conditions
+                # First, try to get existing record
                 c.execute("""
-                    UPDATE rate_limits 
-                    SET request_count = request_count + 1 
+                    SELECT request_count, window_start 
+                    FROM rate_limits 
                     WHERE username = ? AND endpoint = ?
                 """, (username, endpoint))
-                conn.commit()
-                return True, max_requests - request_count - 1
+                
+                result = c.fetchone()
+                
+                if result:
+                    request_count, window_start = result
+                    window_start = datetime.fromisoformat(window_start)
+                    
+                    # Check if we're still in the same window
+                    time_diff = (now - window_start).total_seconds() / 60
+                    
+                    if time_diff < window_minutes:
+                        # Still in same window
+                        if request_count >= max_requests:
+                            conn.rollback()
+                            logger.warning(f"Rate limit exceeded for {username} on {endpoint}")
+                            return False, 0
+                        
+                        # Increment count atomically
+                        c.execute("""
+                            UPDATE rate_limits 
+                            SET request_count = request_count + 1 
+                            WHERE username = ? AND endpoint = ?
+                        """, (username, endpoint))
+                        conn.commit()
+                        return True, max_requests - request_count - 1
+                    else:
+                        # New window - reset
+                        c.execute("""
+                            UPDATE rate_limits 
+                            SET request_count = 1, window_start = ? 
+                            WHERE username = ? AND endpoint = ?
+                        """, (now, username, endpoint))
+                        conn.commit()
+                        return True, max_requests - 1
+                else:
+                    # First request - use INSERT OR IGNORE to handle race conditions
+                    try:
+                        c.execute("""
+                            INSERT INTO rate_limits (username, endpoint, request_count, window_start) 
+                            VALUES (?, ?, 1, ?)
+                        """, (username, endpoint, now))
+                        conn.commit()
+                        return True, max_requests - 1
+                    except sqlite3.IntegrityError:
+                        # Race condition - another thread inserted the record
+                        # Rollback and retry
+                        conn.rollback()
+                        if attempt < max_retries - 1:
+                            time.sleep(base_delay * (2 ** attempt) + random.uniform(0, 0.1))
+                            continue
+                        else:
+                            # Last attempt - just return allowed
+                            logger.warning(f"Rate limit check failed after {max_retries} attempts for {username}")
+                            return True, max_requests - 1
+                        
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e).lower():
+                if attempt < max_retries - 1:
+                    # Exponential backoff with jitter
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 0.1)
+                    logger.warning(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Database locked after {max_retries} attempts for {username}")
+                    # Return allowed to avoid blocking legitimate users
+                    return True, max_requests - 1
             else:
-                # New window - reset
-                c.execute("""
-                    UPDATE rate_limits 
-                    SET request_count = 1, window_start = ? 
-                    WHERE username = ? AND endpoint = ?
-                """, (now, username, endpoint))
-                conn.commit()
+                logger.error(f"Database error in check_rate_limit: {e}")
                 return True, max_requests - 1
-        else:
-            # First request
-            c.execute("""
-                INSERT INTO rate_limits (username, endpoint, request_count, window_start) 
-                VALUES (?, ?, 1, ?)
-            """, (username, endpoint, now))
-            conn.commit()
+        except Exception as e:
+            logger.error(f"Unexpected error in check_rate_limit: {e}")
             return True, max_requests - 1
+    
+    # Fallback - return allowed if all retries failed
+    logger.warning(f"Rate limit check failed after {max_retries} attempts for {username}")
+    return True, max_requests - 1
 
 
 @log_errors()
 def reset_rate_limit(username, endpoint=None):
     """Reset rate limit for a user (admin function)"""
-    with get_pool().get_connection() as conn:
-        c = conn.cursor()
-        if endpoint:
-            c.execute("DELETE FROM rate_limits WHERE username = ? AND endpoint = ?", (username, endpoint))
-        else:
-            c.execute("DELETE FROM rate_limits WHERE username = ?", (username,))
-        conn.commit()
-        logger.info(f"Reset rate limits for user: {username}")
+    def _reset_operation():
+        with get_pool().get_connection() as conn:
+            c = conn.cursor()
+            if endpoint:
+                c.execute("DELETE FROM rate_limits WHERE username = ? AND endpoint = ?", (username, endpoint))
+            else:
+                c.execute("DELETE FROM rate_limits WHERE username = ?", (username,))
+            conn.commit()
+            logger.info(f"Reset rate limits for user: {username}")
+            return True
+    
+    return retry_db_operation(_reset_operation)
 
 
 # ======================
