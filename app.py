@@ -69,6 +69,19 @@ app.register_blueprint(admin_bp)
 # Create honeypot routes to catch malicious bots
 create_honeypot_routes(app)
 
+# Initialize production database on startup
+def init_production_database():
+    """Initialize production database with all required tables"""
+    try:
+        from scripts.init_production_db import init_production_database as init_db
+        init_db()
+        logger.info("Production database initialization completed")
+    except Exception as e:
+        logger.error(f"Failed to initialize production database: {e}")
+
+# Run database initialization
+init_production_database()
+
 # Security middleware - must be first
 @app.before_request
 def before_request():

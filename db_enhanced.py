@@ -9,9 +9,9 @@ from utils import logger
 
 DB_FILE = "superbot.db"
 
-# Connection pool configuration
-POOL_SIZE = 15  # Number of connections to maintain in pool (optimized for SQLite)
-CONNECTION_TIMEOUT = 30  # Timeout for getting connection from pool (reduced for better performance)
+# Connection pool configuration - optimized for production
+POOL_SIZE = 10  # Reduced pool size for better SQLite performance
+CONNECTION_TIMEOUT = 60  # Increased timeout for production stability
 
 
 class DatabaseConnectionPool:
@@ -41,18 +41,15 @@ class DatabaseConnectionPool:
             timeout=CONNECTION_TIMEOUT,
             isolation_level=None  # Autocommit mode to reduce locking
         )
-        # Enable WAL mode for better concurrent access
+        # Production-optimized pragmas for better concurrency
         conn.execute("PRAGMA journal_mode=WAL")
-        # Enable foreign keys
-        conn.execute("PRAGMA foreign_keys=ON")
-        # Set busy timeout (in milliseconds) - optimized for better performance
-        conn.execute("PRAGMA busy_timeout=1000")  # 1 second timeout
-        # Optimize for concurrent access
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA cache_size=20000")  # Increased cache size
         conn.execute("PRAGMA temp_store=MEMORY")
-        # Additional settings for better concurrency
-        conn.execute("PRAGMA read_uncommitted=1")  # Allow dirty reads
+        conn.execute("PRAGMA mmap_size=268435456")  # 256MB
+        conn.execute("PRAGMA busy_timeout=10000")  # 10 second timeout
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA read_uncommitted=1")  # Allow dirty reads for better concurrency
         conn.execute("PRAGMA locking_mode=NORMAL")  # Use normal locking
         # WAL checkpoint optimization
         conn.execute("PRAGMA wal_autocheckpoint=1000")  # More frequent checkpoints

@@ -1,238 +1,168 @@
 #!/usr/bin/env python3
 """
-Database Maintenance and Monitoring Script
-This script helps monitor and maintain database health to prevent locking issues.
+Database Maintenance Script for Production
+This script performs regular maintenance to prevent locking issues
 """
-
 import sys
 import os
-import time
-import sqlite3
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from db_enhanced import get_pool, reset_connection_pool
+import sqlite3
+import time
+from datetime import datetime, timedelta
 from utils import logger
 
-def check_database_locks():
-    """Check for active database locks"""
-    try:
-        with get_pool().get_connection() as conn:
-            c = conn.cursor()
-            # Check for active connections
-            c.execute("PRAGMA database_list")
-            databases = c.fetchall()
-            
-            # Check WAL file status
-            c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            wal_info = c.fetchone()
-            
-            print("Database Status:")
-            print(f"  Active databases: {len(databases)}")
-            print(f"  WAL checkpoint: {wal_info}")
-            
-            return True
-    except sqlite3.OperationalError as e:
-        if "database is locked" in str(e).lower():
-            print("❌ Database is currently locked")
-            return False
-        else:
-            print(f"❌ Database error: {e}")
-            return False
-    except Exception as e:
-        print(f"❌ Unexpected error: {e}")
-        return False
-
-def analyze_connection_pool():
-    """Analyze connection pool status"""
-    try:
-        pool = get_pool()
-        status = {
-            'pool_size': pool.pool_size,
-            'available_connections': pool.pool.qsize(),
-            'total_connections': len(pool.all_connections)
-        }
-        
-        print("Connection Pool Status:")
-        print(f"  Pool size: {status['pool_size']}")
-        print(f"  Available connections: {status['available_connections']}")
-        print(f"  Total connections: {status['total_connections']}")
-        
-        if status['available_connections'] < status['pool_size'] * 0.1:
-            print("⚠️  Warning: Connection pool is nearly exhausted")
-            return False
-        
-        return True
-    except Exception as e:
-        print(f"❌ Error analyzing connection pool: {e}")
-        return False
-
-def check_long_running_queries():
-    """Check for long-running queries that might be causing locks"""
-    try:
-        with get_pool().get_connection() as conn:
-            c = conn.cursor()
-            
-            # Check for active transactions
-            c.execute("SELECT * FROM sqlite_master WHERE type='table'")
-            tables = c.fetchall()
-            
-            print(f"Database tables: {len(tables)}")
-            
-            # Check rate_limits table size
-            c.execute("SELECT COUNT(*) FROM rate_limits")
-            rate_limit_count = c.fetchone()[0]
-            print(f"Rate limit entries: {rate_limit_count}")
-            
-            if rate_limit_count > 10000:
-                print("⚠️  Warning: Large number of rate limit entries may cause performance issues")
-                return False
-            
-            return True
-    except Exception as e:
-        print(f"❌ Error checking queries: {e}")
-        return False
-
-def optimize_database():
-    """Run database optimization"""
-    try:
-        with get_pool().get_connection() as conn:
-            c = conn.cursor()
-            
-            print("Running database optimization...")
-            
-            # Analyze tables for better query planning
-            c.execute("ANALYZE")
-            
-            # Optimize database
-            c.execute("PRAGMA optimize")
-            
-            # Checkpoint WAL file
-            c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            
-            # Update statistics
-            c.execute("PRAGMA analysis_limit=1000")
-            
-            print("✅ Database optimization completed")
-            return True
-    except Exception as e:
-        print(f"❌ Error optimizing database: {e}")
-        return False
-
-def cleanup_old_data():
-    """Clean up old data that might be causing issues"""
-    try:
-        with get_pool().get_connection() as conn:
-            c = conn.cursor()
-            
-            print("Cleaning up old data...")
-            
-            # Clean up old rate limits (older than 1 hour)
-            c.execute("""
-                DELETE FROM rate_limits 
-                WHERE datetime(window_start) < datetime('now', '-1 hour')
-            """)
-            deleted_rate_limits = c.rowcount
-            
-            # Clean up old sessions (if you have a sessions table)
-            # c.execute("DELETE FROM sessions WHERE expires_at < datetime('now')")
-            
-            conn.commit()
-            
-            print(f"✅ Cleaned up {deleted_rate_limits} old rate limit entries")
-            return True
-    except Exception as e:
-        print(f"❌ Error cleaning up data: {e}")
-        return False
-
-def reset_database_connections():
-    """Reset all database connections"""
-    try:
-        print("Resetting database connections...")
-        reset_connection_pool()
-        print("✅ Database connections reset")
-        return True
-    except Exception as e:
-        print(f"❌ Error resetting connections: {e}")
-        return False
-
-def monitor_database_health():
-    """Continuous database health monitoring"""
-    print("Starting database health monitoring...")
-    print("Press Ctrl+C to stop")
+def perform_database_maintenance():
+    """Perform database maintenance to prevent locking issues"""
+    db_file = "superbot.db"
     
     try:
-        while True:
-            print(f"\n--- Database Health Check at {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
-            
-            # Check database locks
-            lock_status = check_database_locks()
-            
-            # Analyze connection pool
-            pool_status = analyze_connection_pool()
-            
-            # Check queries
-            query_status = check_long_running_queries()
-            
-            # Overall health
-            if lock_status and pool_status and query_status:
-                print("✅ Database is healthy")
-            else:
-                print("⚠️  Database issues detected")
-            
-            time.sleep(30)  # Check every 30 seconds
-            
-    except KeyboardInterrupt:
-        print("\nMonitoring stopped")
-
-def main():
-    """Main function with interactive menu"""
-    print("Database Maintenance Tool")
-    print("=" * 40)
-    
-    while True:
-        print("\nOptions:")
-        print("1. Check database health")
-        print("2. Analyze connection pool")
-        print("3. Optimize database")
-        print("4. Clean up old data")
-        print("5. Reset database connections")
-        print("6. Start health monitoring")
-        print("7. Exit")
+        logger.info("Starting database maintenance...")
         
-        choice = input("\nEnter your choice (1-7): ").strip()
+        # Connect to database
+        conn = sqlite3.connect(
+            db_file,
+            timeout=30,
+            check_same_thread=False
+        )
         
-        if choice == "1":
-            print("\n--- Database Health Check ---")
-            check_database_locks()
-            analyze_connection_pool()
-            check_long_running_queries()
-            
-        elif choice == "2":
-            print("\n--- Connection Pool Analysis ---")
-            analyze_connection_pool()
-            
-        elif choice == "3":
-            print("\n--- Database Optimization ---")
-            optimize_database()
-            
-        elif choice == "4":
-            print("\n--- Data Cleanup ---")
-            cleanup_old_data()
-            
-        elif choice == "5":
-            print("\n--- Connection Reset ---")
-            reset_database_connections()
-            
-        elif choice == "6":
-            print("\n--- Health Monitoring ---")
-            monitor_database_health()
-            
-        elif choice == "7":
-            print("Goodbye!")
-            break
-            
+        # Set maintenance-optimized settings
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=30000")  # 30 second timeout for maintenance
+        
+        c = conn.cursor()
+        
+        # 1. Analyze database for better query planning
+        logger.info("Analyzing database for query optimization...")
+        c.execute("ANALYZE")
+        
+        # 2. Clean up old security events (older than 30 days)
+        logger.info("Cleaning up old security events...")
+        cutoff_date = datetime.now() - timedelta(days=30)
+        c.execute("DELETE FROM security_events WHERE timestamp < ?", (cutoff_date,))
+        deleted_events = c.rowcount
+        logger.info(f"Deleted {deleted_events} old security events")
+        
+        # 3. Clean up old rate limit records (older than 1 day)
+        logger.info("Cleaning up old rate limit records...")
+        cutoff_date = datetime.now() - timedelta(days=1)
+        c.execute("DELETE FROM rate_limits WHERE window_start < ?", (cutoff_date,))
+        deleted_limits = c.rowcount
+        logger.info(f"Deleted {deleted_limits} old rate limit records")
+        
+        # 4. Clean up old user activity (older than 90 days)
+        logger.info("Cleaning up old user activity...")
+        cutoff_date = datetime.now() - timedelta(days=90)
+        c.execute("DELETE FROM user_activity WHERE timestamp < ?", (cutoff_date,))
+        deleted_activity = c.rowcount
+        logger.info(f"Deleted {deleted_activity} old user activity records")
+        
+        # 5. Optimize database
+        logger.info("Optimizing database...")
+        c.execute("PRAGMA optimize")
+        
+        # 6. Check database integrity
+        logger.info("Checking database integrity...")
+        c.execute("PRAGMA integrity_check")
+        integrity_result = c.fetchone()[0]
+        
+        if integrity_result == "ok":
+            logger.info("✅ Database integrity check passed")
         else:
-            print("Invalid choice. Please enter 1-7.")
+            logger.warning(f"⚠️ Database integrity check result: {integrity_result}")
+        
+        # 7. Get database statistics
+        c.execute("SELECT COUNT(*) FROM security_events")
+        security_count = c.fetchone()[0]
+        
+        c.execute("SELECT COUNT(*) FROM rate_limits")
+        rate_limit_count = c.fetchone()[0]
+        
+        c.execute("SELECT COUNT(*) FROM user_activity")
+        activity_count = c.fetchone()[0]
+        
+        logger.info(f"Database statistics:")
+        logger.info(f"  Security events: {security_count}")
+        logger.info(f"  Rate limits: {rate_limit_count}")
+        logger.info(f"  User activity: {activity_count}")
+        
+        # 8. Perform WAL checkpoint
+        logger.info("Performing WAL checkpoint...")
+        c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        
+        # Commit all changes
+        conn.commit()
+        conn.close()
+        
+        logger.info("✅ Database maintenance completed successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Database maintenance failed: {e}")
+        return False
+
+def check_database_health():
+    """Check database health and report issues"""
+    db_file = "superbot.db"
+    
+    try:
+        conn = sqlite3.connect(db_file, timeout=10)
+        c = conn.cursor()
+        
+        # Check if all required tables exist
+        required_tables = ['security_events', 'rate_limits', 'users', 'listings', 'user_activity']
+        c.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        existing_tables = [row[0] for row in c.fetchall()]
+        
+        missing_tables = [table for table in required_tables if table not in existing_tables]
+        
+        if missing_tables:
+            logger.warning(f"Missing tables: {missing_tables}")
+            return False
+        
+        # Check database size
+        c.execute("PRAGMA page_count")
+        page_count = c.fetchone()[0]
+        c.execute("PRAGMA page_size")
+        page_size = c.fetchone()[0]
+        db_size_mb = (page_count * page_size) / (1024 * 1024)
+        
+        logger.info(f"Database size: {db_size_mb:.2f} MB")
+        
+        # Check WAL file size
+        try:
+            wal_size = os.path.getsize(db_file + "-wal") / (1024 * 1024)
+            logger.info(f"WAL file size: {wal_size:.2f} MB")
+        except FileNotFoundError:
+            logger.info("No WAL file found (normal for new databases)")
+        
+        conn.close()
+        return True
+        
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        return False
 
 if __name__ == "__main__":
-    main()
+    print("🔧 Database Maintenance Script")
+    print("=" * 50)
+    
+    # Check database health
+    print("Checking database health...")
+    health_ok = check_database_health()
+    
+    if health_ok:
+        print("✅ Database health check passed")
+    else:
+        print("⚠️ Database health check found issues")
+    
+    # Perform maintenance
+    print("\nPerforming database maintenance...")
+    maintenance_success = perform_database_maintenance()
+    
+    if maintenance_success:
+        print("✅ Database maintenance completed successfully!")
+    else:
+        print("❌ Database maintenance failed!")
+        sys.exit(1)
