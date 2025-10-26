@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Production Schema Fix Script
-This script fixes the missing cancel_at_period_end column in production
+This script fixes missing columns in production database:
+- user_id column in listings table
+- cancel_at_period_end column in subscriptions table
 """
 import sys
 import os
@@ -35,6 +37,19 @@ def fix_production_schema():
         
         c = conn.cursor()
         
+        # Check if user_id column exists in listings table
+        logger.info("Checking listings table schema...")
+        c.execute("PRAGMA table_info(listings)")
+        columns = [col[1] for col in c.fetchall()]
+        
+        if 'user_id' not in columns:
+            logger.info("Adding missing user_id column to listings table...")
+            c.execute("ALTER TABLE listings ADD COLUMN user_id TEXT")
+            conn.commit()
+            logger.info("[OK] Added user_id column to listings table")
+        else:
+            logger.info("[OK] user_id column already exists in listings table")
+        
         # Check if cancel_at_period_end column exists
         logger.info("Checking subscriptions table schema...")
         c.execute("PRAGMA table_info(subscriptions)")
@@ -48,15 +63,24 @@ def fix_production_schema():
         else:
             logger.info("[OK] cancel_at_period_end column already exists")
         
-        # Verify the fix
-        c.execute("PRAGMA table_info(subscriptions)")
-        columns = [col[1] for col in c.fetchall()]
+        # Verify the fixes
+        c.execute("PRAGMA table_info(listings)")
+        listings_columns = [col[1] for col in c.fetchall()]
         
-        if 'cancel_at_period_end' in columns:
+        c.execute("PRAGMA table_info(subscriptions)")
+        subscriptions_columns = [col[1] for col in c.fetchall()]
+        
+        if 'user_id' in listings_columns and 'cancel_at_period_end' in subscriptions_columns:
             logger.info("Schema fix completed successfully!")
+            logger.info("  - listings.user_id: OK")
+            logger.info("  - subscriptions.cancel_at_period_end: OK")
             return True
         else:
-            logger.error("Failed to add cancel_at_period_end column")
+            logger.error("Failed to add required columns")
+            if 'user_id' not in listings_columns:
+                logger.error("  - listings.user_id: MISSING")
+            if 'cancel_at_period_end' not in subscriptions_columns:
+                logger.error("  - subscriptions.cancel_at_period_end: MISSING")
             return False
             
     except Exception as e:

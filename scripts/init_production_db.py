@@ -121,7 +121,9 @@ def init_production_database():
                 link TEXT,
                 image_url TEXT,
                 source TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                user_id TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (username)
             )
         """)
         
@@ -283,6 +285,20 @@ def init_production_database():
         
         # Handle schema migrations for existing databases
         logger.info("Checking for schema migrations...")
+        
+        # Check if listings table is missing user_id column
+        c.execute("PRAGMA table_info(listings)")
+        columns = [col[1] for col in c.fetchall()]
+        
+        if 'user_id' not in columns:
+            logger.info("Adding missing user_id column to listings table...")
+            try:
+                c.execute("ALTER TABLE listings ADD COLUMN user_id TEXT")
+                logger.info("[OK] Added user_id column to listings table")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not add user_id column: {e}")
+        else:
+            logger.info("[OK] user_id column already exists in listings table")
         
         # Check if subscriptions table is missing cancel_at_period_end column
         c.execute("PRAGMA table_info(subscriptions)")
