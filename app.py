@@ -1088,7 +1088,20 @@ def apple_touch_icon():
 def profile_page():
     """User profile management page"""
     try:
-        user_data = db_enhanced.get_user_by_username(current_user.id)
+        logger.info(f"Loading profile for user: {current_user.id}")
+        try:
+            user_data = db_enhanced.get_user_by_username(current_user.id)
+            logger.info(f"User data retrieved: {user_data}")
+        except Exception as db_error:
+            logger.error(f"Database error retrieving user {current_user.id}: {db_error}")
+            flash("Database error. Please try again.", "error")
+            return redirect(url_for("dashboard"))
+        
+        if not user_data:
+            logger.error(f"No user data found for {current_user.id}")
+            flash("User not found. Please contact support.", "error")
+            return redirect(url_for("dashboard"))
+        
         notifications = db_enhanced.get_notification_preferences(current_user.id)
         subscription = db_enhanced.get_user_subscription(current_user.id)
         activity = db_enhanced.get_user_activity(current_user.id, limit=20)
@@ -1098,6 +1111,7 @@ def profile_page():
             user_row = UserRow._make(user_data)
         except (TypeError, ValueError) as e:
             logger.error(f"Invalid user data structure for {current_user.id}: {e}")
+            logger.error(f"User data: {user_data}")
             flash("Database error. Please try again.", "error")
             return redirect(url_for("dashboard"))
         
