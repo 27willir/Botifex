@@ -106,6 +106,7 @@ def init_production_database():
                 subscription_tier TEXT DEFAULT 'free',
                 tos_agreed BOOLEAN DEFAULT 0,
                 tos_agreed_at DATETIME,
+                phone_number TEXT,
                 email_notifications BOOLEAN DEFAULT 1,
                 sms_notifications BOOLEAN DEFAULT 0
             )
@@ -255,6 +256,20 @@ def init_production_database():
             )
         """)
         
+        # Create settings table
+        logger.info("Creating settings table...")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT,
+                key TEXT,
+                value TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(username, key),
+                FOREIGN KEY (username) REFERENCES users (username) ON DELETE CASCADE
+            )
+        """)
+        
         # Create indexes for user_activity
         c.execute("""
             CREATE INDEX IF NOT EXISTS idx_user_activity_username 
@@ -283,8 +298,54 @@ def init_production_database():
             ON subscription_history(created_at)
         """)
         
+        # Create indexes for settings table
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS idx_settings_username 
+            ON settings(username)
+        """)
+        
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS idx_settings_key 
+            ON settings(key)
+        """)
+        
         # Handle schema migrations for existing databases
         logger.info("Checking for schema migrations...")
+        
+        # Check if users table is missing phone_number column
+        c.execute("PRAGMA table_info(users)")
+        columns = [col[1] for col in c.fetchall()]
+        
+        if 'phone_number' not in columns:
+            logger.info("Adding missing phone_number column to users table...")
+            try:
+                c.execute("ALTER TABLE users ADD COLUMN phone_number TEXT")
+                logger.info("[OK] Added phone_number column to users table")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not add phone_number column: {e}")
+        else:
+            logger.info("[OK] phone_number column already exists in users table")
+        
+        # Check if users table is missing notification columns
+        if 'email_notifications' not in columns:
+            logger.info("Adding missing email_notifications column to users table...")
+            try:
+                c.execute("ALTER TABLE users ADD COLUMN email_notifications BOOLEAN DEFAULT 1")
+                logger.info("[OK] Added email_notifications column to users table")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not add email_notifications column: {e}")
+        else:
+            logger.info("[OK] email_notifications column already exists in users table")
+        
+        if 'sms_notifications' not in columns:
+            logger.info("Adding missing sms_notifications column to users table...")
+            try:
+                c.execute("ALTER TABLE users ADD COLUMN sms_notifications BOOLEAN DEFAULT 0")
+                logger.info("[OK] Added sms_notifications column to users table")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not add sms_notifications column: {e}")
+        else:
+            logger.info("[OK] sms_notifications column already exists in users table")
         
         # Check if listings table is missing user_id column
         c.execute("PRAGMA table_info(listings)")
@@ -323,7 +384,7 @@ def init_production_database():
             WHERE type='table' 
             AND name IN ('security_events', 'rate_limits', 'users', 'listings', 'user_activity', 
                          'subscriptions', 'subscription_history', 'email_verification_tokens', 
-                         'password_reset_tokens', 'favorites', 'saved_searches', 'price_alerts')
+                         'password_reset_tokens', 'favorites', 'saved_searches', 'price_alerts', 'settings')
         """)
         tables = c.fetchall()
         
