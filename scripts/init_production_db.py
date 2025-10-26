@@ -152,6 +152,7 @@ def init_production_database():
                 stripe_subscription_id TEXT,
                 current_period_start DATETIME,
                 current_period_end DATETIME,
+                cancel_at_period_end BOOLEAN DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (username) REFERENCES users (username) ON DELETE CASCADE
@@ -279,6 +280,23 @@ def init_production_database():
             CREATE INDEX IF NOT EXISTS idx_subscription_history_created_at 
             ON subscription_history(created_at)
         """)
+        
+        # Handle schema migrations for existing databases
+        logger.info("Checking for schema migrations...")
+        
+        # Check if subscriptions table is missing cancel_at_period_end column
+        c.execute("PRAGMA table_info(subscriptions)")
+        columns = [col[1] for col in c.fetchall()]
+        
+        if 'cancel_at_period_end' not in columns:
+            logger.info("Adding missing cancel_at_period_end column to subscriptions table...")
+            try:
+                c.execute("ALTER TABLE subscriptions ADD COLUMN cancel_at_period_end BOOLEAN DEFAULT 0")
+                logger.info("[OK] Added cancel_at_period_end column to subscriptions table")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not add cancel_at_period_end column: {e}")
+        else:
+            logger.info("[OK] cancel_at_period_end column already exists in subscriptions table")
         
         # Commit all changes
         conn.commit()

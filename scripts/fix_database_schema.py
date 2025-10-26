@@ -49,7 +49,7 @@ def fix_database_schema():
         else:
             logger.info("[OK] 'user_id' column already exists in listings table")
         
-        # 2. Create subscriptions table if it doesn't exist
+        # 2. Create subscriptions table if it doesn't exist, or fix missing columns
         logger.info("Checking subscriptions table...")
         c.execute("""
             SELECT name FROM sqlite_master 
@@ -77,6 +77,29 @@ def fix_database_schema():
             logger.info("[OK] Created subscriptions table")
         else:
             logger.info("[OK] Subscriptions table already exists")
+            
+            # Check for missing columns and add them
+            c.execute("PRAGMA table_info(subscriptions)")
+            columns = [col[1] for col in c.fetchall()]
+            
+            required_columns = {
+                'cancel_at_period_end': 'BOOLEAN DEFAULT 0',
+                'current_period_start': 'DATETIME',
+                'current_period_end': 'DATETIME',
+                'stripe_customer_id': 'TEXT',
+                'stripe_subscription_id': 'TEXT'
+            }
+            
+            for col_name, col_def in required_columns.items():
+                if col_name not in columns:
+                    logger.info(f"Adding missing column '{col_name}' to subscriptions table...")
+                    try:
+                        c.execute(f"ALTER TABLE subscriptions ADD COLUMN {col_name} {col_def}")
+                        logger.info(f"[OK] Added column '{col_name}' to subscriptions table")
+                    except sqlite3.OperationalError as e:
+                        logger.warning(f"Could not add column '{col_name}': {e}")
+                else:
+                    logger.info(f"[OK] Column '{col_name}' already exists in subscriptions table")
         
         # 3. Create subscription_history table if it doesn't exist
         logger.info("Checking subscription_history table...")
