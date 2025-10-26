@@ -1115,6 +1115,20 @@ def profile_page():
             flash("Database error. Please try again.", "error")
             return redirect(url_for("dashboard"))
         
+        # Override subscription for admins to show pro tier
+        if user_row.role == 'admin':
+            subscription = {
+                'tier': 'pro',
+                'status': 'active',
+                'stripe_customer_id': None,
+                'stripe_subscription_id': None,
+                'current_period_start': None,
+                'current_period_end': None,
+                'cancel_at_period_end': False,
+                'created_at': None,
+                'updated_at': None
+            }
+        
         profile = {
             'username': user_row.username,
             'email': user_row.email,
@@ -1474,6 +1488,15 @@ def api_market_insights():
             return jsonify({"error": "Days must be between 1 and 365"}), 400
         
         insights = db_enhanced.get_market_insights(days, keyword, current_user.id)
+        
+        # Provide default values if no data exists
+        if not insights or not insights.get('overall_stats') or not insights['overall_stats'][0]:
+            insights = {
+                'overall_stats': (0, 0, 0, 0, 0),  # total_listings, avg_price, min_price, max_price, sources_count
+                'top_keywords': [],
+                'source_performance': []
+            }
+        
         return jsonify(insights)
     except Exception as e:
         logger.error(f"Error getting market insights: {e}")
@@ -1493,6 +1516,8 @@ def api_keyword_trends():
             return jsonify({"error": "Days must be between 1 and 365"}), 400
         
         trends = db_enhanced.get_keyword_trends(days, keyword, current_user.id)
+        if not trends:
+            trends = []
         return jsonify({"trends": trends})
     except Exception as e:
         logger.error(f"Error getting keyword trends: {e}")
@@ -1513,6 +1538,8 @@ def api_price_analytics():
             return jsonify({"error": "Days must be between 1 and 365"}), 400
         
         analytics = db_enhanced.get_price_analytics(days, source, keyword, current_user.id)
+        if not analytics:
+            analytics = []
         return jsonify({"analytics": analytics})
     except Exception as e:
         logger.error(f"Error getting price analytics: {e}")
@@ -1532,6 +1559,8 @@ def api_source_comparison():
             return jsonify({"error": "Days must be between 1 and 365"}), 400
         
         comparison = db_enhanced.get_source_comparison(days, keyword, current_user.id)
+        if not comparison:
+            comparison = []
         return jsonify({"comparison": comparison})
     except Exception as e:
         logger.error(f"Error getting source comparison: {e}")
@@ -1554,6 +1583,8 @@ def api_keyword_analysis():
             return jsonify({"error": "Limit must be between 1 and 100"}), 400
         
         analysis = db_enhanced.get_keyword_analysis(days, limit, keyword, current_user.id)
+        if not analysis:
+            analysis = []
         return jsonify({"analysis": analysis})
     except Exception as e:
         logger.error(f"Error getting keyword analysis: {e}")
@@ -1573,6 +1604,8 @@ def api_hourly_activity():
             return jsonify({"error": "Days must be between 1 and 365"}), 400
         
         activity = db_enhanced.get_hourly_activity(days, keyword, current_user.id)
+        if not activity:
+            activity = []
         return jsonify({"activity": activity})
     except Exception as e:
         logger.error(f"Error getting hourly activity: {e}")
@@ -1595,6 +1628,8 @@ def api_price_distribution():
             return jsonify({"error": "Bins must be between 1 and 50"}), 400
         
         distribution = db_enhanced.get_price_distribution(days, bins, keyword, current_user.id)
+        if not distribution:
+            distribution = []
         return jsonify({"distribution": distribution})
     except Exception as e:
         logger.error(f"Error getting price distribution: {e}")

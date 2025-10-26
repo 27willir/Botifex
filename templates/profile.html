@@ -296,6 +296,17 @@
                     </a>
                 </div>
 
+                {% if profile.role == 'admin' %}
+                <div class="card" style="margin-top: 20px;">
+                    <h2><i class="fas fa-user-shield"></i> Admin Panel</h2>
+                    <p style="color: #aaa; font-size: 0.9em; margin-bottom: 15px;">Access the admin dashboard</p>
+                    
+                    <a href="{{ url_for('admin.dashboard') }}" class="btn btn-primary" style="width: 100%; background: linear-gradient(135deg, #d32f2f, #f44336);">
+                        <i class="fas fa-cog"></i> Admin Dashboard
+                    </a>
+                </div>
+                {% endif %}
+
                 <div class="card" style="margin-top: 20px;">
                     <h2><i class="fas fa-download"></i> Export Data</h2>
                     <p style="color: #aaa; font-size: 0.9em; margin-bottom: 15px;">Download all your data (GDPR compliance)</p>

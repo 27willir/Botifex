@@ -304,7 +304,7 @@ def add_subscription_context():
     This should be called in a before_request handler or context processor
     """
     if current_user.is_authenticated:
-        # Admins get pro tier features
+        # Admins get pro tier features - override the database subscription
         if hasattr(current_user, 'role') and current_user.role == 'admin':
             features = SubscriptionManager.get_user_tier_features('pro')
             return {
@@ -315,7 +315,7 @@ def add_subscription_context():
                 'can_use_selling': True,
                 'max_keywords': features.get('max_keywords', 999),
                 'min_refresh_interval': features.get('refresh_interval', 60) // 60,  # Convert to minutes
-                'allowed_platforms': features.get('platforms', ['craigslist', 'facebook', 'ksl']),
+                'allowed_platforms': features.get('platforms', ['craigslist', 'facebook', 'ksl', 'ebay', 'poshmark', 'mercari']),
                 'is_admin': True
             }
         
