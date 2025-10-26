@@ -10,8 +10,8 @@ from utils import logger
 DB_FILE = "superbot.db"
 
 # Connection pool configuration - optimized for production
-POOL_SIZE = 10  # Reduced pool size for better SQLite performance
-CONNECTION_TIMEOUT = 60  # Increased timeout for production stability
+POOL_SIZE = 15  # Increased pool size for better concurrency
+CONNECTION_TIMEOUT = 30  # Reduced timeout for faster failure detection
 
 
 class DatabaseConnectionPool:
@@ -47,7 +47,7 @@ class DatabaseConnectionPool:
         conn.execute("PRAGMA cache_size=20000")  # Increased cache size
         conn.execute("PRAGMA temp_store=MEMORY")
         conn.execute("PRAGMA mmap_size=268435456")  # 256MB
-        conn.execute("PRAGMA busy_timeout=10000")  # 10 second timeout
+        conn.execute("PRAGMA busy_timeout=5000")  # Reduced timeout for faster failure detection  # 10 second timeout
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA read_uncommitted=1")  # Allow dirty reads for better concurrency
         conn.execute("PRAGMA locking_mode=NORMAL")  # Use normal locking
@@ -70,6 +70,11 @@ class DatabaseConnectionPool:
                 if "database is locked" in str(e).lower():
                     # Create a new connection if the pooled one is locked
                     logger.warning("Pooled connection is locked, creating new connection")
+                    conn.close()
+                    conn = self._create_connection()
+                else:
+                    # For other errors, close and create new connection
+                    logger.warning(f"Connection test failed: {e}, creating new connection")
                     conn.close()
                     conn = self._create_connection()
             yield conn
@@ -124,6 +129,20 @@ def maintain_database():
             logger.info("Database maintenance completed")
     except Exception as e:
         logger.error(f"Database maintenance failed: {e}")
+
+def get_pool_status():
+    """Get current pool status for monitoring"""
+    try:
+        pool = get_pool()
+        return {
+            "pool_size": pool.pool_size,
+            "available_connections": pool.pool.qsize(),
+            "total_connections": len(pool.all_connections),
+            "pool_utilization": f"{((pool.pool_size - pool.pool.qsize()) / pool.pool_size) * 100:.1f}%"
+        }
+    except Exception as e:
+        logger.error(f"Failed to get pool status: {e}")
+        return {"error": str(e)}
 
 def cleanup_old_connections():
     """Clean up old or problematic connections from the pool"""
