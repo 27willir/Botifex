@@ -91,15 +91,15 @@ class SecurityMiddleware:
         self.blocked_ips = set()
         self.suspicious_ips = defaultdict(int)
         
-        # Rate limiting thresholds - more aggressive for security
-        self.max_requests_per_minute = 20  # Reduced from 30
-        self.max_suspicious_requests = 3   # Reduced from 5
-        self.block_duration_minutes = 120  # Increased from 60
+        # Rate limiting thresholds - balanced for security vs usability
+        self.max_requests_per_minute = 60  # More reasonable for normal users
+        self.max_suspicious_requests = 5   # Allow a few mistakes
+        self.block_duration_minutes = 30   # Reduced block time
         
         # Additional security thresholds
-        self.max_requests_per_second = 5   # New: limit per second
-        self.suspicious_ip_block_threshold = 2  # Block after 2 suspicious requests
-        self.rapid_fire_threshold = 10  # Block if 10+ requests in 10 seconds
+        self.max_requests_per_second = 10  # Allow higher burst for normal usage
+        self.suspicious_ip_block_threshold = 3  # Block after 3 suspicious requests
+        self.rapid_fire_threshold = 20  # Block if 20+ requests in 10 seconds (DDoS protection)
         
     def is_suspicious_request(self, path):
         """Check if the request path matches suspicious patterns"""
@@ -111,17 +111,33 @@ class SecurityMiddleware:
     def is_malicious_user_agent(self, user_agent):
         """Check for suspicious user agents"""
         if not user_agent:
-            return True
+            return False  # Don't block if no user agent
             
-        suspicious_agents = [
+        # Only block truly malicious/scanner tools
+        malicious_agents = [
             'sqlmap', 'nikto', 'nmap', 'masscan', 'zap', 'burp',
-            'scanner', 'bot', 'crawler', 'spider', 'harvester',
-            'python-requests', 'curl', 'wget', 'httpie', 'postman',
-            'go-http-client', 'java', 'perl', 'ruby', 'php'
+            'acunetix', 'nikto', 'nessus', 'openvas', 'metasploit',
+            'masscan', 'sqlmap', 'xsser', 'backtrack', 'kaeli'
+        ]
+        
+        # Don't block legitimate bots or tools that might be used legitimately
+        allowed_patterns = [
+            'mozilla', 'chrome', 'safari', 'firefox', 'edge',
+            'googlebot', 'bingbot', 'slurp', 'duckduckbot',
+            'baiduspider', 'yandexbot', 'facebookexternalhit',
+            'go-http-client',  # Some legitimate Go clients
+            'python-requests',  # May be used for API calls
+            'postman'  # API testing tools
         ]
         
         user_agent_lower = user_agent.lower()
-        return any(agent in user_agent_lower for agent in suspicious_agents)
+        
+        # Check if it's a legitimate browser/bot
+        if any(pattern in user_agent_lower for pattern in allowed_patterns):
+            return False
+        
+        # Only block if it's clearly malicious
+        return any(agent in user_agent_lower for agent in malicious_agents)
     
     def track_ip_activity(self, ip):
         """Track IP activity for rate limiting with multiple thresholds"""
@@ -265,6 +281,26 @@ security_middleware = SecurityMiddleware()
 
 def security_before_request():
     """Flask before_request handler for security"""
+    # Skip security check for static files and allowed routes
+    if request.path.startswith('/static/'):
+        return None
+    
+    # Skip security check for basic routes that users need to access
+    allowed_paths = [
+        '/',
+        '/login',
+        '/register',
+        '/register/',
+        '/landing',
+        '/favicon.ico',
+        '/robots.txt',
+        '/health',
+        '/api/health'
+    ]
+    
+    if request.path in allowed_paths:
+        return None
+    
     # Clean up old data periodically
     if hasattr(security_middleware, '_last_cleanup'):
         if time.time() - security_middleware._last_cleanup > 300:  # 5 minutes
