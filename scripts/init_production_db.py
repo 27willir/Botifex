@@ -140,6 +140,118 @@ def init_production_database():
             )
         """)
         
+        # Create subscriptions table
+        logger.info("Creating subscriptions table...")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                tier TEXT DEFAULT 'free',
+                status TEXT DEFAULT 'active',
+                stripe_customer_id TEXT,
+                stripe_subscription_id TEXT,
+                current_period_start DATETIME,
+                current_period_end DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (username) REFERENCES users (username) ON DELETE CASCADE
+            )
+        """)
+        
+        # Create subscription_history table
+        logger.info("Creating subscription_history table...")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS subscription_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                tier TEXT NOT NULL,
+                action TEXT NOT NULL,
+                stripe_event_id TEXT,
+                details TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (username) REFERENCES users (username) ON DELETE CASCADE
+            )
+        """)
+        
+        # Create email_verification_tokens table
+        logger.info("Creating email_verification_tokens table...")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS email_verification_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                token TEXT UNIQUE NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME NOT NULL,
+                used BOOLEAN DEFAULT 0,
+                FOREIGN KEY (username) REFERENCES users (username) ON DELETE CASCADE
+            )
+        """)
+        
+        # Create password_reset_tokens table
+        logger.info("Creating password_reset_tokens table...")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                token TEXT UNIQUE NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME NOT NULL,
+                used BOOLEAN DEFAULT 0,
+                FOREIGN KEY (username) REFERENCES users (username) ON DELETE CASCADE
+            )
+        """)
+        
+        # Create favorites table
+        logger.info("Creating favorites table...")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS favorites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                listing_id INTEGER NOT NULL,
+                notes TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(username, listing_id),
+                FOREIGN KEY (username) REFERENCES users (username) ON DELETE CASCADE,
+                FOREIGN KEY (listing_id) REFERENCES listings (id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Create saved_searches table
+        logger.info("Creating saved_searches table...")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS saved_searches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                name TEXT NOT NULL,
+                keywords TEXT,
+                min_price INTEGER,
+                max_price INTEGER,
+                sources TEXT,
+                location TEXT,
+                radius INTEGER,
+                notify_new BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_run DATETIME,
+                FOREIGN KEY (username) REFERENCES users (username) ON DELETE CASCADE
+            )
+        """)
+        
+        # Create price_alerts table
+        logger.info("Creating price_alerts table...")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS price_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                keywords TEXT NOT NULL,
+                threshold_price INTEGER NOT NULL,
+                alert_type TEXT DEFAULT 'under',
+                active BOOLEAN DEFAULT 1,
+                last_triggered DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (username) REFERENCES users (username) ON DELETE CASCADE
+            )
+        """)
+        
         # Create indexes for user_activity
         c.execute("""
             CREATE INDEX IF NOT EXISTS idx_user_activity_username 
@@ -151,6 +263,23 @@ def init_production_database():
             ON user_activity(timestamp)
         """)
         
+        # Create indexes for subscriptions
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS idx_subscriptions_username 
+            ON subscriptions(username)
+        """)
+        
+        # Create indexes for subscription_history
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS idx_subscription_history_username 
+            ON subscription_history(username)
+        """)
+        
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS idx_subscription_history_created_at 
+            ON subscription_history(created_at)
+        """)
+        
         # Commit all changes
         conn.commit()
         
@@ -158,7 +287,9 @@ def init_production_database():
         c.execute("""
             SELECT name FROM sqlite_master 
             WHERE type='table' 
-            AND name IN ('security_events', 'rate_limits', 'users', 'listings', 'user_activity')
+            AND name IN ('security_events', 'rate_limits', 'users', 'listings', 'user_activity', 
+                         'subscriptions', 'subscription_history', 'email_verification_tokens', 
+                         'password_reset_tokens', 'favorites', 'saved_searches', 'price_alerts')
         """)
         tables = c.fetchall()
         
