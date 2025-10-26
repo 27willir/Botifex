@@ -12,6 +12,7 @@ from db_enhanced import (
     get_user_by_email,
     create_user_db,
     update_user_login,
+    update_user_login_and_log_activity,
     get_all_users,
     get_user_count,
     update_user_role,

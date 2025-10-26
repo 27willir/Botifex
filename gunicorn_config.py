@@ -5,17 +5,17 @@ import os
 bind = f"0.0.0.0:{os.getenv('PORT', '5000')}"
 backlog = 2048
 
-# Worker processes
-workers = int(os.getenv('WEB_CONCURRENCY', multiprocessing.cpu_count() * 2 + 1))
+# Worker processes - optimized for Render
+workers = int(os.getenv('WEB_CONCURRENCY', 2))  # Reduced for better stability
 # Use gevent for SocketIO support (compatible with Python 3.13)
 # Fallback to sync if gevent not available
 worker_class = os.getenv('GUNICORN_WORKER_CLASS', 'gevent')  # gevent, sync, or eventlet
-worker_connections = 1000
+worker_connections = 500  # Reduced for better memory management
 
 # Timeout settings - optimized for production stability
-timeout = 60  # Increased timeout to handle database operations
-graceful_timeout = 30  # Allow workers time to finish current requests
-keepalive = 10  # Increased for better connection reuse
+timeout = 30  # Reduced timeout to prevent worker hangs
+graceful_timeout = 15  # Faster worker shutdown
+keepalive = 5  # Reduced for faster connection recycling
 
 # Worker lifecycle - restart workers periodically to prevent memory leaks
 max_requests = 1000  # Restart worker after handling this many requests

@@ -69,17 +69,24 @@ app.register_blueprint(admin_bp)
 # Create honeypot routes to catch malicious bots
 create_honeypot_routes(app)
 
-# Initialize production database on startup
+# Initialize production database on startup with timeout protection
 def init_production_database():
     """Initialize production database with all required tables"""
     try:
-        from scripts.init_production_db import init_production_database as init_db
-        init_db()
+        # Use optimized startup to reduce timeout issues
+        from scripts.optimize_startup import optimize_database
+        optimize_database()
         logger.info("Production database initialization completed")
     except Exception as e:
         logger.error(f"Failed to initialize production database: {e}")
+        # Fallback to basic initialization
+        try:
+            db_enhanced.init_db()
+            logger.info("Fallback database initialization completed")
+        except Exception as fallback_error:
+            logger.error(f"Fallback database initialization failed: {fallback_error}")
 
-# Run database initialization
+# Run database initialization with timeout protection
 init_production_database()
 
 # Security middleware - must be first
@@ -299,20 +306,22 @@ def login():
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
             
-            # Sanitize username input
-            username = SecurityConfig.sanitize_input(username)
-            
+            # Fast-path validation
             if not username or not password:
                 logger.warning("Login attempt with missing credentials")
                 flash("Username and password are required", "error")
                 return render_template("login.html")
             
-            # Check for suspicious login activity
+            # Sanitize username input
+            username = SecurityConfig.sanitize_input(username)
+            
+            # Fast-path blocking for suspicious activity
             if check_suspicious_login_activity(username, request.remote_addr):
                 logger.warning(f"Blocking suspicious login attempt for {username} from {request.remote_addr}")
                 flash("Too many failed login attempts. Please try again later.", "error")
                 return render_template("login.html")
             
+            # Single database call to get user data
             user_data = ErrorHandler.handle_database_error(db_enhanced.get_user_by_username, username)
             if user_data:
                 # Use named tuple for safe access
@@ -334,39 +343,47 @@ def login():
                     login_user(user, remember=True)
                     session.permanent = True
                     
-                    # Update login tracking
-                    db_enhanced.update_user_login(username)
-                    # Log activity
-                    db_enhanced.log_user_activity(
-                        username, 
-                        'login', 
-                        'User logged in', 
-                        request.remote_addr, 
-                        request.headers.get('User-Agent')
-                    )
+                    # Batch database operations to reduce timeouts
+                    try:
+                        # Update login tracking and log activity in a single transaction
+                        db_enhanced.update_user_login_and_log_activity(
+                            username, 
+                            request.remote_addr, 
+                            request.headers.get('User-Agent')
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to log login activity for {username}: {e}")
+                        # Don't fail login if logging fails
                     
                     logger.info(f"Successful login for user: {username}")
                     return redirect(url_for("dashboard"))
                 else:
                     logger.warning(f"Invalid password for user: {username}")
-                    db_enhanced.log_user_activity(
-                        username, 
-                        'login_failed', 
-                        'Invalid password', 
-                        request.remote_addr, 
-                        request.headers.get('User-Agent')
-                    )
+                    # Log failed attempt asynchronously to avoid blocking
+                    try:
+                        db_enhanced.log_user_activity(
+                            username, 
+                            'login_failed', 
+                            'Invalid password', 
+                            request.remote_addr, 
+                            request.headers.get('User-Agent')
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to log failed login for {username}: {e}")
                     flash("Invalid password", "error")
             else:
                 logger.warning(f"Login attempt for non-existent user: {username}")
-                # Log failed login attempt for security monitoring
-                db_enhanced.log_user_activity(
-                    username, 
-                    'login_failed', 
-                    'Non-existent user login attempt', 
-                    request.remote_addr, 
-                    request.headers.get('User-Agent')
-                )
+                # Log failed login attempt asynchronously
+                try:
+                    db_enhanced.log_user_activity(
+                        username, 
+                        'login_failed', 
+                        'Non-existent user login attempt', 
+                        request.remote_addr, 
+                        request.headers.get('User-Agent')
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to log non-existent user login: {e}")
                 flash("Invalid username or password", "error")
             
             return render_template("login.html")
@@ -390,6 +407,25 @@ def logout():
     )
     logout_user()
     return redirect(url_for("login"))
+
+@app.route("/health")
+def health_check():
+    """Health check endpoint for monitoring"""
+    try:
+        # Quick database connectivity check
+        db_enhanced.get_user_count()
+        return jsonify({
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "database": "connected"
+        }), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({
+            "status": "unhealthy",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }), 500
 
 @app.route("/")
 def landing():

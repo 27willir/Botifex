@@ -10,8 +10,8 @@ from utils import logger
 DB_FILE = "superbot.db"
 
 # Connection pool configuration - optimized for production
-POOL_SIZE = 15  # Increased pool size for better concurrency
-CONNECTION_TIMEOUT = 30  # Reduced timeout for faster failure detection
+POOL_SIZE = 5  # Reduced pool size for better memory management
+CONNECTION_TIMEOUT = 10  # Reduced timeout for faster failure detection
 
 
 class DatabaseConnectionPool:
@@ -47,7 +47,7 @@ class DatabaseConnectionPool:
         conn.execute("PRAGMA cache_size=20000")  # Increased cache size
         conn.execute("PRAGMA temp_store=MEMORY")
         conn.execute("PRAGMA mmap_size=268435456")  # 256MB
-        conn.execute("PRAGMA busy_timeout=5000")  # Reduced timeout for faster failure detection  # 10 second timeout
+        conn.execute("PRAGMA busy_timeout=2000")  # 2 second timeout for faster failure detection
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA read_uncommitted=1")  # Allow dirty reads for better concurrency
         conn.execute("PRAGMA locking_mode=NORMAL")  # Use normal locking
@@ -714,6 +714,31 @@ def update_user_login(username):
             WHERE username = ?
         """, (datetime.now(), username))
         conn.commit()
+
+
+@log_errors()
+def update_user_login_and_log_activity(username, ip_address=None, user_agent=None):
+    """Update user login and log activity in a single transaction for better performance"""
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        try:
+            # Update login tracking
+            c.execute("""
+                UPDATE users 
+                SET last_login = ?, login_count = login_count + 1 
+                WHERE username = ?
+            """, (datetime.now(), username))
+            
+            # Log activity
+            c.execute("""
+                INSERT INTO user_activity (username, action, details, ip_address, user_agent, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (username, 'login', 'User logged in', ip_address, user_agent, datetime.now()))
+            
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
 
 
 @log_errors()
