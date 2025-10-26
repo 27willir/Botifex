@@ -57,14 +57,16 @@ SUBSCRIPTION_TIERS = {
         'features': {
             'max_keywords': 2,
             'refresh_interval': 600,  # 10 minutes in seconds
-            'platforms': ['craigslist', 'ebay'],  # Free platforms
+            'platforms': ['craigslist', 'ebay'],  # Free users can only access Craigslist and eBay
             'max_platforms': 2,
             'analytics': False,
             'selling': False,
             'notifications': False,
             'priority_support': False,
             'poshmark': False,  # Poshmark is pro-only
-            'mercari': False  # Mercari is pro-only
+            'mercari': False,  # Mercari is pro-only
+            'facebook': False,  # Facebook requires Standard or Pro
+            'ksl': False  # KSL requires Standard or Pro
         }
     },
     'standard': {
@@ -74,14 +76,16 @@ SUBSCRIPTION_TIERS = {
         'features': {
             'max_keywords': 10,
             'refresh_interval': 300,  # 5 minutes in seconds
-            'platforms': ['craigslist', 'facebook', 'ksl', 'ebay'],  # All platforms except Poshmark and Mercari
+            'platforms': ['craigslist', 'facebook', 'ksl', 'ebay'],  # Standard includes Facebook and KSL
             'max_platforms': 4,
             'analytics': 'limited',  # Limited analytics
             'selling': False,
             'notifications': True,
             'priority_support': False,
             'poshmark': False,  # Poshmark is pro-only
-            'mercari': False  # Mercari is pro-only
+            'mercari': False,  # Mercari is pro-only
+            'facebook': True,  # Facebook included in Standard
+            'ksl': True  # KSL included in Standard
         }
     },
     'pro': {
@@ -98,7 +102,9 @@ SUBSCRIPTION_TIERS = {
             'notifications': True,
             'priority_support': True,
             'poshmark': True,  # Poshmark is pro-only
-            'mercari': True  # Mercari is pro-only
+            'mercari': True,  # Mercari is pro-only
+            'facebook': True,  # Facebook included in Pro
+            'ksl': True  # KSL included in Pro
         }
     }
 }
