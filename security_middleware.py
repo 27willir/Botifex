@@ -9,6 +9,33 @@ from collections import defaultdict, deque
 from utils import logger
 import db_enhanced
 
+# Track request start time
+_REQUEST_START_TIME = {}
+
+# Quick pattern matching for known malicious requests - compiled for performance
+MALICIOUS_PATTERNS = [
+    re.compile(r'/lander/', re.IGNORECASE),
+    re.compile(r'index\.php', re.IGNORECASE),
+    re.compile(r'\.php', re.IGNORECASE),
+    re.compile(r'wp-', re.IGNORECASE),
+    re.compile(r'administrator', re.IGNORECASE),
+    re.compile(r'admin\.php', re.IGNORECASE),
+    re.compile(r'\.sql', re.IGNORECASE),
+    re.compile(r'\.env', re.IGNORECASE),
+]
+
+def _is_quick_reject_path(path):
+    """Quick check for paths that should be rejected immediately - no DB access."""
+    if not path:
+        return True
+    
+    # Check against known malicious patterns (compiled regex for performance)
+    for pattern in MALICIOUS_PATTERNS:
+        if pattern.search(path):
+            return True
+    
+    return False
+
 class SecurityMiddleware:
     """Advanced security middleware to block malicious requests"""
     
@@ -304,6 +331,12 @@ security_middleware = SecurityMiddleware()
 
 def security_before_request():
     """Flask before_request handler for security"""
+    # Early rejection for obviously malicious paths - no DB access
+    if _is_quick_reject_path(request.path):
+        # Log and block immediately without database access
+        logger.warning(f"Quick reject: malicious path from {request.remote_addr}: {request.path}")
+        return jsonify({'error': 'Access Denied', 'message': 'Request blocked by security policy', 'code': 403}), 403
+    
     # Skip security check for static files and allowed routes
     if request.path.startswith('/static/'):
         return None
