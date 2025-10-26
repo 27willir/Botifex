@@ -91,15 +91,19 @@ class SecurityMiddleware:
         self.blocked_ips = set()
         self.suspicious_ips = defaultdict(int)
         
-        # Rate limiting thresholds - balanced for security vs usability
+        # Rate limiting thresholds - tightened for better security
         self.max_requests_per_minute = 60  # More reasonable for normal users
-        self.max_suspicious_requests = 5   # Allow a few mistakes
-        self.block_duration_minutes = 30   # Reduced block time
+        self.max_suspicious_requests = 3   # Reduced from 5 - block faster
+        self.block_duration_minutes = 60   # Increased from 30 - longer blocks
         
         # Additional security thresholds
         self.max_requests_per_second = 10  # Allow higher burst for normal usage
-        self.suspicious_ip_block_threshold = 3  # Block after 3 suspicious requests
-        self.rapid_fire_threshold = 20  # Block if 20+ requests in 10 seconds (DDoS protection)
+        self.suspicious_ip_block_threshold = 2  # Reduced from 3 - block after 2 suspicious requests
+        self.rapid_fire_threshold = 15  # Reduced from 20 - be more sensitive to DDoS
+        
+        # Track failed requests for fail2ban-like behavior
+        self.failed_requests = defaultdict(int)
+        self.failed_request_threshold = 10  # Block after 10 failed requests
         
     def is_suspicious_request(self, path):
         """Check if the request path matches suspicious patterns"""
@@ -113,11 +117,14 @@ class SecurityMiddleware:
         if not user_agent:
             return False  # Don't block if no user agent
             
-        # Only block truly malicious/scanner tools
+        # Block known bot and scanner patterns
         malicious_agents = [
             'sqlmap', 'nikto', 'nmap', 'masscan', 'zap', 'burp',
-            'acunetix', 'nikto', 'nessus', 'openvas', 'metasploit',
-            'masscan', 'sqlmap', 'xsser', 'backtrack', 'kaeli'
+            'acunetix', 'nessus', 'openvas', 'metasploit',
+            'xsser', 'backtrack', 'kaeli',
+            # Known scanner bots
+            'ahrefsbot', 'semrushbot', 'dotbot', 'mj12bot',
+            'blexbot', 'screaming frog', 'sitebulb', 'nerdybot'
         ]
         
         # Don't block legitimate bots or tools that might be used legitimately
@@ -127,7 +134,8 @@ class SecurityMiddleware:
             'baiduspider', 'yandexbot', 'facebookexternalhit',
             'go-http-client',  # Some legitimate Go clients
             'python-requests',  # May be used for API calls
-            'postman'  # API testing tools
+            'postman',  # API testing tools
+            'botifex'  # Your own bot
         ]
         
         user_agent_lower = user_agent.lower()
@@ -179,6 +187,18 @@ class SecurityMiddleware:
         """Check if IP is currently blocked"""
         return ip in self.blocked_ips
     
+    def record_failed_request(self, ip):
+        """Record a failed request (404, 403, etc.) for fail2ban-like behavior"""
+        self.failed_requests[ip] += 1
+        
+        # Block IP if too many failed requests
+        if self.failed_requests[ip] >= self.failed_request_threshold:
+            self.blocked_ips.add(ip)
+            logger.warning(f"IP {ip} blocked after {self.failed_requests[ip]} failed requests")
+            return True
+        
+        return False
+    
     def should_block_request(self, request):
         """Determine if request should be blocked"""
         ip = request.remote_addr
@@ -197,7 +217,8 @@ class SecurityMiddleware:
             # Block IP immediately for certain high-risk patterns
             high_risk_patterns = [
                 r'\.env', r'phpinfo', r'server-info', r'wp-config',
-                r'_profiler', r'admin', r'config\.js', r'aws-secret'
+                r'_profiler', r'admin', r'config\.js', r'aws-secret',
+                r'index\.php', r'lander.*\.php', r'database\.php'
             ]
             
             is_high_risk = any(re.search(pattern, path, re.IGNORECASE) for pattern in high_risk_patterns)
@@ -213,6 +234,7 @@ class SecurityMiddleware:
         # Check for malicious user agents
         if self.is_malicious_user_agent(user_agent):
             logger.warning(f"Malicious user agent from {ip}: {user_agent}")
+            self.blocked_ips.add(ip)
             return True, "Malicious user agent detected"
         
         # Track IP activity
@@ -275,6 +297,7 @@ class SecurityMiddleware:
         # Remove old blocked IPs
         self.blocked_ips.clear()
         self.suspicious_ips.clear()
+        self.failed_requests.clear() # Clear failed requests on cleanup
 
 # Global security middleware instance
 security_middleware = SecurityMiddleware()
@@ -301,9 +324,9 @@ def security_before_request():
     if request.path in allowed_paths:
         return None
     
-    # Clean up old data periodically
+    # Clean up old data periodically - more frequent cleanup
     if hasattr(security_middleware, '_last_cleanup'):
-        if time.time() - security_middleware._last_cleanup > 300:  # 5 minutes
+        if time.time() - security_middleware._last_cleanup > 60:  # Every 1 minute instead of 5
             security_middleware.cleanup_old_data()
             security_middleware._last_cleanup = time.time()
     else:

@@ -11,8 +11,20 @@ workers = int(os.getenv('WEB_CONCURRENCY', multiprocessing.cpu_count() * 2 + 1))
 # Fallback to sync if gevent not available
 worker_class = os.getenv('GUNICORN_WORKER_CLASS', 'gevent')  # gevent, sync, or eventlet
 worker_connections = 1000
-timeout = 120
-keepalive = 5
+
+# Timeout settings - increased to prevent legitimate request timeouts
+timeout = 180  # Increased from 120 to handle resource-intensive operations
+graceful_timeout = 45  # Allow workers time to finish current requests
+keepalive = 10  # Increased from 5 for better connection reuse
+
+# Worker lifecycle - restart workers periodically to prevent memory leaks
+max_requests = 1000  # Restart worker after handling this many requests
+max_requests_jitter = 100  # Add randomness to prevent all workers restarting at once
+
+# Worker memory management
+preload_app = False  # Don't preload to reduce memory per worker
+limit_request_fields = 100  # Limit number of request headers and fields
+limit_request_field_size = 8190  # Limit size of individual request fields
 
 # Logging
 accesslog = '-'
