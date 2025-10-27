@@ -8,6 +8,7 @@ import json
 import logging
 import traceback
 import time
+import threading
 from functools import wraps
 from typing import Any, Callable, Optional, Type, Union
 from pathlib import Path
@@ -15,93 +16,165 @@ from pathlib import Path
 # Import the logger from utils
 from utils import logger
 
+# Thread-local storage for recursion protection
+_error_handling_lock = threading.local()
+
 class ErrorHandler:
     """Centralized error handling class with retry and recovery mechanisms."""
     
     @staticmethod
     def handle_database_error(func: Callable, *args, **kwargs) -> Any:
-        """Handle database-related errors with retry logic."""
+        """Handle database-related errors with retry logic and recursion protection."""
         import sqlite3
         import random
+        import sys
         
         max_retries = 5
         base_delay = 0.1
         
-        for attempt in range(max_retries):
-            try:
-                return func(*args, **kwargs)
-            except sqlite3.OperationalError as e:
-                error_msg = str(e).lower()
-                if "database is locked" in error_msg or "database table is locked" in error_msg:
-                    if attempt < max_retries - 1:
-                        # Exponential backoff with jitter for locking errors
-                        delay = base_delay * (2 ** attempt) + random.uniform(0, 0.2)
-                        logger.warning(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
-                        time.sleep(delay)
-                        continue
+        # Check for recursion depth to prevent infinite loops
+        recursion_marker = getattr(_error_handling_lock, 'db_error_depth', 0)
+        if recursion_marker > 10:
+            print(f"ERROR: Maximum recursion depth exceeded in database error handler", file=sys.stderr)
+            raise RecursionError("Maximum database error handler recursion depth exceeded")
+        
+        _error_handling_lock.db_error_depth = recursion_marker + 1
+        
+        try:
+            for attempt in range(max_retries):
+                try:
+                    result = func(*args, **kwargs)
+                    _error_handling_lock.db_error_depth = recursion_marker
+                    return result
+                except sqlite3.OperationalError as e:
+                    error_msg = str(e).lower()
+                    if "database is locked" in error_msg or "database table is locked" in error_msg:
+                        if attempt < max_retries - 1:
+                            # Exponential backoff with jitter for locking errors
+                            delay = base_delay * (2 ** attempt) + random.uniform(0, 0.2)
+                            try:
+                                logger.warning(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                            except:
+                                print(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})", file=sys.stderr)
+                            time.sleep(delay)
+                            continue
+                        else:
+                            try:
+                                logger.error(f"Database locked after {max_retries} attempts")
+                            except:
+                                print(f"Database locked after {max_retries} attempts", file=sys.stderr)
+                            raise
+                    elif "database is busy" in error_msg:
+                        if attempt < max_retries - 1:
+                            # Shorter delay for busy database
+                            delay = base_delay * (1.5 ** attempt) + random.uniform(0, 0.1)
+                            try:
+                                logger.warning(f"Database busy, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                            except:
+                                print(f"Database busy, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})", file=sys.stderr)
+                            time.sleep(delay)
+                            continue
+                        else:
+                            try:
+                                logger.error(f"Database busy after {max_retries} attempts")
+                            except:
+                                print(f"Database busy after {max_retries} attempts", file=sys.stderr)
+                            raise
                     else:
-                        logger.error(f"Database locked after {max_retries} attempts")
+                        try:
+                            logger.error(f"Database error: {e}")
+                        except:
+                            print(f"Database error: {e}", file=sys.stderr)
                         raise
-                elif "database is busy" in error_msg:
-                    if attempt < max_retries - 1:
-                        # Shorter delay for busy database
-                        delay = base_delay * (1.5 ** attempt) + random.uniform(0, 0.1)
-                        logger.warning(f"Database busy, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
-                        time.sleep(delay)
-                        continue
-                    else:
-                        logger.error(f"Database busy after {max_retries} attempts")
-                        raise
-                else:
-                    logger.error(f"Database error: {e}")
-                    raise
-            except sqlite3.DatabaseError as e:
-                logger.error(f"Database integrity error: {e}")
-                raise
-            except Exception as e:
-                logger.error(f"Database operation failed (attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(base_delay * (attempt + 1))
-                else:
-                    logger.error(f"Database operation failed after {max_retries} attempts: {e}")
-                    # Try to perform database maintenance on final failure
+                except sqlite3.DatabaseError as e:
                     try:
-                        from db_enhanced import maintain_database, cleanup_old_connections
-                        cleanup_old_connections()
-                        maintain_database()
-                        logger.info("Performed database maintenance after operation failure")
-                    except Exception as maintenance_error:
-                        logger.error(f"Database maintenance failed: {maintenance_error}")
+                        logger.error(f"Database integrity error: {e}")
+                    except:
+                        print(f"Database integrity error: {e}", file=sys.stderr)
                     raise
+                except Exception as e:
+                    try:
+                        logger.error(f"Database operation failed (attempt {attempt + 1}/{max_retries}): {e}")
+                    except:
+                        print(f"Database operation failed (attempt {attempt + 1}/{max_retries}): {e}", file=sys.stderr)
+                    if attempt < max_retries - 1:
+                        time.sleep(base_delay * (attempt + 1))
+                    else:
+                        # Try to perform database maintenance on final failure (avoid recursion)
+                        if recursion_marker == 0:
+                            try:
+                                from db_enhanced import maintain_database, cleanup_old_connections
+                                cleanup_old_connections()
+                                maintain_database()
+                                try:
+                                    logger.info("Performed database maintenance after operation failure")
+                                except:
+                                    print("Performed database maintenance after operation failure", file=sys.stderr)
+                            except Exception as maintenance_error:
+                                print(f"Database maintenance failed: {maintenance_error}", file=sys.stderr)
+                        raise
+        finally:
+            _error_handling_lock.db_error_depth = recursion_marker
     
     @staticmethod
     def handle_network_error(func: Callable, *args, **kwargs) -> Any:
-        """Handle network-related errors with retry logic."""
+        """Handle network-related errors with retry logic and recursion protection."""
+        import sys
         max_retries = 3
         retry_delay = 2
         
-        for attempt in range(max_retries):
-            try:
-                return func(*args, **kwargs)
-            except (ConnectionError, TimeoutError, OSError) as e:
-                logger.warning(f"Network operation failed (attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay * (attempt + 1))
-                else:
-                    logger.error(f"Network operation failed after {max_retries} attempts: {e}")
+        # Check for recursion depth
+        recursion_marker = getattr(_error_handling_lock, 'network_error_depth', 0)
+        if recursion_marker > 5:
+            print(f"ERROR: Maximum recursion depth exceeded in network error handler", file=sys.stderr)
+            raise RecursionError("Maximum network error handler recursion depth exceeded")
+        
+        _error_handling_lock.network_error_depth = recursion_marker + 1
+        
+        try:
+            for attempt in range(max_retries):
+                try:
+                    result = func(*args, **kwargs)
+                    _error_handling_lock.network_error_depth = recursion_marker
+                    return result
+                except (ConnectionError, TimeoutError, OSError) as e:
+                    try:
+                        logger.warning(f"Network operation failed (attempt {attempt + 1}/{max_retries}): {e}")
+                    except:
+                        print(f"Network operation failed (attempt {attempt + 1}/{max_retries}): {e}", file=sys.stderr)
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (attempt + 1))
+                    else:
+                        try:
+                            logger.error(f"Network operation failed after {max_retries} attempts: {e}")
+                        except:
+                            print(f"Network operation failed after {max_retries} attempts: {e}", file=sys.stderr)
+                        raise
+                except Exception as e:
+                    try:
+                        logger.error(f"Unexpected error in network operation: {e}")
+                    except:
+                        print(f"Unexpected error in network operation: {e}", file=sys.stderr)
                     raise
-            except Exception as e:
-                logger.error(f"Unexpected error in network operation: {e}")
-                raise
+        finally:
+            _error_handling_lock.network_error_depth = recursion_marker
     
     @staticmethod
     def handle_scraper_error(func: Callable, *args, **kwargs) -> Any:
-        """Handle scraper-specific errors with recovery."""
+        """Handle scraper-specific errors with recovery and recursion protection."""
+        import sys
         try:
             return func(*args, **kwargs)
+        except RecursionError as e:
+            # Handle recursion errors specially - don't try to log them
+            print(f"RECURSION ERROR in scraper: {e}", file=sys.stderr)
+            return []
         except Exception as e:
-            logger.error(f"Scraper operation failed: {e}")
-            logger.debug(f"Scraper error traceback: {traceback.format_exc()}")
+            try:
+                logger.error(f"Scraper operation failed: {e}")
+                logger.debug(f"Scraper error traceback: {traceback.format_exc()}")
+            except:
+                print(f"Scraper operation failed: {e}", file=sys.stderr)
             # Return empty result instead of crashing
             return []
     
@@ -144,16 +217,32 @@ def retry_on_failure(max_retries: int = 3, delay: float = 1.0,
     return decorator
 
 def log_errors(logger_instance: Optional[logging.Logger] = None):
-    """Decorator to log errors with context."""
+    """Decorator to log errors with context and recursion protection."""
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
             except Exception as e:
-                log = logger_instance or logger
-                log.error(f"Error in {func.__name__}: {e}")
-                log.debug(f"Error traceback: {traceback.format_exc()}")
+                # Prevent infinite recursion if logging itself fails
+                if getattr(_error_handling_lock, 'in_error_handler', False):
+                    # Already handling an error, print to stderr
+                    import sys
+                    print(f"NESTED ERROR in {func.__name__}: {e}", file=sys.stderr)
+                    raise
+                
+                _error_handling_lock.in_error_handler = True
+                try:
+                    log = logger_instance or logger
+                    log.error(f"Error in {func.__name__}: {e}")
+                    log.debug(f"Error traceback: {traceback.format_exc()}")
+                except Exception as log_error:
+                    # If logging fails, print to stderr
+                    import sys
+                    print(f"LOGGING ERROR in {func.__name__}: {e}", file=sys.stderr)
+                    print(f"Logger exception: {log_error}", file=sys.stderr)
+                finally:
+                    _error_handling_lock.in_error_handler = False
                 raise
         return wrapper
     return decorator

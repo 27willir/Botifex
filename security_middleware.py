@@ -341,6 +341,10 @@ def security_before_request():
     if request.path.startswith('/static/'):
         return None
     
+    # Skip security check for admin routes - let Flask-Login and admin_required handle auth
+    if request.path.startswith('/admin'):
+        return None
+    
     # Skip security check for basic routes that users need to access
     allowed_paths = [
         '/',
@@ -356,6 +360,17 @@ def security_before_request():
     
     if request.path in allowed_paths:
         return None
+    
+    # Bypass security checks for authenticated admin users
+    try:
+        from flask_login import current_user
+        if current_user and current_user.is_authenticated:
+            if hasattr(current_user, 'role') and current_user.role == 'admin':
+                # Admin users bypass security middleware
+                return None
+    except Exception as e:
+        # If there's an error checking user status, continue with security checks
+        logger.debug(f"Error checking admin status in security middleware: {e}")
     
     # Clean up old data periodically - more frequent cleanup
     if hasattr(security_middleware, '_last_cleanup'):

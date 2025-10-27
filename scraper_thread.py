@@ -1,5 +1,6 @@
 import threading
 import time
+import sys
 from selenium.webdriver.chrome.service import Service
 from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
@@ -10,6 +11,12 @@ from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
 _threads = {}
 _drivers = {}  # Track active drivers
 _thread_locks = {}  # Thread safety locks
+_scraper_errors = {}  # Track errors per scraper
+_last_start_time = {}  # Track last start time per scraper
+
+# Scraper recovery settings
+COOLDOWN_PERIOD = 30  # seconds to wait before restarting after error
+MAX_ERRORS_PER_HOUR = 10  # Maximum errors before giving up
 
 # NOTE: each scraper module exposes its own running_flags dict
 from scrapers.facebook import running_flags as fb_flags, run_facebook_scraper
@@ -64,6 +71,57 @@ def _get_driver_lock(site_name):
     """Get thread lock for the given site."""
     return _thread_locks.get(site_name)
 
+def _track_scraper_error(site_name):
+    """Track scraper errors and determine if cooldown is needed."""
+    now = time.time()
+    if site_name not in _scraper_errors:
+        _scraper_errors[site_name] = []
+    
+    # Add current error
+    _scraper_errors[site_name].append(now)
+    
+    # Clean up errors older than 1 hour
+    hour_ago = now - 3600
+    _scraper_errors[site_name] = [t for t in _scraper_errors[site_name] if t > hour_ago]
+    
+    # Check if we've exceeded error threshold
+    error_count = len(_scraper_errors[site_name])
+    if error_count >= MAX_ERRORS_PER_HOUR:
+        print(f"ERROR: {site_name} scraper has exceeded maximum errors ({error_count} in last hour)", file=sys.stderr)
+        return False, error_count
+    
+    return True, error_count
+
+def _handle_scraper_exception(site_name, exception, context=""):
+    """Handle scraper exceptions with proper logging and cooldown."""
+    try:
+        if isinstance(exception, RecursionError):
+            # Special handling for recursion errors
+            print(f"RECURSION ERROR in {site_name} scraper {context}: {exception}", file=sys.stderr)
+            logger.error(f"Recursion error in {site_name} scraper {context}")
+        else:
+            print(f"ERROR in {site_name} scraper {context}: {exception}", file=sys.stderr)
+            try:
+                logger.error(f"Error in {site_name} scraper {context}: {exception}")
+            except:
+                # If logging fails, already printed to stderr
+                pass
+    except:
+        # Last resort - just print to stderr
+        print(f"FATAL: Error handling exception in {site_name} scraper", file=sys.stderr)
+    
+    # Track the error
+    can_continue, error_count = _track_scraper_error(site_name)
+    if not can_continue:
+        print(f"FATAL: {site_name} scraper disabled due to excessive errors", file=sys.stderr)
+        return False
+    
+    # Apply cooldown
+    print(f"Applying {COOLDOWN_PERIOD}s cooldown for {site_name} scraper (error {error_count})", file=sys.stderr)
+    time.sleep(COOLDOWN_PERIOD)
+    
+    return True
+
 # ============================
 # FACEBOOK SCRAPER THREADS
 # ============================
@@ -80,18 +138,20 @@ def start_facebook():
             # Create driver with proper error handling
             driver = _create_driver("facebook")
             if not driver:
-                logger.error("Failed to create driver for Facebook scraper")
+                print("ERROR: Failed to create driver for Facebook scraper", file=sys.stderr)
                 return
             
             # Run scraper with timeout protection
             run_facebook_scraper(driver, "facebook")
             
+        except RecursionError as e:
+            _handle_scraper_exception("facebook", e, "recursion error")
         except NetworkError as e:
-            logger.error(f"Facebook scraper network error: {e}")
+            _handle_scraper_exception("facebook", e, "network error")
         except ScraperError as e:
-            logger.error(f"Facebook scraper error: {e}")
+            _handle_scraper_exception("facebook", e, "scraper error")
         except Exception as e:
-            logger.error(f"Facebook scraper unexpected error: {e}")
+            _handle_scraper_exception("facebook", e, "unexpected error")
         finally:
             # Always cleanup driver
             _cleanup_driver("facebook")
@@ -132,8 +192,10 @@ def start_craigslist():
         try:
             logger.info("Starting Craigslist scraper")
             run_craigslist_scraper(flag_name="craigslist")
+        except RecursionError as e:
+            _handle_scraper_exception("craigslist", e, "recursion error")
         except Exception as e:
-            logger.error(f"Craigslist scraper thread error: {e}")
+            _handle_scraper_exception("craigslist", e, "thread error")
         finally:
             logger.info("Craigslist scraper thread finished")
     
@@ -171,8 +233,10 @@ def start_ksl():
         try:
             logger.info("Starting KSL scraper")
             run_ksl_scraper(flag_name="ksl")
+        except RecursionError as e:
+            _handle_scraper_exception("ksl", e, "recursion error")
         except Exception as e:
-            logger.error(f"KSL scraper thread error: {e}")
+            _handle_scraper_exception("ksl", e, "thread error")
         finally:
             logger.info("KSL scraper thread finished")
     
@@ -210,8 +274,10 @@ def start_ebay():
         try:
             logger.info("Starting eBay scraper")
             run_ebay_scraper(flag_name="ebay")
+        except RecursionError as e:
+            _handle_scraper_exception("ebay", e, "recursion error")
         except Exception as e:
-            logger.error(f"eBay scraper thread error: {e}")
+            _handle_scraper_exception("ebay", e, "thread error")
         finally:
             logger.info("eBay scraper thread finished")
     
@@ -249,8 +315,10 @@ def start_poshmark():
         try:
             logger.info("Starting Poshmark scraper")
             run_poshmark_scraper(flag_name="poshmark")
+        except RecursionError as e:
+            _handle_scraper_exception("poshmark", e, "recursion error")
         except Exception as e:
-            logger.error(f"Poshmark scraper thread error: {e}")
+            _handle_scraper_exception("poshmark", e, "thread error")
         finally:
             logger.info("Poshmark scraper thread finished")
     
@@ -288,8 +356,10 @@ def start_mercari():
         try:
             logger.info("Starting Mercari scraper")
             run_mercari_scraper(flag_name="mercari")
+        except RecursionError as e:
+            _handle_scraper_exception("mercari", e, "recursion error")
         except Exception as e:
-            logger.error(f"Mercari scraper thread error: {e}")
+            _handle_scraper_exception("mercari", e, "thread error")
         finally:
             logger.info("Mercari scraper thread finished")
     
