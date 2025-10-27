@@ -193,7 +193,11 @@ def get_facebook_url(settings):
     query = " ".join(keywords) if isinstance(keywords, list) else keywords
     
     # Try geocoding first for coordinates-based search
-    coords = geocode_location(location)
+    try:
+        coords = geocode_location(location)
+    except Exception as e:
+        logger.error(f"Error geocoding location '{location}': {e}")
+        coords = None
     
     if coords:
         # Use coordinates-based URL (works for any location)

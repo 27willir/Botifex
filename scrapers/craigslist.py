@@ -171,11 +171,18 @@ def check_craigslist(flag_name="craigslist"):
     base_retry_delay = 2
     
     # Get location coordinates for distance filtering
-    location_coords = get_location_coords(location)
-    if location_coords:
-        logger.debug(f"Craigslist: Searching {location} within {radius} miles")
-    else:
-        logger.warning(f"Could not geocode location '{location}', using default")
+    try:
+        location_coords = get_location_coords(location)
+        if location_coords:
+            logger.debug(f"Craigslist: Searching {location} within {radius} miles")
+        else:
+            logger.warning(f"Could not geocode location '{location}', using default coordinates")
+            # Use default coordinates for Boise, ID as fallback
+            location_coords = (43.6150, -116.2023)
+    except Exception as e:
+        logger.error(f"Error getting location coordinates for '{location}': {e}")
+        # Use default coordinates for Boise, ID as fallback
+        location_coords = (43.6150, -116.2023)
     
     for attempt in range(max_retries):
         try:

@@ -3,6 +3,7 @@ Shared location and distance utilities for all scrapers.
 Provides geocoding and distance calculation functionality.
 """
 import threading
+import time
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from geopy.distance import geodesic
@@ -14,6 +15,8 @@ from utils import logger
 geolocator = Nominatim(user_agent="super-bot-marketplace-scraper")
 geocode_cache = {}  # Cache for geocoded locations
 _geocode_lock = threading.Lock()  # Thread safety for geocoding
+_geocode_retry_count = {}  # Track retry attempts per location
+_max_retries = 3  # Maximum retry attempts
 
 # ======================
 # GEOCODING FUNCTIONS
@@ -22,7 +25,7 @@ def geocode_location(location_name):
     """
     Convert a city name to coordinates using geocoding.
     Returns (latitude, longitude) or None if geocoding fails.
-    Uses caching to avoid repeated API calls.
+    Uses caching to avoid repeated API calls and retry limits to prevent recursion.
     """
     location_key = location_name.lower().strip()
     
@@ -30,25 +33,43 @@ def geocode_location(location_name):
     with _geocode_lock:
         if location_key in geocode_cache:
             return geocode_cache[location_key]
+        
+        # Check if we've exceeded retry limit for this location
+        if location_key in _geocode_retry_count and _geocode_retry_count[location_key] >= _max_retries:
+            logger.warning(f"Geocoding retry limit exceeded for '{location_name}', using default coordinates")
+            # Use default coordinates for Boise, ID as fallback
+            default_coords = (43.6150, -116.2023)
+            geocode_cache[location_key] = default_coords
+            return default_coords
     
     try:
         # Try to geocode the location
         location = geolocator.geocode(location_name, timeout=10)
         if location:
             coords = (location.latitude, location.longitude)
-            # Cache the result
+            # Cache the result and reset retry count
             with _geocode_lock:
                 geocode_cache[location_key] = coords
+                _geocode_retry_count[location_key] = 0  # Reset retry count on success
             logger.debug(f"Geocoded '{location_name}' to {coords}")
             return coords
         else:
             logger.warning(f"Could not geocode location: {location_name}")
+            # Increment retry count
+            with _geocode_lock:
+                _geocode_retry_count[location_key] = _geocode_retry_count.get(location_key, 0) + 1
             return None
     except (GeocoderTimedOut, GeocoderServiceError) as e:
         logger.warning(f"Geocoding service error for '{location_name}': {e}")
+        # Increment retry count
+        with _geocode_lock:
+            _geocode_retry_count[location_key] = _geocode_retry_count.get(location_key, 0) + 1
         return None
     except Exception as e:
         logger.error(f"Unexpected error geocoding '{location_name}': {e}")
+        # Increment retry count
+        with _geocode_lock:
+            _geocode_retry_count[location_key] = _geocode_retry_count.get(location_key, 0) + 1
         return None
 
 def calculate_distance(coord1, coord2):
@@ -73,7 +94,15 @@ def get_location_coords(location_name):
     Get coordinates for a location name (with caching).
     Returns (latitude, longitude) or None if not found.
     """
-    return geocode_location(location_name)
+    if not location_name or not isinstance(location_name, str):
+        logger.warning("Invalid location name provided to get_location_coords")
+        return None
+    
+    try:
+        return geocode_location(location_name)
+    except Exception as e:
+        logger.error(f"Error in get_location_coords for '{location_name}': {e}")
+        return None
 
 def is_within_radius(coord1, coord2, radius_miles):
     """
@@ -97,4 +126,31 @@ def miles_to_km(miles):
 def km_to_miles(km):
     """Convert kilometers to miles."""
     return km * 0.621371
+
+def reset_geocode_retry_count(location_name=None):
+    """
+    Reset retry count for a specific location or all locations.
+    Useful for recovery after fixing geocoding issues.
+    """
+    with _geocode_lock:
+        if location_name:
+            location_key = location_name.lower().strip()
+            if location_key in _geocode_retry_count:
+                _geocode_retry_count[location_key] = 0
+                logger.info(f"Reset retry count for '{location_name}'")
+        else:
+            _geocode_retry_count.clear()
+            logger.info("Reset retry counts for all locations")
+
+def get_geocode_status():
+    """
+    Get current geocoding status including retry counts and cache size.
+    Useful for debugging geocoding issues.
+    """
+    with _geocode_lock:
+        return {
+            "cache_size": len(geocode_cache),
+            "retry_counts": dict(_geocode_retry_count),
+            "max_retries": _max_retries
+        }
 
