@@ -294,7 +294,7 @@
         {% endwith %}
 
         <div class="card">
-            <h2><i class="fas fa-cog"></i> Scraper Settings</h2>
+            <h2><i class="fas fa-cog"></i> Search Settings</h2>
             
             <form action="{{ url_for('settings') }}" method="POST">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
