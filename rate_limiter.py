@@ -114,9 +114,6 @@ def add_rate_limit_headers(response):
     response.headers['X-Content-Security'] = 'Active'
     
     return response
-    if hasattr(g, 'rate_limit_remaining'):
-        response.headers['X-RateLimit-Remaining'] = str(g.rate_limit_remaining)
-    return response
 
 
 # Admin functions

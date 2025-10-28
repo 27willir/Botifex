@@ -187,10 +187,9 @@ def check_ksl(flag_name="ksl"):
             # Add location filtering if coordinates available
             if location_coords:
                 lat, lon = location_coords
-                radius_km = int(miles_to_km(radius))
                 params["latitude"] = lat
                 params["longitude"] = lon
-                params["miles"] = radius_km
+                params["miles"] = radius
             
             full_url = base_url + "?" + urllib.parse.urlencode(params)
 

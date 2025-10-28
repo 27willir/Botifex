@@ -132,6 +132,14 @@ class SecurityMiddleware:
         self.failed_requests = defaultdict(int)
         self.failed_request_threshold = 10  # Block after 10 failed requests
         
+        # Admin rate limiting thresholds (higher but still present for security)
+        self.admin_max_requests_per_minute = 300  # 5x normal user limit
+        self.admin_max_requests_per_second = 50   # 5x normal user limit
+        self.admin_rapid_fire_threshold = 100     # Much higher for admin operations
+        
+        # Track admin activity for security auditing
+        self.admin_activity = defaultdict(lambda: deque())
+        
     def is_suspicious_request(self, path):
         """Check if the request path matches suspicious patterns"""
         for pattern in self.compiled_patterns:
@@ -174,13 +182,38 @@ class SecurityMiddleware:
         # Only block if it's clearly malicious
         return any(agent in user_agent_lower for agent in malicious_agents)
     
-    def track_ip_activity(self, ip):
+    def track_ip_activity(self, ip, is_admin=False):
         """Track IP activity for rate limiting with multiple thresholds"""
         now = time.time()
         minute_ago = now - 60
         second_ago = now - 1
         ten_seconds_ago = now - 10
         
+        # Use admin-specific tracking if admin user
+        if is_admin:
+            # Track admin activity separately for auditing
+            while self.admin_activity[ip] and self.admin_activity[ip][0] < minute_ago:
+                self.admin_activity[ip].popleft()
+            self.admin_activity[ip].append(now)
+            
+            # Apply admin-specific (higher) rate limits
+            recent_requests = [req for req in self.admin_activity[ip] if req > ten_seconds_ago]
+            if len(recent_requests) > self.admin_rapid_fire_threshold:
+                logger.warning(f"Admin IP {ip} exceeded rapid-fire threshold: {len(recent_requests)} in 10 seconds")
+                return False
+            
+            second_requests = [req for req in self.admin_activity[ip] if req > second_ago]
+            if len(second_requests) > self.admin_max_requests_per_second:
+                logger.warning(f"Admin IP {ip} exceeded per-second limit: {len(second_requests)}")
+                return False
+            
+            if len(self.admin_activity[ip]) > self.admin_max_requests_per_minute:
+                logger.warning(f"Admin IP {ip} exceeded per-minute limit: {len(self.admin_activity[ip])}")
+                return False
+            
+            return True
+        
+        # Standard user rate limiting
         # Clean old requests
         while self.ip_requests[ip] and self.ip_requests[ip][0] < minute_ago:
             self.ip_requests[ip].popleft()
@@ -226,25 +259,47 @@ class SecurityMiddleware:
         
         return False
     
-    def should_block_request(self, request):
+    def should_block_request(self, request, is_admin=False):
         """Determine if request should be blocked"""
         ip = request.remote_addr
         path = request.path
         user_agent = request.headers.get('User-Agent', '')
         
-        # Check if IP is blocked
+        # Admin users: apply relaxed security but still monitor
+        if is_admin:
+            # Log admin activity for audit trail
+            logger.info(f"Admin access: {ip} -> {path}")
+            
+            # Still check rate limits (but with higher thresholds)
+            if not self.track_ip_activity(ip, is_admin=True):
+                logger.warning(f"Admin IP {ip} exceeded rate limits")
+                return True, "Admin rate limit exceeded"
+            
+            # Allow admins to access admin paths and return early
+            if path.startswith('/admin'):
+                return False, None
+            
+            # For non-admin paths, still apply security checks
+            # (in case admin account is compromised and being used to attack)
+        
+        # Check if IP is blocked (applies to both admin and regular users)
         if self.is_ip_blocked(ip):
+            if is_admin:
+                logger.critical(f"Admin account on blocked IP {ip} attempted access to {path}")
             return True, "IP blocked for suspicious activity"
         
         # Check for suspicious file access patterns
         if self.is_suspicious_request(path):
             self.suspicious_ips[ip] += 1
-            logger.warning(f"Suspicious file access attempt from {ip}: {path}")
+            if is_admin:
+                logger.warning(f"Admin account from {ip} attempted suspicious file access: {path}")
+            else:
+                logger.warning(f"Suspicious file access attempt from {ip}: {path}")
             
             # Block IP immediately for certain high-risk patterns
             high_risk_patterns = [
                 r'\.env', r'phpinfo', r'server-info', r'wp-config',
-                r'_profiler', r'admin', r'config\.js', r'aws-secret',
+                r'_profiler', r'config\.js', r'aws-secret',
                 r'index\.php', r'lander.*\.php', r'database\.php'
             ]
             
@@ -253,19 +308,22 @@ class SecurityMiddleware:
             # Block immediately for high-risk patterns or after threshold
             if is_high_risk or self.suspicious_ips[ip] >= self.suspicious_ip_block_threshold:
                 self.blocked_ips.add(ip)
-                logger.warning(f"IP {ip} blocked for suspicious file access: {path} (high_risk={is_high_risk}, count={self.suspicious_ips[ip]})")
+                if is_admin:
+                    logger.critical(f"Admin IP {ip} blocked for suspicious file access: {path}")
+                else:
+                    logger.warning(f"IP {ip} blocked for suspicious file access: {path} (high_risk={is_high_risk}, count={self.suspicious_ips[ip]})")
                 return True, "IP blocked for suspicious file access attempts"
             
             return True, "Suspicious file access blocked"
         
-        # Check for malicious user agents
-        if self.is_malicious_user_agent(user_agent):
+        # Check for malicious user agents (skip for admin on legitimate paths)
+        if not is_admin and self.is_malicious_user_agent(user_agent):
             logger.warning(f"Malicious user agent from {ip}: {user_agent}")
             self.blocked_ips.add(ip)
             return True, "Malicious user agent detected"
         
-        # Track IP activity
-        if not self.track_ip_activity(ip):
+        # Track IP activity with appropriate thresholds
+        if not self.track_ip_activity(ip, is_admin=is_admin):
             return True, "Rate limit exceeded"
         
         return False, None
@@ -337,15 +395,11 @@ def security_before_request():
         logger.warning(f"Quick reject: malicious path from {request.remote_addr}: {request.path}")
         return jsonify({'error': 'Access Denied', 'message': 'Request blocked by security policy', 'code': 403}), 403
     
-    # Skip security check for static files and allowed routes
+    # Skip security check for static files
     if request.path.startswith('/static/'):
         return None
     
-    # Skip security check for admin routes - let Flask-Login and admin_required handle auth
-    if request.path.startswith('/admin'):
-        return None
-    
-    # Skip security check for basic routes that users need to access
+    # Skip security check for basic public routes that users need to access
     allowed_paths = [
         '/',
         '/login',
@@ -361,15 +415,15 @@ def security_before_request():
     if request.path in allowed_paths:
         return None
     
-    # Bypass security checks for authenticated admin users
+    # Check if user is an authenticated admin
+    is_admin = False
     try:
         from flask_login import current_user
         if current_user and current_user.is_authenticated:
             if hasattr(current_user, 'role') and current_user.role == 'admin':
-                # Admin users bypass security middleware
-                return None
+                is_admin = True
     except Exception as e:
-        # If there's an error checking user status, continue with security checks
+        # If there's an error checking user status, continue with security checks as regular user
         logger.debug(f"Error checking admin status in security middleware: {e}")
     
     # Clean up old data periodically - more frequent cleanup
@@ -380,16 +434,16 @@ def security_before_request():
     else:
         security_middleware._last_cleanup = time.time()
     
-    # Check if request should be blocked
-    should_block, reason = security_middleware.should_block_request(request)
+    # Check if request should be blocked (with admin flag for relaxed limits)
+    should_block, reason = security_middleware.should_block_request(request, is_admin=is_admin)
     
     if should_block:
-        # Log the security event
+        # Log the security event (including admin attempts for audit)
         security_middleware.log_security_event(
             ip=request.remote_addr,
             path=request.path,
             user_agent=request.headers.get('User-Agent', ''),
-            reason=reason
+            reason=f"{'[ADMIN] ' if is_admin else ''}{reason}"
         )
         
         # Return 403 Forbidden
@@ -448,6 +502,8 @@ def get_security_stats():
         'blocked_ips': len(security_middleware.blocked_ips),
         'suspicious_ips': len(security_middleware.suspicious_ips),
         'tracked_ips': len(security_middleware.ip_requests),
+        'admin_active_ips': len(security_middleware.admin_activity),
         'blocked_ips_list': list(security_middleware.blocked_ips),
-        'suspicious_ips_list': dict(security_middleware.suspicious_ips)
+        'suspicious_ips_list': dict(security_middleware.suspicious_ips),
+        'admin_activity_ips': list(security_middleware.admin_activity.keys())
     }
