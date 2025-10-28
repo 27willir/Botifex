@@ -81,9 +81,10 @@ class SecurityMiddleware:
             r'\.(htaccess|htpasswd)$',
             r'/(\.aws/credentials)$',
             
-            # Admin and management interfaces
-            r'/(admin|wp-admin|phpmyadmin|adminer)/',
+            # Admin and management interfaces (excluding legitimate /admin routes)
+            r'/(wp-admin|phpmyadmin|adminer)/',
             r'/(wp-config|server_info|server-info)$',
+            r'/administrator/',  # Moved from MALICIOUS_PATTERNS for more precise matching
             
             # Common attack targets
             r'/(xampp|laravel|laravel/core|laravel/info\.php)$',
@@ -270,19 +271,20 @@ class SecurityMiddleware:
             # Log admin activity for audit trail
             logger.info(f"Admin access: {ip} -> {path}")
             
-            # Still check rate limits (but with higher thresholds)
+            # Allow admins to access admin paths immediately (bypass all checks for admin panel)
+            if path.startswith('/admin'):
+                logger.debug(f"Admin user accessing admin panel: {path}")
+                return False, None
+            
+            # Still check rate limits for non-admin paths (but with higher thresholds)
             if not self.track_ip_activity(ip, is_admin=True):
                 logger.warning(f"Admin IP {ip} exceeded rate limits")
                 return True, "Admin rate limit exceeded"
             
-            # Allow admins to access admin paths and return early
-            if path.startswith('/admin'):
-                return False, None
-            
             # For non-admin paths, still apply security checks
             # (in case admin account is compromised and being used to attack)
         
-        # Check if IP is blocked (applies to both admin and regular users)
+        # Check if IP is blocked (applies to both admin and regular users on non-admin paths)
         if self.is_ip_blocked(ip):
             if is_admin:
                 logger.critical(f"Admin account on blocked IP {ip} attempted access to {path}")
@@ -399,6 +401,23 @@ def security_before_request():
     if request.path.startswith('/static/'):
         return None
     
+    # Check if user is an authenticated admin EARLY
+    is_admin = False
+    try:
+        from flask_login import current_user
+        if current_user and current_user.is_authenticated:
+            if hasattr(current_user, 'role') and current_user.role == 'admin':
+                is_admin = True
+                logger.debug(f"Admin user detected: {current_user.id}")
+    except Exception as e:
+        # If there's an error checking user status, continue with security checks as regular user
+        logger.debug(f"Error checking admin status in security middleware: {e}")
+    
+    # Allow admins to access admin panel without any security checks
+    if is_admin and request.path.startswith('/admin'):
+        logger.debug(f"Admin {current_user.id} accessing admin panel: {request.path}")
+        return None
+    
     # Skip security check for basic public routes that users need to access
     allowed_paths = [
         '/',
@@ -414,17 +433,6 @@ def security_before_request():
     
     if request.path in allowed_paths:
         return None
-    
-    # Check if user is an authenticated admin
-    is_admin = False
-    try:
-        from flask_login import current_user
-        if current_user and current_user.is_authenticated:
-            if hasattr(current_user, 'role') and current_user.role == 'admin':
-                is_admin = True
-    except Exception as e:
-        # If there's an error checking user status, continue with security checks as regular user
-        logger.debug(f"Error checking admin status in security middleware: {e}")
     
     # Clean up old data periodically - more frequent cleanup
     if hasattr(security_middleware, '_last_cleanup'):
