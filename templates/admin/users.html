@@ -1,189 +1,69 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>User Management - Admin</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-        .header {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .header h1 {
-            color: #667eea;
-            font-size: 28px;
-        }
-        .nav-links a {
-            margin-left: 15px;
-            text-decoration: none;
-            color: #667eea;
-            font-weight: 500;
-            padding: 8px 15px;
-            border-radius: 5px;
-            transition: background 0.3s;
-        }
-        .nav-links a:hover {
-            background: #f0f0f0;
-        }
-        .section {
-            background: white;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        .section h2 {
-            color: #333;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #667eea;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th {
-            background: #f8f9fa;
-            padding: 12px;
-            text-align: left;
-            font-weight: 600;
-            color: #333;
-            border-bottom: 2px solid #dee2e6;
-        }
-        td {
-            padding: 12px;
-            border-bottom: 1px solid #dee2e6;
-        }
-        tr:hover {
-            background: #f8f9fa;
-        }
-        .badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .badge-admin {
-            background: #dc3545;
-            color: white;
-        }
-        .badge-user {
-            background: #28a745;
-            color: white;
-        }
-        .badge-active {
-            background: #28a745;
-            color: white;
-        }
-        .badge-inactive {
-            background: #6c757d;
-            color: white;
-        }
-        .search-box {
-            margin-bottom: 20px;
-        }
-        .search-box input {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 16px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>👥 User Management</h1>
-            <div class="nav-links">
-                <a href="{{ url_for('admin.dashboard') }}">Dashboard</a>
-                <a href="{{ url_for('admin.users') }}">Users</a>
-                <a href="{{ url_for('admin.activity') }}">Activity</a>
-                <a href="{{ url_for('admin.cache_management') }}">Cache</a>
-                <a href="{{ url_for('dashboard') }}">Back to App</a>
-            </div>
-        </div>
+{% extends "admin/_base_admin.html" %}
 
-        <div class="section">
-            <h2>All Users ({{ users|length }})</h2>
-            
-            <div class="search-box">
-                <input type="text" id="searchInput" placeholder="Search users by username or email..." onkeyup="filterTable()">
-            </div>
+{% block title %}User Management{% endblock %}
+{% block page_title %}User Management{% endblock %}
+{% block page_subtitle %}Manage all users and their accounts{% endblock %}
 
-            <table id="userTable">
-                <thead>
-                    <tr>
-                        <th>Username</th>
-                        <th>Email</th>
-                        <th>Role</th>
-                        <th>Status</th>
-                        <th>Created</th>
-                        <th>Last Login</th>
-                        <th>Login Count</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for user in users %}
-                    <tr>
-                        <td><a href="{{ url_for('admin.user_detail', username=user[0]) }}" style="color: #667eea; text-decoration: none; font-weight: 600;">{{ user[0] }}</a></td>
-                        <td>{{ user[1] }}</td>
-                        <td><span class="badge badge-{{ user[4] }}">{{ user[4] }}</span></td>
-                        <td><span class="badge badge-{% if user[5] %}active{% else %}inactive{% endif %}">{% if user[5] %}Active{% else %}Inactive{% endif %}</span></td>
-                        <td>{{ user[6][:10] if user[6] else 'N/A' }}</td>
-                        <td>{{ user[7][:16] if user[7] else 'Never' }}</td>
-                        <td>{{ user[8] }}</td>
-                        <td>
-                            <a href="{{ url_for('admin.user_detail', username=user[0]) }}" style="color: #667eea; text-decoration: none;">View Details</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+{% block content %}
+<div class="section">
+    <h2><i class="fas fa-users"></i> All Users ({{ users|length }})</h2>
+    
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="🔍 Search users by username or email..." onkeyup="filterTable()">
     </div>
 
-    <script>
-        function filterTable() {
-            const input = document.getElementById('searchInput');
-            const filter = input.value.toLowerCase();
-            const table = document.getElementById('userTable');
-            const rows = table.getElementsByTagName('tr');
+    <table id="userTable">
+        <thead>
+            <tr>
+                <th>Username</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Last Login</th>
+                <th>Login Count</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td><a href="{{ url_for('admin.user_detail', username=user[0]) }}">{{ user[0] }}</a></td>
+                <td>{{ user[1] }}</td>
+                <td><span class="badge badge-{{ user[4] }}">{{ user[4] }}</span></td>
+                <td><span class="badge badge-{% if user[5] %}active{% else %}inactive{% endif %}">{% if user[5] %}Active{% else %}Inactive{% endif %}</span></td>
+                <td>{{ user[6][:10] if user[6] else 'N/A' }}</td>
+                <td>{{ user[7][:16] if user[7] else 'Never' }}</td>
+                <td>{{ user[8] }}</td>
+                <td>
+                    <a href="{{ url_for('admin.user_detail', username=user[0]) }}">View Details</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
 
-            for (let i = 1; i < rows.length; i++) {
-                const row = rows[i];
-                const username = row.cells[0].textContent.toLowerCase();
-                const email = row.cells[1].textContent.toLowerCase();
-                
-                if (username.includes(filter) || email.includes(filter)) {
-                    row.style.display = '';
-                } else {
-                    row.style.display = 'none';
-                }
+{% block scripts %}
+<script>
+    function filterTable() {
+        const input = document.getElementById('searchInput');
+        const filter = input.value.toLowerCase();
+        const table = document.getElementById('userTable');
+        const rows = table.getElementsByTagName('tr');
+
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            const username = row.cells[0].textContent.toLowerCase();
+            const email = row.cells[1].textContent.toLowerCase();
+            
+            if (username.includes(filter) || email.includes(filter)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
             }
         }
-    </script>
-</body>
-</html>
+    }
+</script>
+{% endblock %}
