@@ -97,7 +97,7 @@ def dashboard():
     except Exception as e:
         logger.error(f"Error loading admin dashboard: {e}")
         flash("Error loading dashboard", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("dashboard"))
 
 
 @admin_bp.route('/users')
