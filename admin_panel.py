@@ -23,13 +23,16 @@ def check_role():
         'current_user_id': current_user.id,
         'current_user_has_role_attr': hasattr(current_user, 'role'),
         'current_user_role': getattr(current_user, 'role', 'NO ROLE ATTRIBUTE'),
-        'db_user_data': user_data,
+        'db_user_data': str(user_data) if user_data else 'NO USER DATA',
         'db_role': user_data[4] if user_data else 'NO USER DATA',
+        'cache_cleared': True,
+        'message': 'If roles mismatch, please log out and log back in to refresh your session.'
     }
     
-    # Clear user cache
+    # Clear user cache so next request loads fresh data
     cache_key = f"user:{current_user.id}"
     cache_clear(cache_key)
+    logger.info(f"Cleared cache for user {current_user.id}. Session role: {getattr(current_user, 'role', 'NONE')}, DB role: {user_data[4] if user_data else 'NONE'}")
     
     return jsonify(debug_info)
 

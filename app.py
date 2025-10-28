@@ -398,6 +398,10 @@ def login():
 @login_required
 def logout():
     username = current_user.id
+    # Clear user cache on logout
+    cache_key = f"user:{username}"
+    cache_clear(cache_key)
+    
     db_enhanced.log_user_activity(
         username, 
         'logout', 
@@ -406,6 +410,21 @@ def logout():
         request.headers.get('User-Agent')
     )
     logout_user()
+    return redirect(url_for("login"))
+
+@app.route("/refresh-session")
+@login_required
+def refresh_session():
+    """Force refresh the user session from database"""
+    username = current_user.id
+    
+    # Clear user cache
+    cache_key = f"user:{username}"
+    cache_clear(cache_key)
+    
+    # Log them out and back in to reload user data
+    logout_user()
+    flash("Session refreshed. Please log in again.", "success")
     return redirect(url_for("login"))
 
 @app.route("/health")
