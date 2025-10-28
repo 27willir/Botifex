@@ -6,10 +6,32 @@ from datetime import datetime, timedelta
 import db_enhanced
 from utils import logger
 from rate_limiter import reset_user_rate_limits
-from cache_manager import get_cache
+from cache_manager import get_cache, cache_clear
 from security_middleware import get_security_stats
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
+
+# Debug route to check user role
+@admin_bp.route('/check-role')
+@login_required
+def check_role():
+    """Debug route to check user's role"""
+    # Get fresh user data from database
+    user_data = db_enhanced.get_user_by_username(current_user.id)
+    
+    debug_info = {
+        'current_user_id': current_user.id,
+        'current_user_has_role_attr': hasattr(current_user, 'role'),
+        'current_user_role': getattr(current_user, 'role', 'NO ROLE ATTRIBUTE'),
+        'db_user_data': user_data,
+        'db_role': user_data[4] if user_data else 'NO USER DATA',
+    }
+    
+    # Clear user cache
+    cache_key = f"user:{current_user.id}"
+    cache_clear(cache_key)
+    
+    return jsonify(debug_info)
 
 
 def admin_required(f):
@@ -21,9 +43,15 @@ def admin_required(f):
             return redirect(url_for("login"))
         
         # Check role from current_user object (already loaded by Flask-Login)
-        if not hasattr(current_user, 'role') or current_user.role != 'admin':
+        if not hasattr(current_user, 'role'):
+            logger.error(f"User {current_user.id} does not have role attribute")
             flash("Access denied. Admin privileges required.", "error")
-            return redirect(url_for("landing"))
+            return redirect(url_for("dashboard"))
+        
+        if current_user.role != 'admin':
+            logger.warning(f"User {current_user.id} attempted to access admin panel with role: {current_user.role}")
+            flash("Access denied. Admin privileges required.", "error")
+            return redirect(url_for("dashboard"))
         
         return f(*args, **kwargs)
     return decorated_function
@@ -35,6 +63,8 @@ def admin_required(f):
 def dashboard():
     """Admin dashboard overview"""
     try:
+        logger.info(f"Admin dashboard accessed by user: {current_user.id} with role: {current_user.role}")
+        
         # Get system statistics
         user_count = db_enhanced.get_user_count()
         listing_count = db_enhanced.get_listing_count()
