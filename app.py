@@ -2709,14 +2709,9 @@ def initialize_error_recovery():
 # Initialize error recovery when app starts
 initialize_error_recovery()
 
-@app.teardown_appcontext
-def cleanup_error_recovery(exception):
-    """Cleanup error recovery system on app shutdown."""
-    try:
-        stop_error_recovery()
-        db_enhanced.close_database()
-    except Exception as e:
-        logger.error(f"Error during cleanup: {e}")
+# Note: Database connections and error recovery stay alive for the worker process lifetime
+# Gunicorn/systemd will handle cleanup when the process is terminated
+# DO NOT use @app.teardown_appcontext as it fires after EVERY request, not just on shutdown
 
 # ======================
 # RUN FLASK (must be last)
