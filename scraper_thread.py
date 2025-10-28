@@ -29,23 +29,26 @@ from scrapers.mercari import running_flags as mercari_flags, run_mercari_scraper
 # ----------------------------
 # CENTRALIZED DRIVER MANAGEMENT
 # ----------------------------
-@log_errors()
 def _create_driver(site_name):
     """Create and track a new driver for the given site."""
     try:
         driver = make_chrome_driver(headless=True)
         _drivers[site_name] = driver
         _thread_locks[site_name] = threading.Lock()
-        logger.info(f"✅ Created driver for {site_name}")
+        # Use print instead of logger to avoid recursion
+        print(f"✅ Created driver for {site_name}", file=sys.stderr, flush=True)
         return driver
+    except RecursionError as e:
+        # Handle recursion errors specially - don't try to log them
+        print(f"❌ RECURSION ERROR creating driver for {site_name}: {e}", file=sys.stderr, flush=True)
+        raise ScraperError(f"Failed to create driver due to recursion: {e}")
     except (OSError, ConnectionError) as e:
-        logger.error(f"❌ Network/system error creating driver for {site_name}: {e}")
+        print(f"❌ Network/system error creating driver for {site_name}: {e}", file=sys.stderr, flush=True)
         raise NetworkError(f"Failed to create driver due to network/system issue: {e}")
     except Exception as e:
-        logger.error(f"❌ Failed to create driver for {site_name}: {e}")
+        print(f"❌ Failed to create driver for {site_name}: {e}", file=sys.stderr, flush=True)
         raise ScraperError(f"Failed to create driver: {e}")
 
-@log_errors()
 def _cleanup_driver(site_name):
     """Safely cleanup driver for the given site."""
     if site_name in _drivers:
@@ -53,11 +56,13 @@ def _cleanup_driver(site_name):
             driver = _drivers[site_name]
             if driver:
                 driver.quit()
-                logger.info(f"✅ Cleaned up driver for {site_name}")
+                print(f"✅ Cleaned up driver for {site_name}", file=sys.stderr, flush=True)
+        except RecursionError as e:
+            print(f"⚠️ RECURSION ERROR cleaning up driver for {site_name}: {e}", file=sys.stderr, flush=True)
         except (OSError, ConnectionError) as e:
-            logger.warning(f"⚠️ Network error cleaning up driver for {site_name}: {e}")
+            print(f"⚠️ Network error cleaning up driver for {site_name}: {e}", file=sys.stderr, flush=True)
         except Exception as e:
-            logger.error(f"⚠️ Error cleaning up driver for {site_name}: {e}")
+            print(f"⚠️ Error cleaning up driver for {site_name}: {e}", file=sys.stderr, flush=True)
         finally:
             _drivers.pop(site_name, None)
             _thread_locks.pop(site_name, None)

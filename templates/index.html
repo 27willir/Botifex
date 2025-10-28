@@ -607,17 +607,20 @@
             
             <!-- Start/Stop All Buttons -->
             <div style="margin-bottom: 20px; text-align: center; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
-                <a href="/start-all">
+                <a href="/start-all" title="Start all monitors available in your {{ user_tier|capitalize }} plan">
                     <button style="background: linear-gradient(135deg, #28a745, #20c997); font-size: 16px; padding: 14px 28px; border-radius: 10px; border: none; color: white; cursor: pointer; font-weight: 700; letter-spacing: 0.5px; box-shadow: 0 4px 16px rgba(40, 167, 69, 0.3); transition: all 0.3s ease;">
                         <i class="fas fa-rocket"></i> Start All Monitors
                     </button>
                 </a>
-                <a href="/stop-all">
+                <a href="/stop-all" title="Stop all monitors available in your {{ user_tier|capitalize }} plan">
                     <button style="background: linear-gradient(135deg, #dc3545, #c82333); font-size: 16px; padding: 14px 28px; border-radius: 10px; border: none; color: white; cursor: pointer; font-weight: 700; letter-spacing: 0.5px; box-shadow: 0 4px 16px rgba(220, 53, 69, 0.3); transition: all 0.3s ease;">
                         <i class="fas fa-stop-circle"></i> Stop All Monitors
                     </button>
                 </a>
             </div>
+            <p style="text-align: center; color: rgba(255, 255, 255, 0.6); font-size: 0.9em; margin-top: -10px; margin-bottom: 15px;">
+                <i class="fas fa-info-circle"></i> Start/Stop All will only affect platforms available in your <strong>{{ user_tier|capitalize }}</strong> plan
+            </p>
             
             <div class="table-container">
             <table>

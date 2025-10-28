@@ -6,17 +6,31 @@ Handles Stripe integration and subscription tier enforcement
 import os
 import stripe
 import logging
+import sys
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize Stripe
+# Initialize Stripe with specific configuration to avoid recursion
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
 
+# Configure Stripe to use minimal retries and logging to prevent recursion issues
+stripe.max_network_retries = 1  # Reduce retries to prevent timeout/recursion
+stripe.enable_telemetry = False  # Disable telemetry to reduce HTTP calls
+
 # Create a dedicated logger for subscriptions to avoid circular imports
+# Set propagate to False to prevent triggering parent logger handlers
 logger = logging.getLogger('superbot.subscriptions')
+logger.propagate = False  # CRITICAL: Don't propagate to parent logger to avoid recursion
+
+# Add a simple handler that writes directly to stderr to avoid Flask logging system
+if not logger.handlers:
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s subscriptions: %(message)s'))
+    logger.addHandler(stderr_handler)
+    logger.setLevel(logging.INFO)
 
 # Validate Stripe configuration
 def validate_stripe_config():
@@ -211,101 +225,220 @@ class StripeManager:
     
     @staticmethod
     def create_checkout_session(tier_name, user_email, username, success_url, cancel_url):
-        """Create a Stripe checkout session for subscription"""
+        """Create a Stripe checkout session for subscription - isolated from Flask context"""
+        import sys
+        from werkzeug.local import LocalStack
+        from flask import _request_ctx_stack, _app_ctx_stack, has_request_context
+        
+        # Store original logging state to restore later
+        original_logging_disabled = logging.root.manager.disable
+        stripe_logger = logging.getLogger('stripe')
+        urllib3_logger = logging.getLogger('urllib3')
+        original_stripe_level = stripe_logger.level
+        original_stripe_handlers = stripe_logger.handlers.copy()
+        original_stripe_propagate = stripe_logger.propagate
+        
+        # Also silence urllib3 which Stripe uses
+        original_urllib3_level = urllib3_logger.level
+        original_urllib3_propagate = urllib3_logger.propagate
+        
         try:
             # Validate Stripe configuration first
             if not stripe.api_key:
-                logger.error("Stripe API key not configured")
+                print("ERROR: Stripe API key not configured", file=sys.stderr)
                 return None, "Payment system not configured"
             
             tier = SUBSCRIPTION_TIERS.get(tier_name)
             if not tier or not tier['price_id']:
-                logger.error(f"Invalid tier or missing price_id for tier: {tier_name}")
+                print(f"ERROR: Invalid tier or missing price_id for tier: {tier_name}", file=sys.stderr)
                 return None, "Invalid subscription tier"
             
-            # Create session with timeout to prevent hanging
-            session = stripe.checkout.Session.create(
-                customer_email=user_email,
-                line_items=[{
-                    'price': tier['price_id'],
-                    'quantity': 1,
-                }],
-                mode='subscription',
-                success_url=success_url,
-                cancel_url=cancel_url,
-                metadata={
-                    'username': username,
-                    'tier': tier_name
-                },
-                subscription_data={
-                    'metadata': {
+            print(f"INFO: Starting Stripe checkout for {username} - {tier_name}", file=sys.stderr)
+            
+            # CRITICAL: Completely disable logging during Stripe API call to prevent recursion
+            # Disable ALL Python logging temporarily
+            logging.disable(logging.CRITICAL)
+            
+            # Also explicitly configure Stripe and urllib3 loggers to be silent
+            stripe_logger.setLevel(logging.CRITICAL)
+            stripe_logger.handlers = []
+            stripe_logger.propagate = False
+            
+            urllib3_logger.setLevel(logging.CRITICAL)
+            urllib3_logger.propagate = False
+            
+            # Set recursion limit higher temporarily to allow Stripe's internal operations
+            import sys as sys_module
+            old_recursion_limit = sys_module.getrecursionlimit()
+            sys_module.setrecursionlimit(3000)  # Increase from default 1000
+            
+            # Store current Flask context stacks (if any)
+            saved_request_ctx = None
+            saved_app_ctx = None
+            had_request_context = has_request_context()
+            
+            try:
+                # Temporarily clear Flask context to prevent middleware interference
+                # This is the KEY fix - Stripe HTTP calls won't trigger Flask middleware
+                if had_request_context:
+                    print("INFO: Temporarily clearing Flask request context for Stripe call", file=sys.stderr)
+                    saved_request_ctx = _request_ctx_stack.top
+                    saved_app_ctx = _app_ctx_stack.top
+                    _request_ctx_stack.pop()
+                    if _app_ctx_stack.top:
+                        _app_ctx_stack.pop()
+                
+                # Create session - now completely isolated from Flask
+                print("INFO: Making Stripe API call...", file=sys.stderr)
+                session = stripe.checkout.Session.create(
+                    customer_email=user_email,
+                    line_items=[{
+                        'price': tier['price_id'],
+                        'quantity': 1,
+                    }],
+                    mode='subscription',
+                    success_url=success_url,
+                    cancel_url=cancel_url,
+                    metadata={
                         'username': username,
                         'tier': tier_name
+                    },
+                    subscription_data={
+                        'metadata': {
+                            'username': username,
+                            'tier': tier_name
+                        }
                     }
-                }
-            )
+                )
+                print("INFO: Stripe API call successful", file=sys.stderr)
+                
+            finally:
+                # Restore Flask contexts if they existed
+                if had_request_context and saved_request_ctx:
+                    print("INFO: Restoring Flask request context", file=sys.stderr)
+                    if saved_app_ctx:
+                        _app_ctx_stack.push(saved_app_ctx)
+                    _request_ctx_stack.push(saved_request_ctx)
+                
+                # Restore recursion limit
+                sys_module.setrecursionlimit(old_recursion_limit)
+                
+                # Re-enable logging
+                logging.disable(original_logging_disabled)
+                stripe_logger.setLevel(original_stripe_level)
+                stripe_logger.handlers = original_stripe_handlers
+                stripe_logger.propagate = original_stripe_propagate
+                urllib3_logger.setLevel(original_urllib3_level)
+                urllib3_logger.propagate = original_urllib3_propagate
             
-            logger.info(f"Created checkout session for {username} - {tier_name}: {session.id}")
+            print(f"SUCCESS: Created checkout session for {username} - {tier_name}: {session.id}", file=sys.stderr)
             return session, None
             
         except stripe.error.StripeError as e:
-            # Use basic logging to avoid recursion
-            print(f"Stripe error creating checkout session: {e}")
+            # Use stderr to avoid Flask logging system completely
+            print(f"STRIPE ERROR creating checkout session: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
             return None, str(e)
         except RecursionError as e:
-            # Handle recursion error specifically
-            print(f"Recursion error in Stripe checkout: {e}")
+            # Handle recursion error specifically - use stderr
+            print(f"RECURSION ERROR in Stripe checkout: {str(e)[:200]}", file=sys.stderr)
+            print(f"  Recursion occurred at depth near limit", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr, limit=10)  # Limit traceback to prevent more recursion
             return None, "System error - please try again"
         except Exception as e:
-            # Use basic logging to avoid recursion
-            print(f"Error creating checkout session: {e}")
+            # Use stderr to avoid Flask logging system completely
+            print(f"EXCEPTION creating checkout session: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
             return None, str(e)
+        finally:
+            # Ensure logging is always restored even if there's an error
+            try:
+                logging.disable(original_logging_disabled)
+                stripe_logger.setLevel(original_stripe_level)
+                stripe_logger.handlers = original_stripe_handlers
+                stripe_logger.propagate = original_stripe_propagate
+                urllib3_logger.setLevel(original_urllib3_level)
+                urllib3_logger.propagate = original_urllib3_propagate
+            except:
+                pass  # If restoration fails, don't throw another error
     
     @staticmethod
     def create_customer_portal_session(customer_id, return_url):
         """Create a Stripe customer portal session for managing subscription"""
+        import sys
+        
         try:
-            session = stripe.billing_portal.Session.create(
-                customer=customer_id,
-                return_url=return_url,
-            )
-            logger.info(f"Created portal session for customer: {customer_id}")
+            # Apply similar protection as checkout to prevent recursion
+            # (lighter version since this is less frequently called)
+            original_logging_disabled = logging.root.manager.disable
+            logging.disable(logging.CRITICAL)
+            
+            try:
+                session = stripe.billing_portal.Session.create(
+                    customer=customer_id,
+                    return_url=return_url
+                )
+            finally:
+                logging.disable(original_logging_disabled)
+            
+            print(f"SUCCESS: Created portal session for customer: {customer_id}", file=sys.stderr)
             return session, None
             
         except stripe.error.StripeError as e:
-            logger.error(f"Stripe error creating portal session: {e}")
+            print(f"STRIPE ERROR creating portal session: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
             return None, str(e)
         except Exception as e:
-            logger.error(f"Error creating portal session: {e}")
+            print(f"EXCEPTION creating portal session: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
             return None, str(e)
     
     @staticmethod
     def cancel_subscription(subscription_id):
         """Cancel a Stripe subscription"""
+        import sys
+        
         try:
-            subscription = stripe.Subscription.delete(subscription_id)
-            logger.info(f"Cancelled subscription: {subscription_id}")
+            # Apply logging protection to prevent recursion
+            original_logging_disabled = logging.root.manager.disable
+            logging.disable(logging.CRITICAL)
+            
+            try:
+                subscription = stripe.Subscription.delete(subscription_id)
+            finally:
+                logging.disable(original_logging_disabled)
+            
+            print(f"SUCCESS: Cancelled subscription: {subscription_id}", file=sys.stderr)
             return True, None
             
         except stripe.error.StripeError as e:
-            logger.error(f"Stripe error cancelling subscription: {e}")
+            print(f"STRIPE ERROR cancelling subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
             return False, str(e)
         except Exception as e:
-            logger.error(f"Error cancelling subscription: {e}")
+            print(f"EXCEPTION cancelling subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
             return False, str(e)
     
     @staticmethod
     def get_subscription(subscription_id):
         """Get subscription details from Stripe"""
+        import sys
+        
         try:
-            subscription = stripe.Subscription.retrieve(subscription_id)
+            # Apply logging protection to prevent recursion
+            original_logging_disabled = logging.root.manager.disable
+            logging.disable(logging.CRITICAL)
+            
+            try:
+                subscription = stripe.Subscription.retrieve(subscription_id)
+            finally:
+                logging.disable(original_logging_disabled)
+            
             return subscription, None
             
         except stripe.error.StripeError as e:
-            logger.error(f"Stripe error retrieving subscription: {e}")
+            print(f"STRIPE ERROR retrieving subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
             return None, str(e)
         except Exception as e:
-            logger.error(f"Error retrieving subscription: {e}")
+            print(f"EXCEPTION retrieving subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
             return None, str(e)
     
     @staticmethod

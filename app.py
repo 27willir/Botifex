@@ -540,29 +540,52 @@ def stop(site):
 @check_platform_access()
 @rate_limit('scraper', max_requests=10)
 def start_all():
-    """Start all scrapers at once"""
+    """Start all scrapers that are available in user's subscription plan"""
     try:
-        # Start all scrapers
-        start_facebook()
-        start_craigslist()
-        start_ksl()
-        start_ebay()
-        
-        # Check subscription for pro features
+        # Get user's subscription tier
         subscription = db_enhanced.get_user_subscription(current_user.id)
-        if subscription.get('tier') == 'pro' or current_user.role == 'admin':
+        tier = subscription.get('tier', 'free')
+        
+        # Override to 'pro' for admins
+        if current_user.role == 'admin':
+            tier = 'pro'
+        
+        # Get allowed platforms for this tier
+        allowed_platforms = SubscriptionManager.get_allowed_platforms(tier)
+        
+        # Start only the scrapers that are allowed for this subscription
+        started_platforms = []
+        if 'facebook' in allowed_platforms:
+            start_facebook()
+            started_platforms.append('Facebook')
+        if 'craigslist' in allowed_platforms:
+            start_craigslist()
+            started_platforms.append('Craigslist')
+        if 'ksl' in allowed_platforms:
+            start_ksl()
+            started_platforms.append('KSL')
+        if 'ebay' in allowed_platforms:
+            start_ebay()
+            started_platforms.append('eBay')
+        if 'poshmark' in allowed_platforms:
             start_poshmark()
+            started_platforms.append('Poshmark')
+        if 'mercari' in allowed_platforms:
             start_mercari()
+            started_platforms.append('Mercari')
         
         db_enhanced.log_user_activity(
             current_user.id, 
             'start_all_scrapers', 
-            'Started all scrapers', 
+            f'Started scrapers: {", ".join(started_platforms)}', 
             request.remote_addr, 
             request.headers.get('User-Agent')
         )
         
-        flash("All scrapers started successfully!", "success")
+        if started_platforms:
+            flash(f"Started {len(started_platforms)} scraper(s): {', '.join(started_platforms)}", "success")
+        else:
+            flash("No scrapers available for your subscription plan.", "warning")
     except Exception as e:
         logger.error(f"Error starting all scrapers: {e}")
         flash("Error starting some scrapers. Please check individual scrapers.", "error")
@@ -574,25 +597,52 @@ def start_all():
 @check_platform_access()
 @rate_limit('scraper', max_requests=10)
 def stop_all():
-    """Stop all scrapers at once"""
+    """Stop all scrapers that are available in user's subscription plan"""
     try:
-        # Stop all scrapers
-        stop_facebook()
-        stop_craigslist()
-        stop_ksl()
-        stop_ebay()
-        stop_poshmark()
-        stop_mercari()
+        # Get user's subscription tier
+        subscription = db_enhanced.get_user_subscription(current_user.id)
+        tier = subscription.get('tier', 'free')
+        
+        # Override to 'pro' for admins
+        if current_user.role == 'admin':
+            tier = 'pro'
+        
+        # Get allowed platforms for this tier
+        allowed_platforms = SubscriptionManager.get_allowed_platforms(tier)
+        
+        # Stop only the scrapers that are allowed for this subscription
+        stopped_platforms = []
+        if 'facebook' in allowed_platforms:
+            stop_facebook()
+            stopped_platforms.append('Facebook')
+        if 'craigslist' in allowed_platforms:
+            stop_craigslist()
+            stopped_platforms.append('Craigslist')
+        if 'ksl' in allowed_platforms:
+            stop_ksl()
+            stopped_platforms.append('KSL')
+        if 'ebay' in allowed_platforms:
+            stop_ebay()
+            stopped_platforms.append('eBay')
+        if 'poshmark' in allowed_platforms:
+            stop_poshmark()
+            stopped_platforms.append('Poshmark')
+        if 'mercari' in allowed_platforms:
+            stop_mercari()
+            stopped_platforms.append('Mercari')
         
         db_enhanced.log_user_activity(
             current_user.id, 
             'stop_all_scrapers', 
-            'Stopped all scrapers', 
+            f'Stopped scrapers: {", ".join(stopped_platforms)}', 
             request.remote_addr, 
             request.headers.get('User-Agent')
         )
         
-        flash("All scrapers stopped successfully!", "success")
+        if stopped_platforms:
+            flash(f"Stopped {len(stopped_platforms)} scraper(s): {', '.join(stopped_platforms)}", "success")
+        else:
+            flash("No scrapers available for your subscription plan.", "warning")
     except Exception as e:
         logger.error(f"Error stopping all scrapers: {e}")
         flash("Error stopping some scrapers. Please check individual scrapers.", "error")
@@ -1279,16 +1329,24 @@ def subscription_checkout(tier):
         success_url = url_for('subscription_success', _external=True) + '?session_id={CHECKOUT_SESSION_ID}'
         cancel_url = url_for('subscription_plans', _external=True)
         
-        session_obj, error = StripeManager.create_checkout_session(
-            tier_name=tier,
-            user_email=email,
-            username=current_user.id,
-            success_url=success_url,
-            cancel_url=cancel_url
-        )
+        # Create checkout session - isolated from Flask context to prevent recursion
+        try:
+            session_obj, error = StripeManager.create_checkout_session(
+                tier_name=tier,
+                user_email=email,
+                username=current_user.id,
+                success_url=success_url,
+                cancel_url=cancel_url
+            )
+        except Exception as stripe_error:
+            # Catch any errors from Stripe to prevent propagation
+            import sys
+            print(f"CAUGHT ERROR in checkout route: {type(stripe_error).__name__}: {str(stripe_error)[:200]}", file=sys.stderr)
+            flash("Error starting checkout. Please try again.", "error")
+            return redirect(url_for("subscription_plans"))
         
         if error:
-            logger.error(f"Error creating checkout session: {error}")
+            # Don't use logger.error here to avoid recursion - error already logged in StripeManager
             flash("Error starting checkout. Please try again.", "error")
             return redirect(url_for("subscription_plans"))
         

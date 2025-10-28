@@ -36,7 +36,9 @@ def geocode_location(location_name):
         
         # Check if we've exceeded retry limit for this location
         if location_key in _geocode_retry_count and _geocode_retry_count[location_key] >= _max_retries:
-            logger.warning(f"Geocoding retry limit exceeded for '{location_name}', using default coordinates")
+            # Use print instead of logger to avoid recursion
+            import sys
+            print(f"Geocoding retry limit exceeded for '{location_name}', using default coordinates", file=sys.stderr, flush=True)
             # Use default coordinates for Boise, ID as fallback
             default_coords = (43.6150, -116.2023)
             geocode_cache[location_key] = default_coords
@@ -51,22 +53,32 @@ def geocode_location(location_name):
             with _geocode_lock:
                 geocode_cache[location_key] = coords
                 _geocode_retry_count[location_key] = 0  # Reset retry count on success
-            logger.debug(f"Geocoded '{location_name}' to {coords}")
+            # Avoid logger to prevent recursion
             return coords
         else:
-            logger.warning(f"Could not geocode location: {location_name}")
             # Increment retry count
             with _geocode_lock:
                 _geocode_retry_count[location_key] = _geocode_retry_count.get(location_key, 0) + 1
             return None
+    except RecursionError as e:
+        # Handle recursion errors specially - don't try to log them
+        import sys
+        print(f"RECURSION ERROR in geocoding '{location_name}': {e}", file=sys.stderr, flush=True)
+        with _geocode_lock:
+            _geocode_retry_count[location_key] = _max_retries  # Max out retries to prevent further attempts
+        return None
     except (GeocoderTimedOut, GeocoderServiceError) as e:
-        logger.warning(f"Geocoding service error for '{location_name}': {e}")
+        # Use print instead of logger to avoid recursion
+        import sys
+        print(f"Geocoding service error for '{location_name}': {e}", file=sys.stderr, flush=True)
         # Increment retry count
         with _geocode_lock:
             _geocode_retry_count[location_key] = _geocode_retry_count.get(location_key, 0) + 1
         return None
     except Exception as e:
-        logger.error(f"Unexpected error geocoding '{location_name}': {e}")
+        # Use print instead of logger to avoid recursion
+        import sys
+        print(f"Unexpected error geocoding '{location_name}': {e}", file=sys.stderr, flush=True)
         # Increment retry count
         with _geocode_lock:
             _geocode_retry_count[location_key] = _geocode_retry_count.get(location_key, 0) + 1
@@ -86,7 +98,9 @@ def calculate_distance(coord1, coord2):
         distance_miles = distance_km * 0.621371  # Convert km to miles
         return distance_miles
     except Exception as e:
-        logger.error(f"Error calculating distance: {e}")
+        # Use print instead of logger to avoid recursion
+        import sys
+        print(f"Error calculating distance: {e}", file=sys.stderr, flush=True)
         return None
 
 def get_location_coords(location_name):
@@ -95,13 +109,17 @@ def get_location_coords(location_name):
     Returns (latitude, longitude) or None if not found.
     """
     if not location_name or not isinstance(location_name, str):
-        logger.warning("Invalid location name provided to get_location_coords")
+        # Use print instead of logger to avoid recursion
+        import sys
+        print(f"Invalid location name provided to get_location_coords", file=sys.stderr, flush=True)
         return None
     
     try:
         return geocode_location(location_name)
     except Exception as e:
-        logger.error(f"Error in get_location_coords for '{location_name}': {e}")
+        # Use print instead of logger to avoid recursion
+        import sys
+        print(f"Error in get_location_coords for '{location_name}': {e}", file=sys.stderr, flush=True)
         return None
 
 def is_within_radius(coord1, coord2, radius_miles):
@@ -132,15 +150,16 @@ def reset_geocode_retry_count(location_name=None):
     Reset retry count for a specific location or all locations.
     Useful for recovery after fixing geocoding issues.
     """
+    import sys
     with _geocode_lock:
         if location_name:
             location_key = location_name.lower().strip()
             if location_key in _geocode_retry_count:
                 _geocode_retry_count[location_key] = 0
-                logger.info(f"Reset retry count for '{location_name}'")
+                print(f"Reset retry count for '{location_name}'", file=sys.stderr, flush=True)
         else:
             _geocode_retry_count.clear()
-            logger.info("Reset retry counts for all locations")
+            print("Reset retry counts for all locations", file=sys.stderr, flush=True)
 
 def get_geocode_status():
     """
