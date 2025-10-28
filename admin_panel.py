@@ -23,7 +23,7 @@ def admin_required(f):
         # Check role from current_user object (already loaded by Flask-Login)
         if not hasattr(current_user, 'role') or current_user.role != 'admin':
             flash("Access denied. Admin privileges required.", "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("landing"))
         
         return f(*args, **kwargs)
     return decorated_function
