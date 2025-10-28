@@ -244,7 +244,7 @@ def check_platform_access():
                         }), 403
                     
                     flash(error_msg, "error")
-                    return redirect(url_for('index'))
+                    return redirect(url_for('dashboard'))
             
             return f(*args, **kwargs)
         
