@@ -51,14 +51,21 @@ def rate_limit(endpoint_type, max_requests=None, window_minutes=1):
                 }), 403
             
             # Check if IP is in honeypot blocked list
+            # BUT: Allow authenticated admin users to bypass honeypot blocks
             from honeypot_routes import honeypot_manager
-            if honeypot_manager.is_honeypot_triggered(request.remote_addr):
+            is_admin = current_user.is_authenticated and hasattr(current_user, 'role') and current_user.role == 'admin'
+            
+            if honeypot_manager.is_honeypot_triggered(request.remote_addr) and not is_admin:
                 logger.warning(f"Honeypot-triggered IP {request.remote_addr} attempted to access {endpoint_type}")
                 return jsonify({
                     'error': 'Access Denied',
                     'message': 'IP address is blocked due to automated scanning',
                     'code': 403
                 }), 403
+            
+            # Log if admin bypassed honeypot block
+            if is_admin and honeypot_manager.is_honeypot_triggered(request.remote_addr):
+                logger.info(f"Admin user {current_user.id} bypassed honeypot block for IP {request.remote_addr}")
             
             # Determine max requests based on IP reputation
             base_limit = max_requests if max_requests is not None else RATE_LIMITS.get(endpoint_type, 30)

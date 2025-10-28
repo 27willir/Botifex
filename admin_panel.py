@@ -364,6 +364,59 @@ def security_events():
         return jsonify({'error': 'Failed to get security events'}), 500
 
 
+@admin_bp.route('/security/clear-honeypot-ip/<ip>', methods=['POST'])
+@login_required
+@admin_required
+def clear_honeypot_ip(ip):
+    """Clear a specific IP from honeypot blocked list"""
+    try:
+        from honeypot_routes import honeypot_manager
+        if honeypot_manager.clear_honeypot_ip(ip):
+            db_enhanced.log_user_activity(
+                current_user.id,
+                'clear_honeypot_ip',
+                f"Cleared honeypot flag for IP: {ip}",
+                request.remote_addr,
+                request.headers.get('User-Agent')
+            )
+            flash(f"Cleared honeypot flag for IP {ip}", "success")
+        else:
+            flash(f"IP {ip} was not in honeypot list", "error")
+        
+        return redirect(url_for("admin.security_monitoring"))
+    
+    except Exception as e:
+        logger.error(f"Error clearing honeypot IP: {e}")
+        flash("Error clearing honeypot IP", "error")
+        return redirect(url_for("admin.security_monitoring"))
+
+
+@admin_bp.route('/security/clear-all-honeypot-ips', methods=['POST'])
+@login_required
+@admin_required
+def clear_all_honeypot_ips():
+    """Clear all honeypot-flagged IPs"""
+    try:
+        from honeypot_routes import honeypot_manager
+        count = honeypot_manager.clear_all_honeypot_ips()
+        
+        db_enhanced.log_user_activity(
+            current_user.id,
+            'clear_all_honeypot_ips',
+            f"Cleared all honeypot flags ({count} IPs)",
+            request.remote_addr,
+            request.headers.get('User-Agent')
+        )
+        
+        flash(f"Cleared honeypot flags for {count} IPs", "success")
+        return redirect(url_for("admin.security_monitoring"))
+    
+    except Exception as e:
+        logger.error(f"Error clearing all honeypot IPs: {e}")
+        flash("Error clearing honeypot IPs", "error")
+        return redirect(url_for("admin.security_monitoring"))
+
+
 # API endpoints for admin dashboard
 
 @admin_bp.route('/api/stats')

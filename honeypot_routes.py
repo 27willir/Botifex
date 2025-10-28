@@ -37,6 +37,28 @@ class HoneypotManager:
     def is_honeypot_triggered(self, ip):
         """Check if IP has triggered honeypot"""
         return ip in self.honeypot_ips
+    
+    def clear_honeypot_ip(self, ip):
+        """Clear a specific IP from honeypot (admin function)"""
+        if ip in self.honeypot_ips:
+            self.honeypot_ips.remove(ip)
+            logger.info(f"Cleared honeypot flag for IP: {ip}")
+            
+            # Also remove from security middleware blocked IPs
+            from security_middleware import security_middleware
+            if ip in security_middleware.blocked_ips:
+                security_middleware.blocked_ips.remove(ip)
+                logger.info(f"Cleared security block for IP: {ip}")
+            return True
+        return False
+    
+    def clear_all_honeypot_ips(self):
+        """Clear all honeypot IPs (admin function)"""
+        count = len(self.honeypot_ips)
+        self.honeypot_ips.clear()
+        self.honeypot_attempts.clear()
+        logger.info(f"Cleared all honeypot IPs ({count} IPs)")
+        return count
 
 # Global honeypot manager
 honeypot_manager = HoneypotManager()
@@ -98,7 +120,7 @@ def create_honeypot_routes(app):
         honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
         return jsonify({'error': 'Access Denied'}), 403
     
-    @app.route('/admin/')
+    # Note: /admin/ removed - it's a legitimate route for the admin panel
     @app.route('/wp-admin/')
     @app.route('/phpmyadmin/')
     @app.route('/adminer/')
