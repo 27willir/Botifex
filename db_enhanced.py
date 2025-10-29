@@ -814,6 +814,12 @@ def update_user_role(username, role):
         c.execute("UPDATE users SET role = ? WHERE username = ?", (role, username))
         conn.commit()
         logger.info(f"Updated role for user {username} to {role}")
+    
+    # Clear user cache to force reload with new role
+    from cache_manager import cache_delete
+    cache_key = f"user:{username}"
+    cache_delete(cache_key)
+    logger.info(f"Cleared cache for user {username} after role update")
 
 
 @log_errors()
