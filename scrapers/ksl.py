@@ -19,6 +19,11 @@ seen_listings = {}
 _seen_listings_lock = threading.Lock()  # Thread safety for seen_listings
 
 # ======================
+# RECURSION GUARD
+# ======================
+_recursion_guard = threading.local()
+
+# ======================
 # RUNNING FLAG
 # ======================
 running_flags = {"ksl": True}
@@ -318,29 +323,58 @@ def check_ksl(flag_name="ksl"):
 # ======================
 def run_ksl_scraper(flag_name="ksl"):
     """Run KSL scraper with proper error handling."""
-    logger.info("Starting KSL scraper")
-    load_seen_listings()
+    # Check for recursion
+    if getattr(_recursion_guard, 'in_scraper', False):
+        import sys
+        print("ERROR: Recursion detected in KSL scraper", file=sys.stderr, flush=True)
+        return
+    
+    _recursion_guard.in_scraper = True
     
     try:
-        while running_flags.get(flag_name, True):
+        logger.info("Starting KSL scraper")
+        load_seen_listings()
+        
+        try:
+            while running_flags.get(flag_name, True):
+                try:
+                    logger.debug("Running KSL scraper check")
+                    results = check_ksl(flag_name)
+                    if results:
+                        logger.info(f"KSL scraper found {len(results)} new listings")
+                    else:
+                        logger.debug("KSL scraper found no new listings")
+                except RecursionError as e:
+                    import sys
+                    print(f"ERROR: RecursionError in KSL scraper: {e}", file=sys.stderr, flush=True)
+                    # Wait before retrying to avoid tight loop
+                    time.sleep(10)
+                    continue
+                except Exception as e:
+                    # Use fallback logging to avoid recursion in error handling
+                    try:
+                        logger.error(f"Error in KSL scraper iteration: {e}")
+                    except:
+                        import sys
+                        print(f"ERROR: Error in KSL scraper iteration: {e}", file=sys.stderr, flush=True)
+                    # Continue running but log the error
+                    continue
+                
+                settings = load_settings()
+                human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
+                
+        except KeyboardInterrupt:
+            logger.info("KSL scraper interrupted by user")
+        except RecursionError as e:
+            import sys
+            print(f"FATAL: RecursionError in KSL scraper main loop: {e}", file=sys.stderr, flush=True)
+        except Exception as e:
             try:
-                logger.debug("Running KSL scraper check")
-                results = check_ksl(flag_name)
-                if results:
-                    logger.info(f"KSL scraper found {len(results)} new listings")
-                else:
-                    logger.debug("KSL scraper found no new listings")
-            except Exception as e:
-                logger.error(f"Error in KSL scraper iteration: {e}")
-                # Continue running but log the error
-                continue
-            
-            settings = load_settings()
-            human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
-            
-    except KeyboardInterrupt:
-        logger.info("KSL scraper interrupted by user")
-    except Exception as e:
-        logger.error(f"Fatal error in KSL scraper: {e}")
+                logger.error(f"Fatal error in KSL scraper: {e}")
+            except:
+                import sys
+                print(f"ERROR: Fatal error in KSL scraper: {e}", file=sys.stderr, flush=True)
+        finally:
+            logger.info("KSL scraper stopped")
     finally:
-        logger.info("KSL scraper stopped")
+        _recursion_guard.in_scraper = False

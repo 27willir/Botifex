@@ -7,10 +7,14 @@ import os
 import stripe
 import logging
 import sys
+import threading
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Thread-local storage to prevent re-entrant calls during Stripe operations
+_stripe_operation_lock = threading.local()
 
 # Initialize Stripe with specific configuration to avoid recursion
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
@@ -228,6 +232,14 @@ class StripeManager:
         """Create a Stripe checkout session for subscription"""
         import sys
         
+        # CRITICAL: Check for re-entrancy to prevent recursion
+        if getattr(_stripe_operation_lock, 'in_stripe_call', False):
+            print("ERROR: Re-entrant Stripe call detected - blocking to prevent recursion", file=sys.stderr)
+            return None, "System busy - please try again"
+        
+        # Set re-entrancy flag
+        _stripe_operation_lock.in_stripe_call = True
+        
         # Store original logging state to restore later
         original_logging_disabled = logging.root.manager.disable
         stripe_logger = logging.getLogger('stripe')
@@ -338,6 +350,9 @@ class StripeManager:
                 urllib3_logger.propagate = original_urllib3_propagate
             except:
                 pass  # If restoration fails, don't throw another error
+            finally:
+                # Always clear re-entrancy flag
+                _stripe_operation_lock.in_stripe_call = False
     
     @staticmethod
     def create_customer_portal_session(customer_id, return_url):

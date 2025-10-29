@@ -1,5 +1,6 @@
 import random, time, json
 import threading
+import sys
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
@@ -10,6 +11,9 @@ from utils import debug_scraper_output, logger
 from db import get_settings, save_listing
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
 from location_utils import geocode_location, get_location_coords, miles_to_km
+
+# Thread-local recursion protection for logging
+_recursion_guard = threading.local()
 
 # ======================
 # CONFIGURATION
@@ -305,30 +309,54 @@ def check_craigslist(flag_name="craigslist"):
 # ======================
 def run_craigslist_scraper(flag_name="craigslist"):
     """Run scraper continuously until stopped via running_flags."""
-    logger.info("Starting Craigslist scraper")
-    load_seen_listings()
+    # Check for recursion
+    if getattr(_recursion_guard, 'in_scraper', False):
+        print("ERROR: Recursion detected in Craigslist scraper", file=sys.stderr)
+        return
+    
+    _recursion_guard.in_scraper = True
     
     try:
-        while running_flags.get(flag_name, True):
+        logger.info("Starting Craigslist scraper")
+        load_seen_listings()
+        
+        try:
+            while running_flags.get(flag_name, True):
+                try:
+                    logger.debug("Running Craigslist scraper check")
+                    results = check_craigslist(flag_name)
+                    if results:
+                        logger.info(f"Craigslist scraper found {len(results)} new listings")
+                    else:
+                        logger.debug("Craigslist scraper found no new listings")
+                except RecursionError as e:
+                    print(f"ERROR: RecursionError in Craigslist scraper: {e}", file=sys.stderr)
+                    # Wait before retrying to avoid tight loop
+                    time.sleep(10)
+                    continue
+                except Exception as e:
+                    # Use fallback logging to avoid recursion in error handling
+                    try:
+                        logger.error(f"Error in Craigslist scraper iteration: {e}")
+                    except:
+                        print(f"ERROR: Error in Craigslist scraper iteration: {e}", file=sys.stderr)
+                    # Continue running but log the error
+                    continue
+                
+                settings = load_settings()
+                # Delay dynamically based on interval
+                human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
+                
+        except KeyboardInterrupt:
+            logger.info("Craigslist scraper interrupted by user")
+        except RecursionError as e:
+            print(f"FATAL: RecursionError in Craigslist scraper main loop: {e}", file=sys.stderr)
+        except Exception as e:
             try:
-                logger.debug("Running Craigslist scraper check")
-                results = check_craigslist(flag_name)
-                if results:
-                    logger.info(f"Craigslist scraper found {len(results)} new listings")
-                else:
-                    logger.debug("Craigslist scraper found no new listings")
-            except Exception as e:
-                logger.error(f"Error in Craigslist scraper iteration: {e}")
-                # Continue running but log the error
-                continue
-            
-            settings = load_settings()
-            # Delay dynamically based on interval
-            human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
-            
-    except KeyboardInterrupt:
-        logger.info("Craigslist scraper interrupted by user")
-    except Exception as e:
-        logger.error(f"Fatal error in Craigslist scraper: {e}")
+                logger.error(f"Fatal error in Craigslist scraper: {e}")
+            except:
+                print(f"ERROR: Fatal error in Craigslist scraper: {e}", file=sys.stderr)
+        finally:
+            logger.info("Craigslist scraper stopped")
     finally:
-        logger.info("Craigslist scraper stopped")
+        _recursion_guard.in_scraper = False

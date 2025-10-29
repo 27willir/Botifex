@@ -1,25 +1,45 @@
 # utils.py
-import os, json, logging
+import os, json, logging, sys
 from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
+# Increase recursion limit to prevent issues with nested operations
+# Default is 1000, increase to 3000 to handle complex operations
+sys.setrecursionlimit(3000)
+
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
 def setup_logger(name="superbot", level=logging.INFO):
+    """Setup logger with recursion protection"""
     logger = logging.getLogger(name)
     if logger.handlers:
         return logger
+    
+    # Prevent propagation to root logger to avoid recursion
+    logger.propagate = False
     logger.setLevel(level)
+    
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    sh = logging.StreamHandler()
-    sh.setFormatter(fmt)
-    fh = logging.FileHandler(LOG_DIR / f"{name}.log")
-    fh.setFormatter(fmt)
-    logger.addHandler(sh)
-    logger.addHandler(fh)
+    
+    # Add stream handler with error handling
+    try:
+        sh = logging.StreamHandler(sys.stdout)
+        sh.setFormatter(fmt)
+        logger.addHandler(sh)
+    except Exception as e:
+        print(f"Warning: Could not setup stream handler: {e}", file=sys.stderr)
+    
+    # Add file handler with error handling
+    try:
+        fh = logging.FileHandler(LOG_DIR / f"{name}.log")
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+    except Exception as e:
+        print(f"Warning: Could not setup file handler: {e}", file=sys.stderr)
+    
     return logger
 
 logger = setup_logger()

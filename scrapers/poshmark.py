@@ -20,6 +20,11 @@ seen_listings = {}
 _seen_listings_lock = threading.Lock()  # Thread safety for seen_listings
 
 # ======================
+# RECURSION GUARD
+# ======================
+_recursion_guard = threading.local()
+
+# ======================
 # RUNNING FLAG
 # ======================
 running_flags = {"poshmark": True}
@@ -352,31 +357,60 @@ def check_poshmark(flag_name="poshmark"):
 # ======================
 def run_poshmark_scraper(flag_name="poshmark"):
     """Run scraper continuously until stopped via running_flags."""
-    logger.info("Starting Poshmark scraper")
-    load_seen_listings()
+    # Check for recursion
+    if getattr(_recursion_guard, 'in_scraper', False):
+        import sys
+        print("ERROR: Recursion detected in Poshmark scraper", file=sys.stderr, flush=True)
+        return
+    
+    _recursion_guard.in_scraper = True
     
     try:
-        while running_flags.get(flag_name, True):
+        logger.info("Starting Poshmark scraper")
+        load_seen_listings()
+        
+        try:
+            while running_flags.get(flag_name, True):
+                try:
+                    logger.debug("Running Poshmark scraper check")
+                    results = check_poshmark(flag_name)
+                    if results:
+                        logger.info(f"Poshmark scraper found {len(results)} new listings")
+                    else:
+                        logger.debug("Poshmark scraper found no new listings")
+                except RecursionError as e:
+                    import sys
+                    print(f"ERROR: RecursionError in Poshmark scraper: {e}", file=sys.stderr, flush=True)
+                    # Wait before retrying to avoid tight loop
+                    time.sleep(10)
+                    continue
+                except Exception as e:
+                    # Use fallback logging to avoid recursion in error handling
+                    try:
+                        logger.error(f"Error in Poshmark scraper iteration: {e}")
+                    except:
+                        import sys
+                        print(f"ERROR: Error in Poshmark scraper iteration: {e}", file=sys.stderr, flush=True)
+                    # Continue running but log the error
+                    continue
+                
+                settings = load_settings()
+                # Delay dynamically based on interval
+                human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
+                
+        except KeyboardInterrupt:
+            logger.info("Poshmark scraper interrupted by user")
+        except RecursionError as e:
+            import sys
+            print(f"FATAL: RecursionError in Poshmark scraper main loop: {e}", file=sys.stderr, flush=True)
+        except Exception as e:
             try:
-                logger.debug("Running Poshmark scraper check")
-                results = check_poshmark(flag_name)
-                if results:
-                    logger.info(f"Poshmark scraper found {len(results)} new listings")
-                else:
-                    logger.debug("Poshmark scraper found no new listings")
-            except Exception as e:
-                logger.error(f"Error in Poshmark scraper iteration: {e}")
-                # Continue running but log the error
-                continue
-            
-            settings = load_settings()
-            # Delay dynamically based on interval
-            human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
-            
-    except KeyboardInterrupt:
-        logger.info("Poshmark scraper interrupted by user")
-    except Exception as e:
-        logger.error(f"Fatal error in Poshmark scraper: {e}")
+                logger.error(f"Fatal error in Poshmark scraper: {e}")
+            except:
+                import sys
+                print(f"ERROR: Fatal error in Poshmark scraper: {e}", file=sys.stderr, flush=True)
+        finally:
+            logger.info("Poshmark scraper stopped")
     finally:
-        logger.info("Poshmark scraper stopped")
+        _recursion_guard.in_scraper = False
 

@@ -30,6 +30,11 @@ seen_listings = {}
 _seen_listings_lock = threading.Lock()  # Thread safety for seen_listings
 
 # ======================
+# RECURSION GUARD
+# ======================
+_recursion_guard = threading.local()
+
+# ======================
 # RUNNING FLAG
 # ======================
 running_flags = {"facebook": True}
@@ -355,37 +360,77 @@ def check_facebook(driver):
 @log_errors()
 def run_facebook_scraper(driver, flag_name="facebook"):
     """Run Facebook scraper with proper error handling and timeout protection."""
+    # Check for recursion
+    if getattr(_recursion_guard, 'in_scraper', False):
+        import sys
+        print("ERROR: Recursion detected in Facebook scraper", file=sys.stderr, flush=True)
+        return
+    
+    _recursion_guard.in_scraper = True
+    
     try:
         load_seen_listings()
         logger.info("Starting Facebook scraper")
         
-        while running_flags.get(flag_name, True):
+        try:
+            while running_flags.get(flag_name, True):
+                try:
+                    check_facebook(driver)
+                except RecursionError as e:
+                    import sys
+                    print(f"ERROR: RecursionError in Facebook scraper: {e}", file=sys.stderr, flush=True)
+                    # Wait before retrying to avoid tight loop
+                    time.sleep(10)
+                    continue
+                except NetworkError as e:
+                    try:
+                        logger.error(f"Network error in Facebook scraper iteration: {e}")
+                    except:
+                        import sys
+                        print(f"ERROR: Network error in Facebook scraper iteration: {e}", file=sys.stderr, flush=True)
+                    # Wait longer before retry on network errors
+                    human_delay(running_flags, flag_name, 30, 60)
+                    continue
+                except ScraperError as e:
+                    try:
+                        logger.error(f"Scraper error in Facebook iteration: {e}")
+                    except:
+                        import sys
+                        print(f"ERROR: Scraper error in Facebook iteration: {e}", file=sys.stderr, flush=True)
+                    # Continue running but log the error
+                    continue
+                except Exception as e:
+                    try:
+                        logger.error(f"Unexpected error in Facebook scraper iteration: {e}")
+                    except:
+                        import sys
+                        print(f"ERROR: Unexpected error in Facebook scraper iteration: {e}", file=sys.stderr, flush=True)
+                    continue
+                
+                try:
+                    settings = ErrorHandler.handle_database_error(load_settings)
+                    human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
+                except Exception as e:
+                    try:
+                        logger.error(f"Error in Facebook scraper delay: {e}")
+                    except:
+                        import sys
+                        print(f"ERROR: Error in Facebook scraper delay: {e}", file=sys.stderr, flush=True)
+                    # Use default delay if settings fail
+                    human_delay(running_flags, flag_name, 60, 90)
+                
+        except KeyboardInterrupt:
+            logger.info("🛑 Facebook scraper interrupted by user")
+        except RecursionError as e:
+            import sys
+            print(f"FATAL: RecursionError in Facebook scraper main loop: {e}", file=sys.stderr, flush=True)
+        except Exception as e:
             try:
-                check_facebook(driver)
-            except NetworkError as e:
-                logger.error(f"Network error in Facebook scraper iteration: {e}")
-                # Wait longer before retry on network errors
-                human_delay(running_flags, flag_name, 30, 60)
-                continue
-            except ScraperError as e:
-                logger.error(f"Scraper error in Facebook iteration: {e}")
-                # Continue running but log the error
-                continue
-            except Exception as e:
-                logger.error(f"Unexpected error in Facebook scraper iteration: {e}")
-                continue
-            
-            try:
-                settings = ErrorHandler.handle_database_error(load_settings)
-                human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
-            except Exception as e:
-                logger.error(f"Error in Facebook scraper delay: {e}")
-                # Use default delay if settings fail
-                human_delay(running_flags, flag_name, 60, 90)
-            
-    except KeyboardInterrupt:
-        logger.info("🛑 Facebook scraper interrupted by user")
-    except Exception as e:
-        logger.error(f"❌ Fatal error in Facebook scraper: {e}")
+                logger.error(f"❌ Fatal error in Facebook scraper: {e}")
+            except:
+                import sys
+                print(f"ERROR: Fatal error in Facebook scraper: {e}", file=sys.stderr, flush=True)
+        finally:
+            logger.info("🛑 Facebook scraper stopped")
     finally:
-        logger.info("🛑 Facebook scraper stopped")
+        _recursion_guard.in_scraper = False

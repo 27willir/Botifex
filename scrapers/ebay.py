@@ -20,6 +20,11 @@ seen_listings = {}
 _seen_listings_lock = threading.Lock()  # Thread safety for seen_listings
 
 # ======================
+# RECURSION GUARD
+# ======================
+_recursion_guard = threading.local()
+
+# ======================
 # RUNNING FLAG
 # ======================
 running_flags = {"ebay": True}
@@ -351,31 +356,60 @@ def check_ebay(flag_name="ebay"):
 # ======================
 def run_ebay_scraper(flag_name="ebay"):
     """Run scraper continuously until stopped via running_flags."""
-    logger.info("Starting eBay scraper")
-    load_seen_listings()
+    # Check for recursion
+    if getattr(_recursion_guard, 'in_scraper', False):
+        import sys
+        print("ERROR: Recursion detected in eBay scraper", file=sys.stderr, flush=True)
+        return
+    
+    _recursion_guard.in_scraper = True
     
     try:
-        while running_flags.get(flag_name, True):
+        logger.info("Starting eBay scraper")
+        load_seen_listings()
+        
+        try:
+            while running_flags.get(flag_name, True):
+                try:
+                    logger.debug("Running eBay scraper check")
+                    results = check_ebay(flag_name)
+                    if results:
+                        logger.info(f"eBay scraper found {len(results)} new listings")
+                    else:
+                        logger.debug("eBay scraper found no new listings")
+                except RecursionError as e:
+                    import sys
+                    print(f"ERROR: RecursionError in eBay scraper: {e}", file=sys.stderr, flush=True)
+                    # Wait before retrying to avoid tight loop
+                    time.sleep(10)
+                    continue
+                except Exception as e:
+                    # Use fallback logging to avoid recursion in error handling
+                    try:
+                        logger.error(f"Error in eBay scraper iteration: {e}")
+                    except:
+                        import sys
+                        print(f"ERROR: Error in eBay scraper iteration: {e}", file=sys.stderr, flush=True)
+                    # Continue running but log the error
+                    continue
+                
+                settings = load_settings()
+                # Delay dynamically based on interval
+                human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
+                
+        except KeyboardInterrupt:
+            logger.info("eBay scraper interrupted by user")
+        except RecursionError as e:
+            import sys
+            print(f"FATAL: RecursionError in eBay scraper main loop: {e}", file=sys.stderr, flush=True)
+        except Exception as e:
             try:
-                logger.debug("Running eBay scraper check")
-                results = check_ebay(flag_name)
-                if results:
-                    logger.info(f"eBay scraper found {len(results)} new listings")
-                else:
-                    logger.debug("eBay scraper found no new listings")
-            except Exception as e:
-                logger.error(f"Error in eBay scraper iteration: {e}")
-                # Continue running but log the error
-                continue
-            
-            settings = load_settings()
-            # Delay dynamically based on interval
-            human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
-            
-    except KeyboardInterrupt:
-        logger.info("eBay scraper interrupted by user")
-    except Exception as e:
-        logger.error(f"Fatal error in eBay scraper: {e}")
+                logger.error(f"Fatal error in eBay scraper: {e}")
+            except:
+                import sys
+                print(f"ERROR: Fatal error in eBay scraper: {e}", file=sys.stderr, flush=True)
+        finally:
+            logger.info("eBay scraper stopped")
     finally:
-        logger.info("eBay scraper stopped")
+        _recursion_guard.in_scraper = False
 

@@ -3,6 +3,7 @@ Security Middleware for blocking malicious requests and protecting against commo
 """
 import re
 import time
+import threading
 from datetime import datetime, timedelta
 from flask import request, jsonify, abort
 from collections import defaultdict, deque
@@ -391,6 +392,38 @@ security_middleware = SecurityMiddleware()
 
 def security_before_request():
     """Flask before_request handler for security"""
+    # CRITICAL: Check if we're inside a Stripe operation to prevent recursion
+    # Import here to avoid circular dependencies
+    try:
+        from subscriptions import _stripe_operation_lock
+        if getattr(_stripe_operation_lock, 'in_stripe_call', False):
+            # Skip all security checks during Stripe operations to prevent recursion
+            return None
+    except Exception:
+        # If we can't check, proceed normally
+        pass
+    
+    # CRITICAL: Check if we're inside a scraper operation to prevent recursion
+    try:
+        from scrapers.craigslist import _recursion_guard as cl_guard
+        from scrapers.ebay import _recursion_guard as ebay_guard
+        from scrapers.facebook import _recursion_guard as fb_guard
+        from scrapers.ksl import _recursion_guard as ksl_guard
+        from scrapers.mercari import _recursion_guard as mercari_guard
+        from scrapers.poshmark import _recursion_guard as poshmark_guard
+        
+        if (getattr(cl_guard, 'in_scraper', False) or 
+            getattr(ebay_guard, 'in_scraper', False) or
+            getattr(fb_guard, 'in_scraper', False) or
+            getattr(ksl_guard, 'in_scraper', False) or
+            getattr(mercari_guard, 'in_scraper', False) or
+            getattr(poshmark_guard, 'in_scraper', False)):
+            # Skip all security checks during scraper operations to prevent recursion
+            return None
+    except Exception:
+        # If we can't check, proceed normally
+        pass
+    
     # Early rejection for obviously malicious paths - no DB access
     if _is_quick_reject_path(request.path):
         # Log and block immediately without database access
