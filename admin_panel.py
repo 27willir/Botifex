@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import db_enhanced
 from utils import logger
 from rate_limiter import reset_user_rate_limits
-from cache_manager import get_cache, cache_clear
+from cache_manager import get_cache, cache_user_data
 from security_middleware import get_security_stats
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -29,9 +29,8 @@ def check_role():
         'message': 'If roles mismatch, please log out and log back in to refresh your session.'
     }
     
-    # Clear user cache so next request loads fresh data
-    cache_key = f"user:{current_user.id}"
-    cache_clear(cache_key)
+    # Clear any cached user data so next request loads fresh role from DB
+    cache_user_data(current_user.id)
     logger.info(f"Cleared cache for user {current_user.id}. Session role: {getattr(current_user, 'role', 'NONE')}, DB role: {user_data[4] if user_data else 'NONE'}")
     
     return jsonify(debug_info)
@@ -45,14 +44,30 @@ def admin_required(f):
             flash("Please log in to access this page.", "error")
             return redirect(url_for("login"))
         
-        # Check role from current_user object (already loaded by Flask-Login)
-        if not hasattr(current_user, 'role'):
-            logger.error(f"User {current_user.id} does not have role attribute")
+        # Always revalidate role against the database to avoid stale session cache
+        try:
+            user_data = db_enhanced.get_user_by_username(current_user.id)
+            db_role = user_data[4] if user_data else None
+        except Exception as e:
+            logger.error(f"Failed to fetch user role for {current_user.id}: {e}")
             flash("Access denied. Admin privileges required.", "error")
             return redirect(url_for("dashboard"))
-        
-        if current_user.role != 'admin':
-            logger.warning(f"User {current_user.id} attempted to access admin panel with role: {current_user.role}")
+
+        # If session role differs from DB, update the in-memory user and invalidate cache
+        if hasattr(current_user, 'role') and db_role and current_user.role != db_role:
+            logger.info(f"Updating session role for {current_user.id} from {current_user.role} to {db_role}")
+            try:
+                current_user.role = db_role
+                cache_user_data(current_user.id)
+            except Exception as e:
+                logger.debug(f"Failed to update session role/cache for {current_user.id}: {e}")
+
+        # Enforce admin-only access based on authoritative DB role
+        if db_role != 'admin':
+            session_role = getattr(current_user, 'role', 'UNKNOWN')
+            logger.warning(
+                f"User {current_user.id} attempted to access admin panel with role: {session_role} (db_role={db_role})"
+            )
             flash("Access denied. Admin privileges required.", "error")
             return redirect(url_for("dashboard"))
         
@@ -168,6 +183,11 @@ def update_user_role(username):
             return redirect(url_for("admin.user_detail", username=username))
         
         db_enhanced.update_user_role(username, new_role)
+        # Invalidate cached user data so role change takes effect immediately
+        try:
+            cache_user_data(username)
+        except Exception as e:
+            logger.debug(f"Failed to invalidate cache for {username} after role update: {e}")
         db_enhanced.log_user_activity(
             current_user.id,
             'update_user_role',
