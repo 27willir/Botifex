@@ -3,7 +3,7 @@ from functools import wraps
 from flask import request, jsonify, g
 from flask_login import current_user
 from datetime import datetime
-from utils import logger
+from utils import logger, get_client_ip
 import db_enhanced
 
 
@@ -25,7 +25,8 @@ def get_rate_limit_key(endpoint_type):
         return f"{current_user.id}:{endpoint_type}"
     else:
         # Use IP address for unauthenticated users
-        return f"{request.remote_addr}:{endpoint_type}"
+        client_ip = get_client_ip(request) or request.remote_addr
+        return f"{client_ip}:{endpoint_type}"
 
 
 def rate_limit(endpoint_type, max_requests=None, window_minutes=1):
@@ -42,8 +43,9 @@ def rate_limit(endpoint_type, max_requests=None, window_minutes=1):
         def decorated_function(*args, **kwargs):
             # Check if IP is blocked by security middleware
             from security_middleware import security_middleware
-            if security_middleware.is_ip_blocked(request.remote_addr):
-                logger.warning(f"Blocked IP {request.remote_addr} attempted to access {endpoint_type}")
+            client_ip = get_client_ip(request) or request.remote_addr
+            if security_middleware.is_ip_blocked(client_ip):
+                logger.warning(f"Blocked IP {client_ip} attempted to access {endpoint_type}")
                 return jsonify({
                     'error': 'Access Denied',
                     'message': 'IP address is blocked due to suspicious activity',
@@ -55,8 +57,8 @@ def rate_limit(endpoint_type, max_requests=None, window_minutes=1):
             from honeypot_routes import honeypot_manager
             is_admin = current_user.is_authenticated and hasattr(current_user, 'role') and current_user.role == 'admin'
             
-            if honeypot_manager.is_honeypot_triggered(request.remote_addr) and not is_admin:
-                logger.warning(f"Honeypot-triggered IP {request.remote_addr} attempted to access {endpoint_type}")
+            if honeypot_manager.is_honeypot_triggered(client_ip) and not is_admin:
+                logger.warning(f"Honeypot-triggered IP {client_ip} attempted to access {endpoint_type}")
                 return jsonify({
                     'error': 'Access Denied',
                     'message': 'IP address is blocked due to automated scanning',
@@ -64,16 +66,16 @@ def rate_limit(endpoint_type, max_requests=None, window_minutes=1):
                 }), 403
             
             # Log if admin bypassed honeypot block
-            if is_admin and honeypot_manager.is_honeypot_triggered(request.remote_addr):
-                logger.info(f"Admin user {current_user.id} bypassed honeypot block for IP {request.remote_addr}")
+            if is_admin and honeypot_manager.is_honeypot_triggered(client_ip):
+                logger.info(f"Admin user {current_user.id} bypassed honeypot block for IP {client_ip}")
             
             # Determine max requests based on IP reputation
             base_limit = max_requests if max_requests is not None else RATE_LIMITS.get(endpoint_type, 30)
             
             # Apply stricter limits for suspicious IPs
-            if request.remote_addr in security_middleware.suspicious_ips:
+            if client_ip in security_middleware.suspicious_ips:
                 requests_limit = min(base_limit, RATE_LIMITS.get('suspicious', 1))
-                logger.info(f"Applying suspicious IP rate limit for {request.remote_addr}: {requests_limit} requests")
+                logger.info(f"Applying suspicious IP rate limit for {client_ip}: {requests_limit} requests")
             else:
                 requests_limit = base_limit
             
@@ -81,7 +83,7 @@ def rate_limit(endpoint_type, max_requests=None, window_minutes=1):
             if current_user.is_authenticated:
                 username = current_user.id
             else:
-                username = request.remote_addr  # Use IP for non-authenticated users
+                username = client_ip  # Use client IP for non-authenticated users
             
             # Check rate limit
             is_allowed, remaining = db_enhanced.check_rate_limit(

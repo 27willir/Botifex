@@ -1,5 +1,7 @@
 # utils.py
 import os, json, logging, sys
+import ipaddress
+from typing import Optional
 from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -43,6 +45,63 @@ def setup_logger(name="superbot", level=logging.INFO):
     return logger
 
 logger = setup_logger()
+
+def is_private_ip(ip_address: str) -> bool:
+    """Return True if the given IP address is private or reserved.
+
+    This treats RFC1918, loopback, link-local, and reserved ranges as private.
+    """
+    try:
+        ip_obj = ipaddress.ip_address(ip_address)
+        return (
+            ip_obj.is_private
+            or ip_obj.is_loopback
+            or ip_obj.is_link_local
+            or ip_obj.is_reserved
+            or ip_obj.is_multicast
+        )
+    except Exception:
+        # If parsing fails, treat as private to avoid misclassification
+        return True
+
+def get_client_ip(request) -> Optional[str]:
+    """Best-effort extraction of the real client IP from a proxied request.
+
+    Preference order:
+    1) First public IP in X-Forwarded-For (left-most)
+    2) X-Real-IP if public
+    3) request.remote_addr (may be proxy IP)
+
+    Returns the best candidate as a string. May return a private IP if no
+    public IP is available.
+    """
+    try:
+        # Check X-Forwarded-For (may be a comma-separated list)
+        xff = request.headers.get('X-Forwarded-For', '')
+        if xff:
+            # Keep order; pick first public IP
+            for part in [p.strip() for p in xff.split(',') if p.strip()]:
+                try:
+                    if not is_private_ip(part):
+                        return part
+                except Exception:
+                    continue
+            # If none public, fall back to first entry
+            first = xff.split(',')[0].strip()
+            if first:
+                return first
+
+        # Check X-Real-IP
+        xri = request.headers.get('X-Real-IP')
+        if xri and not is_private_ip(xri):
+            return xri
+
+    except Exception:
+        # Ignore header parsing issues and fall back below
+        pass
+
+    # Fallback to remote_addr (may be proxy)
+    return getattr(request, 'remote_addr', None)
 
 def safe_json_load(path, default=None):
     path = Path(path)

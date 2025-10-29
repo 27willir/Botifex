@@ -4,7 +4,7 @@ These routes are designed to attract malicious bots and immediately block them
 """
 from flask import request, jsonify, abort
 from security_middleware import security_middleware
-from utils import logger
+from utils import logger, get_client_ip, is_private_ip
 import time
 import random
 
@@ -20,8 +20,9 @@ class HoneypotManager:
         self.honeypot_attempts[ip] = self.honeypot_attempts.get(ip, 0) + 1
         self.honeypot_ips.add(ip)
         
-        # Immediately block the IP
-        security_middleware.blocked_ips.add(ip)
+        # Immediately block the IP if it's not an internal/proxy address
+        if not is_private_ip(ip):
+            security_middleware.blocked_ips.add(ip)
         
         logger.warning(f"HONEYPOT TRIGGERED: IP {ip} accessed honeypot route {path} (attempt #{self.honeypot_attempts[ip]})")
         logger.warning(f"User-Agent: {user_agent}")
@@ -77,7 +78,7 @@ def create_honeypot_routes(app):
     @app.route('/.env.example')
     def honeypot_env():
         """Honeypot for .env file access attempts"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
         return jsonify({'error': 'Access Denied'}), 403
     
@@ -86,7 +87,7 @@ def create_honeypot_routes(app):
     @app.route('/wp-config')
     def honeypot_wp_config():
         """Honeypot for WordPress config access"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
         return jsonify({'error': 'Access Denied'}), 403
     
@@ -103,7 +104,7 @@ def create_honeypot_routes(app):
     @app.route('/secured/phpinfo.php')
     def honeypot_phpinfo():
         """Honeypot for PHP info access attempts"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
         return jsonify({'error': 'Access Denied'}), 403
     
@@ -116,7 +117,7 @@ def create_honeypot_routes(app):
     @app.route('/db.php')
     def honeypot_config():
         """Honeypot for configuration file access"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
         return jsonify({'error': 'Access Denied'}), 403
     
@@ -127,7 +128,7 @@ def create_honeypot_routes(app):
     @app.route('/admin.php')
     def honeypot_admin():
         """Honeypot for admin interface access"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
         return jsonify({'error': 'Access Denied'}), 403
     
@@ -138,7 +139,7 @@ def create_honeypot_routes(app):
     @app.route('/.git/HEAD')
     def honeypot_vcs():
         """Honeypot for version control access"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
         return jsonify({'error': 'Access Denied'}), 403
     
@@ -151,7 +152,7 @@ def create_honeypot_routes(app):
     @app.route('/.htaccess')
     def honeypot_dev_files():
         """Honeypot for development file access"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
         return jsonify({'error': 'Access Denied'}), 403
     
@@ -160,7 +161,7 @@ def create_honeypot_routes(app):
     @app.route('/.aws/config')
     def honeypot_aws():
         """Honeypot for AWS credential access"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
         return jsonify({'error': 'Access Denied'}), 403
     
@@ -172,7 +173,7 @@ def create_honeypot_routes(app):
     @app.route('/laravel/.env')
     def honeypot_php_frameworks():
         """Honeypot for PHP framework access"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
         return jsonify({'error': 'Access Denied'}), 403
     
@@ -181,7 +182,7 @@ def create_honeypot_routes(app):
     @app.route('/scripts/nodemailer.js')
     def honeypot_node():
         """Honeypot for Node.js file access"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
         return jsonify({'error': 'Access Denied'}), 403
     
@@ -189,7 +190,7 @@ def create_honeypot_routes(app):
     @app.route('/static/js/2.<random>.chunk.js')
     def honeypot_static_js():
         """Honeypot for static JS file access (common in React apps)"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
         return jsonify({'error': 'Access Denied'}), 403
     
@@ -215,7 +216,7 @@ def create_honeypot_routes(app):
     @app.route('/robots.txt')
     def honeypot_robots():
         """Honeypot disguised as robots.txt"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         # Only trigger if it's clearly a bot (no referer, suspicious user agent)
         user_agent = request.headers.get('User-Agent', '').lower()
         if any(bot in user_agent for bot in ['bot', 'crawler', 'spider', 'scanner']):
@@ -227,7 +228,7 @@ def create_honeypot_routes(app):
     @app.route('/sitemap.xml')
     def honeypot_sitemap():
         """Honeypot disguised as sitemap.xml"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         # Only trigger for suspicious requests
         if request.headers.get('User-Agent', '').lower() in ['', 'scanner', 'bot']:
             honeypot_manager.log_honeypot_access(ip, request.path, request.headers.get('User-Agent', ''))
