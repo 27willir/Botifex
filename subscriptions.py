@@ -225,10 +225,8 @@ class StripeManager:
     
     @staticmethod
     def create_checkout_session(tier_name, user_email, username, success_url, cancel_url):
-        """Create a Stripe checkout session for subscription - isolated from Flask context"""
+        """Create a Stripe checkout session for subscription"""
         import sys
-        from werkzeug.local import LocalStack
-        from flask import _request_ctx_stack, _app_ctx_stack, has_request_context
         
         # Store original logging state to restore later
         original_logging_disabled = logging.root.manager.disable
@@ -272,23 +270,8 @@ class StripeManager:
             old_recursion_limit = sys_module.getrecursionlimit()
             sys_module.setrecursionlimit(3000)  # Increase from default 1000
             
-            # Store current Flask context stacks (if any)
-            saved_request_ctx = None
-            saved_app_ctx = None
-            had_request_context = has_request_context()
-            
             try:
-                # Temporarily clear Flask context to prevent middleware interference
-                # This is the KEY fix - Stripe HTTP calls won't trigger Flask middleware
-                if had_request_context:
-                    print("INFO: Temporarily clearing Flask request context for Stripe call", file=sys.stderr)
-                    saved_request_ctx = _request_ctx_stack.top
-                    saved_app_ctx = _app_ctx_stack.top
-                    _request_ctx_stack.pop()
-                    if _app_ctx_stack.top:
-                        _app_ctx_stack.pop()
-                
-                # Create session - now completely isolated from Flask
+                # Create session - Flask 3.x handles context isolation properly
                 print("INFO: Making Stripe API call...", file=sys.stderr)
                 session = stripe.checkout.Session.create(
                     customer_email=user_email,
@@ -313,13 +296,6 @@ class StripeManager:
                 print("INFO: Stripe API call successful", file=sys.stderr)
                 
             finally:
-                # Restore Flask contexts if they existed
-                if had_request_context and saved_request_ctx:
-                    print("INFO: Restoring Flask request context", file=sys.stderr)
-                    if saved_app_ctx:
-                        _app_ctx_stack.push(saved_app_ctx)
-                    _request_ctx_stack.push(saved_request_ctx)
-                
                 # Restore recursion limit
                 sys_module.setrecursionlimit(old_recursion_limit)
                 
