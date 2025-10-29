@@ -21,7 +21,7 @@ from error_recovery import start_error_recovery, stop_error_recovery, handle_err
 from utils import logger
 # Import new modules
 from rate_limiter import rate_limit, add_rate_limit_headers
-from cache_manager import cache_get, cache_set, cache_clear, get_cache
+from cache_manager import cache_get, cache_set, cache_clear, cache_user_data, get_cache
 from admin_panel import admin_bp
 from security_middleware import security_before_request, add_security_headers, get_security_stats
 from honeypot_routes import create_honeypot_routes, get_honeypot_stats
@@ -402,8 +402,7 @@ def login():
 def logout():
     username = current_user.id
     # Clear user cache on logout
-    cache_key = f"user:{username}"
-    cache_clear(cache_key)
+    cache_user_data(username)
     
     db_enhanced.log_user_activity(
         username, 
@@ -422,8 +421,7 @@ def refresh_session():
     username = current_user.id
     
     # Clear user cache
-    cache_key = f"user:{username}"
-    cache_clear(cache_key)
+    cache_user_data(username)
     
     # Log them out and back in to reload user data
     logout_user()
