@@ -7,7 +7,7 @@ import threading
 from datetime import datetime, timedelta
 from flask import request, jsonify, abort
 from collections import defaultdict, deque
-from utils import logger
+from utils import logger, get_client_ip
 import db_enhanced
 
 # Track request start time
@@ -263,7 +263,7 @@ class SecurityMiddleware:
     
     def should_block_request(self, request, is_admin=False):
         """Determine if request should be blocked"""
-        ip = request.remote_addr
+        ip = get_client_ip(request) or request.remote_addr
         path = request.path
         user_agent = request.headers.get('User-Agent', '')
         
@@ -427,7 +427,7 @@ def security_before_request():
     # Early rejection for obviously malicious paths - no DB access
     if _is_quick_reject_path(request.path):
         # Log and block immediately without database access
-        logger.warning(f"Quick reject: malicious path from {request.remote_addr}: {request.path}")
+        logger.warning(f"Quick reject: malicious path from {get_client_ip(request) or request.remote_addr}: {request.path}")
         return jsonify({'error': 'Access Denied', 'message': 'Request blocked by security policy', 'code': 403}), 403
     
     # Skip security check for static files
@@ -481,7 +481,7 @@ def security_before_request():
     if should_block:
         # Log the security event (including admin attempts for audit)
         security_middleware.log_security_event(
-            ip=request.remote_addr,
+            ip=get_client_ip(request) or request.remote_addr,
             path=request.path,
             user_agent=request.headers.get('User-Agent', ''),
             reason=f"{'[ADMIN] ' if is_admin else ''}{reason}"

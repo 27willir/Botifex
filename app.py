@@ -3,6 +3,7 @@ from flask_wtf.csrf import CSRFProtect
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from pathlib import Path
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 from collections import namedtuple
 from scraper_thread import (
     start_facebook, stop_facebook, is_facebook_running,
@@ -47,6 +48,8 @@ ListingRow = namedtuple('ListingRow', ['id', 'title', 'price', 'link', 'image_ur
 load_dotenv()
 
 app = Flask(__name__)
+# Trust proxy headers for real client IP and scheme
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.secret_key = SecurityConfig.get_secret_key()
 
 # Initialize WebSocket support
