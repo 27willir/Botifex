@@ -226,12 +226,13 @@ class StripeManager:
     def create_checkout_session(tier_name, user_email, username, success_url, cancel_url):
         """Create a Stripe checkout session for subscription
         
-        Uses a real OS thread to bypass gevent's monkey-patching which causes
-        RecursionError in urllib3/SSL when making HTTPS requests.
+        Uses subprocess to completely bypass gevent's monkey-patching which causes
+        RecursionError in urllib3/SSL. Running in a separate process ensures no
+        gevent interference.
         """
         import sys
-        from concurrent.futures import ThreadPoolExecutor
-        import time
+        import subprocess
+        import json
         
         # Validate Stripe configuration first
         if not stripe.api_key:
@@ -245,197 +246,249 @@ class StripeManager:
         
         print(f"INFO: Starting Stripe checkout for {username} - {tier_name}", file=sys.stderr)
         
-        # Result container for thread communication
-        result_container = {'session': None, 'error': None, 'exception': None}
-        
-        def _make_stripe_call():
-            """Execute Stripe API call in a real OS thread to bypass gevent"""
-            try:
-                print("INFO: Making Stripe API call in OS thread...", file=sys.stderr)
-                
-                # Create the checkout session
-                session = stripe.checkout.Session.create(
-                    customer_email=user_email,
-                    line_items=[{
-                        'price': tier['price_id'],
-                        'quantity': 1,
-                    }],
-                    mode='subscription',
-                    success_url=success_url,
-                    cancel_url=cancel_url,
-                    metadata={
-                        'username': username,
-                        'tier': tier_name
-                    },
-                    subscription_data={
-                        'metadata': {
-                            'username': username,
-                            'tier': tier_name
-                        }
-                    }
-                )
-                
-                result_container['session'] = session
-                print("INFO: Stripe API call successful", file=sys.stderr)
-                
-            except stripe.error.StripeError as e:
-                result_container['error'] = str(e)
-                print(f"STRIPE ERROR in thread: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
-            except Exception as e:
-                result_container['exception'] = str(e)
-                print(f"EXCEPTION in Stripe thread: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
-                import traceback
-                traceback.print_exc(file=sys.stderr)
+        # Create a subprocess script that runs without gevent
+        script = f"""
+import stripe
+import json
+import sys
+
+stripe.api_key = {repr(stripe.api_key)}
+
+try:
+    session = stripe.checkout.Session.create(
+        customer_email={repr(user_email)},
+        line_items=[{{'price': {repr(tier['price_id'])}, 'quantity': 1}}],
+        mode='subscription',
+        success_url={repr(success_url)},
+        cancel_url={repr(cancel_url)},
+        metadata={{'username': {repr(username)}, 'tier': {repr(tier_name)}}},
+        subscription_data={{'metadata': {{'username': {repr(username)}, 'tier': {repr(tier_name)}}}}}
+    )
+    # Output the session as JSON
+    result = {{
+        'success': True,
+        'session_id': session.id,
+        'url': session.url
+    }}
+    print(json.dumps(result))
+except Exception as e:
+    result = {{
+        'success': False,
+        'error': str(e),
+        'error_type': type(e).__name__
+    }}
+    print(json.dumps(result))
+    sys.exit(1)
+"""
         
         try:
-            # Use ThreadPoolExecutor to run Stripe call in a real OS thread
-            # This bypasses gevent's greenlet monkey-patching
-            with ThreadPoolExecutor(max_workers=1, thread_name_prefix='stripe-api') as executor:
-                future = executor.submit(_make_stripe_call)
-                # Wait up to 10 seconds for the Stripe API call
-                future.result(timeout=10)
+            # Run the script in a subprocess (completely isolated from gevent)
+            print("INFO: Making Stripe API call in subprocess...", file=sys.stderr)
+            result = subprocess.run(
+                [sys.executable, '-c', script],
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
             
-            # Check results
-            if result_container['session']:
-                session = result_container['session']
-                print(f"SUCCESS: Created checkout session for {username} - {tier_name}: {session.id}", file=sys.stderr)
-                return session, None
-            elif result_container['error']:
-                return None, result_container['error']
-            elif result_container['exception']:
-                return None, result_container['exception']
+            if result.returncode == 0:
+                # Parse successful result
+                output = json.loads(result.stdout.strip())
+                if output.get('success'):
+                    # Create a minimal session object
+                    class StripeSession:
+                        def __init__(self, session_id, url):
+                            self.id = session_id
+                            self.url = url
+                    
+                    session = StripeSession(output['session_id'], output['url'])
+                    print(f"SUCCESS: Created checkout session for {username} - {tier_name}: {session.id}", file=sys.stderr)
+                    return session, None
+                else:
+                    print(f"STRIPE ERROR in subprocess: {output.get('error_type')}: {output.get('error', 'Unknown')[:200]}", file=sys.stderr)
+                    return None, output.get('error', 'Unknown error')
             else:
-                return None, "Unknown error occurred"
+                # Parse error result
+                try:
+                    output = json.loads(result.stdout.strip())
+                    error_msg = output.get('error', 'Unknown error')
+                except:
+                    error_msg = result.stderr or "Failed to create checkout session"
                 
-        except TimeoutError:
-            print("ERROR: Stripe API call timed out after 10 seconds", file=sys.stderr)
+                print(f"STRIPE ERROR: {error_msg[:200]}", file=sys.stderr)
+                return None, error_msg
+                
+        except subprocess.TimeoutExpired:
+            print("ERROR: Stripe API call timed out after 15 seconds", file=sys.stderr)
             return None, "Request timed out - please try again"
         except Exception as e:
-            print(f"ERROR: Exception in Stripe thread executor: {type(e).__name__}: {str(e)}", file=sys.stderr)
+            print(f"ERROR: Exception in Stripe subprocess: {type(e).__name__}: {str(e)}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
             return None, str(e)
     
     @staticmethod
     def create_customer_portal_session(customer_id, return_url):
         """Create a Stripe customer portal session for managing subscription
         
-        Uses a real OS thread to bypass gevent's monkey-patching.
+        Uses subprocess to bypass gevent's monkey-patching.
         """
         import sys
-        from concurrent.futures import ThreadPoolExecutor
+        import subprocess
+        import json
         
         print(f"INFO: Creating portal session for customer: {customer_id}", file=sys.stderr)
-        result_container = {'session': None, 'error': None}
         
-        def _make_stripe_call():
-            try:
-                session = stripe.billing_portal.Session.create(
-                    customer=customer_id,
-                    return_url=return_url
-                )
-                result_container['session'] = session
-            except stripe.error.StripeError as e:
-                result_container['error'] = str(e)
-                print(f"STRIPE ERROR creating portal session: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
-            except Exception as e:
-                result_container['error'] = str(e)
-                print(f"EXCEPTION creating portal session: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+        script = f"""
+import stripe
+import json
+import sys
+
+stripe.api_key = {repr(stripe.api_key)}
+
+try:
+    session = stripe.billing_portal.Session.create(
+        customer={repr(customer_id)},
+        return_url={repr(return_url)}
+    )
+    result = {{'success': True, 'url': session.url}}
+    print(json.dumps(result))
+except Exception as e:
+    result = {{'success': False, 'error': str(e)}}
+    print(json.dumps(result))
+    sys.exit(1)
+"""
         
         try:
-            with ThreadPoolExecutor(max_workers=1, thread_name_prefix='stripe-api') as executor:
-                future = executor.submit(_make_stripe_call)
-                future.result(timeout=10)
+            result = subprocess.run(
+                [sys.executable, '-c', script],
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
             
-            if result_container['session']:
-                print(f"SUCCESS: Created portal session for customer: {customer_id}", file=sys.stderr)
-                return result_container['session'], None
-            else:
-                return None, result_container.get('error', 'Unknown error')
+            if result.returncode == 0:
+                output = json.loads(result.stdout.strip())
+                if output.get('success'):
+                    class StripeSession:
+                        def __init__(self, url):
+                            self.url = url
+                    session = StripeSession(output['url'])
+                    print(f"SUCCESS: Created portal session for customer: {customer_id}", file=sys.stderr)
+                    return session, None
+            
+            output = json.loads(result.stdout.strip()) if result.stdout else {'error': 'Unknown error'}
+            return None, output.get('error', 'Unknown error')
                 
-        except TimeoutError:
-            print("ERROR: Stripe portal session timed out", file=sys.stderr)
-            return None, "Request timed out"
         except Exception as e:
-            print(f"ERROR: Exception in portal thread: {type(e).__name__}: {str(e)}", file=sys.stderr)
+            print(f"ERROR: Exception in portal subprocess: {type(e).__name__}: {str(e)}", file=sys.stderr)
             return None, str(e)
     
     @staticmethod
     def cancel_subscription(subscription_id):
         """Cancel a Stripe subscription
         
-        Uses a real OS thread to bypass gevent's monkey-patching.
+        Uses subprocess to bypass gevent's monkey-patching.
         """
         import sys
-        from concurrent.futures import ThreadPoolExecutor
+        import subprocess
+        import json
         
         print(f"INFO: Cancelling subscription: {subscription_id}", file=sys.stderr)
-        result_container = {'success': False, 'error': None}
         
-        def _make_stripe_call():
-            try:
-                stripe.Subscription.delete(subscription_id)
-                result_container['success'] = True
-            except stripe.error.StripeError as e:
-                result_container['error'] = str(e)
-                print(f"STRIPE ERROR cancelling subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
-            except Exception as e:
-                result_container['error'] = str(e)
-                print(f"EXCEPTION cancelling subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+        script = f"""
+import stripe
+import json
+import sys
+
+stripe.api_key = {repr(stripe.api_key)}
+
+try:
+    stripe.Subscription.delete({repr(subscription_id)})
+    result = {{'success': True}}
+    print(json.dumps(result))
+except Exception as e:
+    result = {{'success': False, 'error': str(e)}}
+    print(json.dumps(result))
+    sys.exit(1)
+"""
         
         try:
-            with ThreadPoolExecutor(max_workers=1, thread_name_prefix='stripe-api') as executor:
-                future = executor.submit(_make_stripe_call)
-                future.result(timeout=10)
+            result = subprocess.run(
+                [sys.executable, '-c', script],
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
             
-            if result_container['success']:
-                print(f"SUCCESS: Cancelled subscription: {subscription_id}", file=sys.stderr)
-                return True, None
-            else:
-                return False, result_container.get('error', 'Unknown error')
+            if result.returncode == 0:
+                output = json.loads(result.stdout.strip())
+                if output.get('success'):
+                    print(f"SUCCESS: Cancelled subscription: {subscription_id}", file=sys.stderr)
+                    return True, None
+            
+            output = json.loads(result.stdout.strip()) if result.stdout else {'error': 'Unknown error'}
+            return False, output.get('error', 'Unknown error')
                 
-        except TimeoutError:
-            print("ERROR: Stripe cancel timed out", file=sys.stderr)
-            return False, "Request timed out"
         except Exception as e:
-            print(f"ERROR: Exception in cancel thread: {type(e).__name__}: {str(e)}", file=sys.stderr)
+            print(f"ERROR: Exception in cancel subprocess: {type(e).__name__}: {str(e)}", file=sys.stderr)
             return False, str(e)
     
     @staticmethod
     def get_subscription(subscription_id):
         """Get subscription details from Stripe
         
-        Uses a real OS thread to bypass gevent's monkey-patching.
+        Uses subprocess to bypass gevent's monkey-patching.
         """
         import sys
-        from concurrent.futures import ThreadPoolExecutor
+        import subprocess
+        import json
         
-        result_container = {'subscription': None, 'error': None}
-        
-        def _make_stripe_call():
-            try:
-                subscription = stripe.Subscription.retrieve(subscription_id)
-                result_container['subscription'] = subscription
-            except stripe.error.StripeError as e:
-                result_container['error'] = str(e)
-                print(f"STRIPE ERROR retrieving subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
-            except Exception as e:
-                result_container['error'] = str(e)
-                print(f"EXCEPTION retrieving subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+        script = f"""
+import stripe
+import json
+import sys
+
+stripe.api_key = {repr(stripe.api_key)}
+
+try:
+    subscription = stripe.Subscription.retrieve({repr(subscription_id)})
+    result = {{
+        'success': True,
+        'status': subscription.status,
+        'current_period_end': subscription.current_period_end
+    }}
+    print(json.dumps(result))
+except Exception as e:
+    result = {{'success': False, 'error': str(e)}}
+    print(json.dumps(result))
+    sys.exit(1)
+"""
         
         try:
-            with ThreadPoolExecutor(max_workers=1, thread_name_prefix='stripe-api') as executor:
-                future = executor.submit(_make_stripe_call)
-                future.result(timeout=10)
+            result = subprocess.run(
+                [sys.executable, '-c', script],
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
             
-            if result_container['subscription']:
-                return result_container['subscription'], None
-            else:
-                return None, result_container.get('error', 'Unknown error')
+            if result.returncode == 0:
+                output = json.loads(result.stdout.strip())
+                if output.get('success'):
+                    class StripeSubscription:
+                        def __init__(self, status, current_period_end):
+                            self.status = status
+                            self.current_period_end = current_period_end
+                    
+                    subscription = StripeSubscription(output['status'], output['current_period_end'])
+                    return subscription, None
+            
+            output = json.loads(result.stdout.strip()) if result.stdout else {'error': 'Unknown error'}
+            return None, output.get('error', 'Unknown error')
                 
-        except TimeoutError:
-            print("ERROR: Stripe retrieve timed out", file=sys.stderr)
-            return None, "Request timed out"
         except Exception as e:
-            print(f"ERROR: Exception in retrieve thread: {type(e).__name__}: {str(e)}", file=sys.stderr)
+            print(f"ERROR: Exception in retrieve subprocess: {type(e).__name__}: {str(e)}", file=sys.stderr)
             return None, str(e)
     
     @staticmethod
