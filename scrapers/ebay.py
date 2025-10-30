@@ -68,7 +68,6 @@ def is_new_listing(link):
         last_seen = seen_listings[normalized_link]
         return (datetime.now() - last_seen).total_seconds() > 86400
 
-@log_errors()
 def save_seen_listings(filename="ebay_seen.json"):
     """Save seen listings with timestamps to JSON."""
     try:
@@ -80,12 +79,9 @@ def save_seen_listings(filename="ebay_seen.json"):
         logger.debug(f"Saved seen listings to {filename}")
     except (OSError, PermissionError) as e:
         logger.error(f"File system error saving seen listings: {e}")
-        raise
     except Exception as e:
         logger.error(f"Error saving seen listings: {e}")
-        raise
 
-@log_errors()
 def load_seen_listings(filename="ebay_seen.json"):
     """Load seen listings from JSON, if available."""
     global seen_listings

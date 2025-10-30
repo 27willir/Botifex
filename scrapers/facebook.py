@@ -86,7 +86,6 @@ def is_new_listing(link):
         last_seen = seen_listings[normalized_link]
         return (datetime.now() - last_seen).total_seconds() > 86400
 
-@log_errors()
 def save_seen_listings(filename="facebook_seen.json"):
     """Save seen listings to JSON."""
     try:
@@ -96,12 +95,9 @@ def save_seen_listings(filename="facebook_seen.json"):
         logger.debug(f"Saved seen listings to {filename}")
     except (OSError, PermissionError) as e:
         logger.error(f"File system error saving seen listings: {e}")
-        raise
     except Exception as e:
         logger.error(f"Failed to save seen listings: {e}")
-        raise
 
-@log_errors()
 def load_seen_listings(filename="facebook_seen.json"):
     """Load previously seen listings from JSON."""
     global seen_listings
@@ -137,7 +133,6 @@ def validate_listing(title, link, price=None):
     
     return True, None
 
-@log_errors()
 def send_discord_message(title, link, price=None, image_url=None):
     """Save listing to database and send notification."""
     try:
@@ -152,7 +147,6 @@ def send_discord_message(title, link, price=None, image_url=None):
         logger.info(f"📢 New Facebook Listing: {title} | ${price} | {link}")
     except Exception as e:
         logger.error(f"Failed to save Facebook listing for {link}: {e}")
-        raise
 
 def load_settings():
     """Load settings from database"""
@@ -238,7 +232,6 @@ def get_facebook_url(settings):
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-@log_errors()
 def check_facebook(driver):
     try:
         settings = ErrorHandler.handle_database_error(load_settings)
@@ -357,7 +350,6 @@ def check_facebook(driver):
 # ======================
 # CONTINUOUS RUNNER
 # ======================
-@log_errors()
 def run_facebook_scraper(driver, flag_name="facebook"):
     """Run Facebook scraper with proper error handling and timeout protection."""
     # Check for recursion

@@ -217,30 +217,39 @@ def retry_on_failure(max_retries: int = 3, delay: float = 1.0,
     return decorator
 
 def log_errors(logger_instance: Optional[logging.Logger] = None):
-    """Decorator to log errors with context and recursion protection."""
+    """Decorator to log errors with context and recursion protection.
+    
+    WARNING: Do NOT use this decorator on functions that already use logger internally.
+    This is meant for simple functions that need error logging but don't log themselves.
+    """
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
+            except RecursionError as e:
+                # Handle recursion errors without logging (would make it worse)
+                import sys
+                print(f"RECURSION ERROR in {func.__name__}: {e}", file=sys.stderr, flush=True)
+                raise
             except Exception as e:
                 # Prevent infinite recursion if logging itself fails
                 if getattr(_error_handling_lock, 'in_error_handler', False):
-                    # Already handling an error, print to stderr
+                    # Already handling an error, print to stderr and don't try to log
                     import sys
-                    print(f"NESTED ERROR in {func.__name__}: {e}", file=sys.stderr)
+                    print(f"NESTED ERROR in {func.__name__}: {e}", file=sys.stderr, flush=True)
                     raise
                 
                 _error_handling_lock.in_error_handler = True
                 try:
                     log = logger_instance or logger
+                    # Only log the error message, skip debug traceback to reduce complexity
                     log.error(f"Error in {func.__name__}: {e}")
-                    log.debug(f"Error traceback: {traceback.format_exc()}")
                 except Exception as log_error:
-                    # If logging fails, print to stderr
+                    # If logging fails, print to stderr and continue
                     import sys
-                    print(f"LOGGING ERROR in {func.__name__}: {e}", file=sys.stderr)
-                    print(f"Logger exception: {log_error}", file=sys.stderr)
+                    print(f"LOGGING ERROR in {func.__name__}: {e}", file=sys.stderr, flush=True)
+                    print(f"Logger exception: {log_error}", file=sys.stderr, flush=True)
                 finally:
                     _error_handling_lock.in_error_handler = False
                 raise

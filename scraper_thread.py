@@ -14,9 +14,10 @@ _thread_locks = {}  # Thread safety locks
 _scraper_errors = {}  # Track errors per scraper
 _last_start_time = {}  # Track last start time per scraper
 
-# Scraper recovery settings
-COOLDOWN_PERIOD = 30  # seconds to wait before restarting after error
-MAX_ERRORS_PER_HOUR = 10  # Maximum errors before giving up
+# Scraper recovery settings (Circuit Breaker Pattern)
+COOLDOWN_BASE = 30  # Base cooldown period in seconds (will use exponential backoff)
+MAX_ERRORS_PER_HOUR = 10  # Maximum errors before circuit opens (disables scraper)
+ERROR_RESET_PERIOD = 3600  # Reset error count after 1 hour of no errors
 
 # NOTE: each scraper module exposes its own running_flags dict
 from scrapers.facebook import running_flags as fb_flags, run_facebook_scraper
@@ -77,7 +78,11 @@ def _get_driver_lock(site_name):
     return _thread_locks.get(site_name)
 
 def _track_scraper_error(site_name):
-    """Track scraper errors and determine if cooldown is needed."""
+    """Track scraper errors with circuit breaker pattern.
+    
+    Returns:
+        tuple: (can_continue: bool, error_count: int, cooldown_seconds: int)
+    """
     now = time.time()
     if site_name not in _scraper_errors:
         _scraper_errors[site_name] = []
@@ -86,44 +91,69 @@ def _track_scraper_error(site_name):
     _scraper_errors[site_name].append(now)
     
     # Clean up errors older than 1 hour
-    hour_ago = now - 3600
+    hour_ago = now - ERROR_RESET_PERIOD
     _scraper_errors[site_name] = [t for t in _scraper_errors[site_name] if t > hour_ago]
     
-    # Check if we've exceeded error threshold
+    # Count recent errors
     error_count = len(_scraper_errors[site_name])
-    if error_count >= MAX_ERRORS_PER_HOUR:
-        print(f"ERROR: {site_name} scraper has exceeded maximum errors ({error_count} in last hour)", file=sys.stderr)
-        return False, error_count
     
-    return True, error_count
+    # Check if circuit should be opened (too many errors)
+    if error_count >= MAX_ERRORS_PER_HOUR:
+        print(f"CIRCUIT OPEN: {site_name} scraper disabled ({error_count} errors in last hour)", 
+              file=sys.stderr, flush=True)
+        return False, error_count, 0
+    
+    # Calculate exponential backoff cooldown based on error count
+    # First error: 30s, second: 60s, third: 120s, etc.
+    cooldown = COOLDOWN_BASE * (2 ** min(error_count - 1, 5))  # Cap at 2^5 = 32x base
+    
+    return True, error_count, cooldown
 
 def _handle_scraper_exception(site_name, exception, context=""):
-    """Handle scraper exceptions with proper logging and cooldown."""
+    """Handle scraper exceptions with circuit breaker pattern and exponential backoff.
+    
+    Returns:
+        bool: True if scraper can continue (circuit closed/half-open), False if should stop (circuit open)
+    """
     try:
         if isinstance(exception, RecursionError):
-            # Special handling for recursion errors
-            print(f"RECURSION ERROR in {site_name} scraper {context}: {exception}", file=sys.stderr)
-            logger.error(f"Recursion error in {site_name} scraper {context}")
+            # Special handling for recursion errors - these are critical
+            print(f"RECURSION ERROR in {site_name} scraper {context}: {exception}", 
+                  file=sys.stderr, flush=True)
+            try:
+                logger.error(f"Recursion error in {site_name} scraper {context}")
+            except:
+                pass  # Logger might be part of the recursion problem
         else:
-            print(f"ERROR in {site_name} scraper {context}: {exception}", file=sys.stderr)
+            print(f"ERROR in {site_name} scraper {context}: {exception}", 
+                  file=sys.stderr, flush=True)
             try:
                 logger.error(f"Error in {site_name} scraper {context}: {exception}")
             except:
-                # If logging fails, already printed to stderr
+                # If logging fails, we've already printed to stderr
                 pass
-    except:
+    except Exception as e:
         # Last resort - just print to stderr
-        print(f"FATAL: Error handling exception in {site_name} scraper", file=sys.stderr)
+        print(f"FATAL: Error handling exception in {site_name} scraper: {e}", 
+              file=sys.stderr, flush=True)
     
-    # Track the error
-    can_continue, error_count = _track_scraper_error(site_name)
+    # Track the error and get cooldown period (circuit breaker logic)
+    can_continue, error_count, cooldown = _track_scraper_error(site_name)
+    
     if not can_continue:
-        print(f"FATAL: {site_name} scraper disabled due to excessive errors", file=sys.stderr)
+        # Circuit is OPEN - too many errors, disable scraper
+        print(f"CIRCUIT OPEN: {site_name} scraper stopped due to excessive errors", 
+              file=sys.stderr, flush=True)
+        try:
+            logger.critical(f"{site_name} scraper disabled after {error_count} errors in last hour")
+        except:
+            pass
         return False
     
-    # Apply cooldown
-    print(f"Applying {COOLDOWN_PERIOD}s cooldown for {site_name} scraper (error {error_count})", file=sys.stderr)
-    time.sleep(COOLDOWN_PERIOD)
+    # Circuit is CLOSED or HALF-OPEN - apply exponential backoff cooldown
+    print(f"Applying {cooldown}s cooldown for {site_name} scraper (error {error_count}/{MAX_ERRORS_PER_HOUR})", 
+          file=sys.stderr, flush=True)
+    time.sleep(cooldown)
     
     return True
 

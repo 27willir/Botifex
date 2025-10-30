@@ -2227,7 +2227,7 @@ def get_security_events(limit=100, hours=24):
             'path': row[1],
             'user_agent': row[2],
             'reason': row[3],
-            'timestamp': row[4]
+            'timestamp': datetime.fromisoformat(row[4]) if isinstance(row[4], str) else row[4]
         } for row in rows]
 
 

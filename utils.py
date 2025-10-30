@@ -7,15 +7,15 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
-# Increase recursion limit to prevent issues with nested operations
-# Default is 1000, increase to 3000 to handle complex operations
-sys.setrecursionlimit(3000)
+# Keep default recursion limit - increasing it masks the real problem
+# Default is 1000 which is appropriate for proper code
+# If we hit recursion errors, we need to fix the code, not increase the limit
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
 def setup_logger(name="superbot", level=logging.INFO):
-    """Setup logger with recursion protection"""
+    """Setup logger with recursion protection and fail-safe design"""
     logger = logging.getLogger(name)
     if logger.handlers:
         return logger
@@ -24,23 +24,30 @@ def setup_logger(name="superbot", level=logging.INFO):
     logger.propagate = False
     logger.setLevel(level)
     
-    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # Use a simpler format to reduce complexity
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", 
+                           datefmt="%Y-%m-%d %H:%M:%S")
     
-    # Add stream handler with error handling
+    # Add stream handler with error handling - fail silently
     try:
         sh = logging.StreamHandler(sys.stdout)
         sh.setFormatter(fmt)
+        sh.setLevel(level)
         logger.addHandler(sh)
     except Exception as e:
-        print(f"Warning: Could not setup stream handler: {e}", file=sys.stderr)
+        # Don't use logger here - would cause recursion
+        print(f"Warning: Could not setup stream handler: {e}", file=sys.stderr, flush=True)
     
-    # Add file handler with error handling
+    # Add file handler with error handling - fail silently
     try:
-        fh = logging.FileHandler(LOG_DIR / f"{name}.log")
+        log_file = LOG_DIR / f"{name}.log"
+        fh = logging.FileHandler(log_file, mode='a', encoding='utf-8')
         fh.setFormatter(fmt)
+        fh.setLevel(level)
         logger.addHandler(fh)
     except Exception as e:
-        print(f"Warning: Could not setup file handler: {e}", file=sys.stderr)
+        # Don't use logger here - would cause recursion
+        print(f"Warning: Could not setup file handler: {e}", file=sys.stderr, flush=True)
     
     return logger
 
