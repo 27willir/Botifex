@@ -13,8 +13,8 @@ worker_class = os.getenv('GUNICORN_WORKER_CLASS', 'gevent')  # gevent, sync, or 
 worker_connections = 500  # Reduced for better memory management
 
 # Timeout settings - optimized for production stability
-timeout = 30  # Reduced timeout to prevent worker hangs
-graceful_timeout = 15  # Faster worker shutdown
+timeout = 60  # Increased to handle slow database operations during high load
+graceful_timeout = 30  # Allow more time for graceful shutdown
 keepalive = 5  # Reduced for faster connection recycling
 
 # Worker lifecycle - restart workers periodically to prevent memory leaks

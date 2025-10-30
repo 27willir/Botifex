@@ -1,6 +1,7 @@
 # db_enhanced.py - Enhanced database module for handling 1000+ users
 import sqlite3
 import threading
+import time
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from queue import Queue, Empty
@@ -12,6 +13,86 @@ DB_FILE = "superbot.db"
 # Connection pool configuration - optimized for production
 POOL_SIZE = 5  # Reduced pool size for better memory management
 CONNECTION_TIMEOUT = 10  # Reduced timeout for faster failure detection
+
+# Async activity logging queue to prevent blocking on login
+_activity_log_queue = Queue(maxsize=2000)
+_activity_logger_thread = None
+_activity_logger_running = False
+
+def _activity_logger_worker():
+    """Background thread that processes activity log events from queue"""
+    global _activity_logger_running
+    logger.info("Activity logger worker started")
+    
+    while _activity_logger_running:
+        try:
+            # Wait for events with timeout to allow clean shutdown
+            event_data = _activity_log_queue.get(timeout=1)
+            
+            # Try to log to database with limited retries
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    if event_data['type'] == 'login':
+                        # Update login tracking and log activity
+                        _update_user_login_and_log_activity_sync(
+                            event_data['username'],
+                            event_data.get('ip_address'),
+                            event_data.get('user_agent')
+                        )
+                    elif event_data['type'] == 'activity':
+                        # Log general activity
+                        _log_user_activity_sync(
+                            event_data['username'],
+                            event_data['action'],
+                            event_data.get('details'),
+                            event_data.get('ip_address'),
+                            event_data.get('user_agent')
+                        )
+                    break  # Success
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        time.sleep(0.1 * (2 ** attempt))  # Exponential backoff
+                    else:
+                        # Failed all retries, log to file
+                        logger.warning(
+                            f"Failed to log activity after {max_retries} attempts: "
+                            f"Type={event_data['type']}, Username={event_data.get('username')}"
+                        )
+            
+            _activity_log_queue.task_done()
+            
+        except Empty:
+            # Queue timeout, continue loop
+            continue
+        except Exception as e:
+            logger.error(f"Activity logger worker error: {e}")
+    
+    logger.info("Activity logger worker stopped")
+
+def start_activity_logger():
+    """Start the background activity logger thread"""
+    global _activity_logger_thread, _activity_logger_running
+    
+    if _activity_logger_running:
+        return  # Already running
+    
+    _activity_logger_running = True
+    _activity_logger_thread = threading.Thread(target=_activity_logger_worker, daemon=True)
+    _activity_logger_thread.start()
+    logger.info("Activity logger background thread started")
+
+def stop_activity_logger():
+    """Stop the background activity logger thread"""
+    global _activity_logger_running
+    
+    if not _activity_logger_running:
+        return
+    
+    _activity_logger_running = False
+    if _activity_logger_thread:
+        _activity_logger_thread.join(timeout=5)
+    logger.info("Activity logger background thread stopped")
 
 
 class DatabaseConnectionPool:
@@ -717,8 +798,8 @@ def update_user_login(username):
 
 
 @log_errors()
-def update_user_login_and_log_activity(username, ip_address=None, user_agent=None):
-    """Update user login and log activity in a single transaction for better performance"""
+def _update_user_login_and_log_activity_sync(username, ip_address=None, user_agent=None):
+    """Synchronous version - used by background worker only"""
     with get_pool().get_connection() as conn:
         c = conn.cursor()
         try:
@@ -739,6 +820,27 @@ def update_user_login_and_log_activity(username, ip_address=None, user_agent=Non
         except Exception as e:
             conn.rollback()
             raise e
+
+@log_errors()
+def update_user_login_and_log_activity(username, ip_address=None, user_agent=None):
+    """Async version - queues the operation for background processing"""
+    try:
+        event_data = {
+            'type': 'login',
+            'username': username,
+            'ip_address': ip_address,
+            'user_agent': user_agent
+        }
+        
+        # Try to add to queue without blocking
+        try:
+            _activity_log_queue.put_nowait(event_data)
+        except Exception:
+            # Queue is full, log to file instead
+            logger.warning(f"Activity log queue full. Login: {username}")
+    except Exception as e:
+        # Don't let logging errors block the login
+        logger.error(f"Error queuing login activity: {e}")
 
 
 @log_errors()
@@ -978,8 +1080,8 @@ def get_recent_failed_logins(username, ip_address, hours=1):
         return c.fetchall()
 
 @log_errors()
-def log_user_activity(username, action, details=None, ip_address=None, user_agent=None):
-    """Log user activity for monitoring and security"""
+def _log_user_activity_sync(username, action, details=None, ip_address=None, user_agent=None):
+    """Synchronous version - used by background worker only"""
     with get_pool().get_connection() as conn:
         c = conn.cursor()
         # Check if user exists before logging activity
@@ -1007,6 +1109,28 @@ def log_user_activity(username, action, details=None, ip_address=None, user_agen
             return
         
         conn.commit()
+
+def log_user_activity(username, action, details=None, ip_address=None, user_agent=None):
+    """Async version - queues the operation for background processing"""
+    try:
+        event_data = {
+            'type': 'activity',
+            'username': username,
+            'action': action,
+            'details': details,
+            'ip_address': ip_address,
+            'user_agent': user_agent
+        }
+        
+        # Try to add to queue without blocking
+        try:
+            _activity_log_queue.put_nowait(event_data)
+        except Exception:
+            # Queue is full, log to file instead
+            logger.warning(f"Activity log queue full. Activity: {username} - {action}")
+    except Exception as e:
+        # Don't let logging errors block the request
+        logger.error(f"Error queuing user activity: {e}")
 
 
 @log_errors()
@@ -2783,3 +2907,10 @@ def close_database():
     if _connection_pool:
         _connection_pool.close_all()
         _connection_pool = None
+    
+    # Stop the activity logger
+    stop_activity_logger()
+
+
+# Start the activity logger when module is imported
+start_activity_logger()

@@ -7,11 +7,82 @@ import threading
 from datetime import datetime, timedelta
 from flask import request, jsonify, abort
 from collections import defaultdict, deque
+from queue import Queue
 from utils import logger, get_client_ip
 import db_enhanced
 
 # Track request start time
 _REQUEST_START_TIME = {}
+
+# Async logging queue to prevent blocking
+_security_log_queue = Queue(maxsize=1000)
+_security_logger_thread = None
+_security_logger_running = False
+
+def _security_logger_worker():
+    """Background thread that processes security log events from queue"""
+    global _security_logger_running
+    logger.info("Security logger worker started")
+    
+    while _security_logger_running:
+        try:
+            # Wait for events with timeout to allow clean shutdown
+            event_data = _security_log_queue.get(timeout=1)
+            
+            # Try to log to database with limited retries
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    db_enhanced.log_security_event(
+                        ip=event_data['ip'],
+                        path=event_data['path'],
+                        user_agent=event_data['user_agent'],
+                        reason=event_data['reason'],
+                        timestamp=event_data['timestamp']
+                    )
+                    break  # Success
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        time.sleep(0.1 * (2 ** attempt))  # Exponential backoff
+                    else:
+                        # Failed all retries, log to file
+                        logger.warning(
+                            f"Failed to log security event after {max_retries} attempts: "
+                            f"IP={event_data['ip']}, Path={event_data['path']}, Reason={event_data['reason']}"
+                        )
+            
+            _security_log_queue.task_done()
+            
+        except Exception as e:
+            # Queue timeout or other error, continue loop
+            if str(e) != "":  # Only log non-timeout errors
+                pass
+    
+    logger.info("Security logger worker stopped")
+
+def start_security_logger():
+    """Start the background security logger thread"""
+    global _security_logger_thread, _security_logger_running
+    
+    if _security_logger_running:
+        return  # Already running
+    
+    _security_logger_running = True
+    _security_logger_thread = threading.Thread(target=_security_logger_worker, daemon=True)
+    _security_logger_thread.start()
+    logger.info("Security logger background thread started")
+
+def stop_security_logger():
+    """Stop the background security logger thread"""
+    global _security_logger_running
+    
+    if not _security_logger_running:
+        return
+    
+    _security_logger_running = False
+    if _security_logger_thread:
+        _security_logger_thread.join(timeout=5)
+    logger.info("Security logger background thread stopped")
 
 # Quick pattern matching for known malicious requests - compiled for performance
 MALICIOUS_PATTERNS = [
@@ -406,42 +477,26 @@ class SecurityMiddleware:
         return False, None
     
     def log_security_event(self, ip, path, user_agent, reason):
-        """Log security events to database with enhanced retry logic"""
-        max_retries = 5
-        for attempt in range(max_retries):
+        """Log security events to database asynchronously to prevent blocking"""
+        try:
+            # Add to queue for async processing (non-blocking)
+            event_data = {
+                'ip': ip,
+                'path': path,
+                'user_agent': user_agent,
+                'reason': reason,
+                'timestamp': datetime.now()
+            }
+            
+            # Try to add to queue without blocking
             try:
-                # Use the retry mechanism from db_enhanced
-                def log_operation():
-                    return db_enhanced.log_security_event(
-                        ip=ip,
-                        path=path,
-                        user_agent=user_agent,
-                        reason=reason,
-                        timestamp=datetime.now()
-                    )
-                
-                # Use the database retry mechanism
-                result = db_enhanced.retry_db_operation(log_operation, max_retries=3, base_delay=0.1)
-                if result:
-                    return  # Success
-                else:
-                    raise Exception("Database operation failed after retries")
-                    
-            except Exception as e:
-                error_msg = str(e).lower()
-                if ("database is locked" in error_msg or "database table is locked" in error_msg) and attempt < max_retries - 1:
-                    # Enhanced exponential backoff with jitter
-                    import time
-                    import random
-                    delay = 0.1 * (2 ** attempt) + random.uniform(0, 0.1)
-                    logger.warning(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(delay)
-                    continue
-                else:
-                    logger.error(f"Failed to log security event after {attempt + 1} attempts: {e}")
-                    # Log to file as fallback
-                    logger.warning(f"Security event (fallback): IP={ip}, Path={path}, Reason={reason}")
-                    break
+                _security_log_queue.put_nowait(event_data)
+            except Exception:
+                # Queue is full, log to file instead
+                logger.warning(f"Security log queue full. Event: IP={ip}, Path={path}, Reason={reason}")
+        except Exception as e:
+            # Don't let logging errors block the request
+            logger.error(f"Error queuing security event: {e}")
     
     def cleanup_old_data(self):
         """Clean up old tracking data"""
@@ -480,6 +535,9 @@ class SecurityMiddleware:
 
 # Global security middleware instance
 security_middleware = SecurityMiddleware()
+
+# Start the async security logger
+start_security_logger()
 
 def security_before_request():
     """Flask before_request handler for security"""
