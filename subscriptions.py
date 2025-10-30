@@ -7,29 +7,24 @@ import os
 import stripe
 import logging
 import sys
-import threading
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Thread-local storage to prevent re-entrant calls during Stripe operations
-_stripe_operation_lock = threading.local()
-
-# Initialize Stripe with specific configuration to avoid recursion
+# Initialize Stripe configuration
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
 
-# Configure Stripe to use minimal retries and logging to prevent recursion issues
-stripe.max_network_retries = 1  # Reduce retries to prevent timeout/recursion
+# Configure Stripe for optimal performance
+stripe.max_network_retries = 2  # Reasonable retry count
 stripe.enable_telemetry = False  # Disable telemetry to reduce HTTP calls
 
-# Create a dedicated logger for subscriptions to avoid circular imports
-# Set propagate to False to prevent triggering parent logger handlers
+# Create a dedicated logger for subscriptions
 logger = logging.getLogger('superbot.subscriptions')
-logger.propagate = False  # CRITICAL: Don't propagate to parent logger to avoid recursion
+logger.propagate = False  # Don't propagate to parent logger
 
-# Add a simple handler that writes directly to stderr to avoid Flask logging system
+# Add a simple handler that writes directly to stderr
 if not logger.handlers:
     stderr_handler = logging.StreamHandler(sys.stderr)
     stderr_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s subscriptions: %(message)s'))
@@ -229,62 +224,36 @@ class StripeManager:
     
     @staticmethod
     def create_checkout_session(tier_name, user_email, username, success_url, cancel_url):
-        """Create a Stripe checkout session for subscription"""
+        """Create a Stripe checkout session for subscription
+        
+        Uses a real OS thread to bypass gevent's monkey-patching which causes
+        RecursionError in urllib3/SSL when making HTTPS requests.
+        """
         import sys
+        from concurrent.futures import ThreadPoolExecutor
+        import time
         
-        # CRITICAL: Check for re-entrancy to prevent recursion
-        if getattr(_stripe_operation_lock, 'in_stripe_call', False):
-            print("ERROR: Re-entrant Stripe call detected - blocking to prevent recursion", file=sys.stderr)
-            return None, "System busy - please try again"
+        # Validate Stripe configuration first
+        if not stripe.api_key:
+            print("ERROR: Stripe API key not configured", file=sys.stderr)
+            return None, "Payment system not configured"
         
-        # Set re-entrancy flag
-        _stripe_operation_lock.in_stripe_call = True
+        tier = SUBSCRIPTION_TIERS.get(tier_name)
+        if not tier or not tier['price_id']:
+            print(f"ERROR: Invalid tier or missing price_id for tier: {tier_name}", file=sys.stderr)
+            return None, "Invalid subscription tier"
         
-        # Store original logging state to restore later
-        original_logging_disabled = logging.root.manager.disable
-        stripe_logger = logging.getLogger('stripe')
-        urllib3_logger = logging.getLogger('urllib3')
-        original_stripe_level = stripe_logger.level
-        original_stripe_handlers = stripe_logger.handlers.copy()
-        original_stripe_propagate = stripe_logger.propagate
+        print(f"INFO: Starting Stripe checkout for {username} - {tier_name}", file=sys.stderr)
         
-        # Also silence urllib3 which Stripe uses
-        original_urllib3_level = urllib3_logger.level
-        original_urllib3_propagate = urllib3_logger.propagate
+        # Result container for thread communication
+        result_container = {'session': None, 'error': None, 'exception': None}
         
-        try:
-            # Validate Stripe configuration first
-            if not stripe.api_key:
-                print("ERROR: Stripe API key not configured", file=sys.stderr)
-                return None, "Payment system not configured"
-            
-            tier = SUBSCRIPTION_TIERS.get(tier_name)
-            if not tier or not tier['price_id']:
-                print(f"ERROR: Invalid tier or missing price_id for tier: {tier_name}", file=sys.stderr)
-                return None, "Invalid subscription tier"
-            
-            print(f"INFO: Starting Stripe checkout for {username} - {tier_name}", file=sys.stderr)
-            
-            # CRITICAL: Completely disable logging during Stripe API call to prevent recursion
-            # Disable ALL Python logging temporarily
-            logging.disable(logging.CRITICAL)
-            
-            # Also explicitly configure Stripe and urllib3 loggers to be silent
-            stripe_logger.setLevel(logging.CRITICAL)
-            stripe_logger.handlers = []
-            stripe_logger.propagate = False
-            
-            urllib3_logger.setLevel(logging.CRITICAL)
-            urllib3_logger.propagate = False
-            
-            # Set recursion limit higher temporarily to allow Stripe's internal operations
-            import sys as sys_module
-            old_recursion_limit = sys_module.getrecursionlimit()
-            sys_module.setrecursionlimit(3000)  # Increase from default 1000
-            
+        def _make_stripe_call():
+            """Execute Stripe API call in a real OS thread to bypass gevent"""
             try:
-                # Create session - Flask 3.x handles context isolation properly
-                print("INFO: Making Stripe API call...", file=sys.stderr)
+                print("INFO: Making Stripe API call in OS thread...", file=sys.stderr)
+                
+                # Create the checkout session
                 session = stripe.checkout.Session.create(
                     customer_email=user_email,
                     line_items=[{
@@ -305,131 +274,168 @@ class StripeManager:
                         }
                     }
                 )
+                
+                result_container['session'] = session
                 print("INFO: Stripe API call successful", file=sys.stderr)
                 
-            finally:
-                # Restore recursion limit
-                sys_module.setrecursionlimit(old_recursion_limit)
+            except stripe.error.StripeError as e:
+                result_container['error'] = str(e)
+                print(f"STRIPE ERROR in thread: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+            except Exception as e:
+                result_container['exception'] = str(e)
+                print(f"EXCEPTION in Stripe thread: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+        
+        try:
+            # Use ThreadPoolExecutor to run Stripe call in a real OS thread
+            # This bypasses gevent's greenlet monkey-patching
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix='stripe-api') as executor:
+                future = executor.submit(_make_stripe_call)
+                # Wait up to 10 seconds for the Stripe API call
+                future.result(timeout=10)
+            
+            # Check results
+            if result_container['session']:
+                session = result_container['session']
+                print(f"SUCCESS: Created checkout session for {username} - {tier_name}: {session.id}", file=sys.stderr)
+                return session, None
+            elif result_container['error']:
+                return None, result_container['error']
+            elif result_container['exception']:
+                return None, result_container['exception']
+            else:
+                return None, "Unknown error occurred"
                 
-                # Re-enable logging
-                logging.disable(original_logging_disabled)
-                stripe_logger.setLevel(original_stripe_level)
-                stripe_logger.handlers = original_stripe_handlers
-                stripe_logger.propagate = original_stripe_propagate
-                urllib3_logger.setLevel(original_urllib3_level)
-                urllib3_logger.propagate = original_urllib3_propagate
-            
-            print(f"SUCCESS: Created checkout session for {username} - {tier_name}: {session.id}", file=sys.stderr)
-            return session, None
-            
-        except stripe.error.StripeError as e:
-            # Use stderr to avoid Flask logging system completely
-            print(f"STRIPE ERROR creating checkout session: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
-            return None, str(e)
-        except RecursionError as e:
-            # Handle recursion error specifically - use stderr
-            print(f"RECURSION ERROR in Stripe checkout: {str(e)[:200]}", file=sys.stderr)
-            print(f"  Recursion occurred at depth near limit", file=sys.stderr)
-            import traceback
-            traceback.print_exc(file=sys.stderr, limit=10)  # Limit traceback to prevent more recursion
-            return None, "System error - please try again"
+        except TimeoutError:
+            print("ERROR: Stripe API call timed out after 10 seconds", file=sys.stderr)
+            return None, "Request timed out - please try again"
         except Exception as e:
-            # Use stderr to avoid Flask logging system completely
-            print(f"EXCEPTION creating checkout session: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
+            print(f"ERROR: Exception in Stripe thread executor: {type(e).__name__}: {str(e)}", file=sys.stderr)
             return None, str(e)
-        finally:
-            # Ensure logging is always restored even if there's an error
-            try:
-                logging.disable(original_logging_disabled)
-                stripe_logger.setLevel(original_stripe_level)
-                stripe_logger.handlers = original_stripe_handlers
-                stripe_logger.propagate = original_stripe_propagate
-                urllib3_logger.setLevel(original_urllib3_level)
-                urllib3_logger.propagate = original_urllib3_propagate
-            except:
-                pass  # If restoration fails, don't throw another error
-            finally:
-                # Always clear re-entrancy flag
-                _stripe_operation_lock.in_stripe_call = False
     
     @staticmethod
     def create_customer_portal_session(customer_id, return_url):
-        """Create a Stripe customer portal session for managing subscription"""
-        import sys
+        """Create a Stripe customer portal session for managing subscription
         
-        try:
-            # Apply similar protection as checkout to prevent recursion
-            # (lighter version since this is less frequently called)
-            original_logging_disabled = logging.root.manager.disable
-            logging.disable(logging.CRITICAL)
-            
+        Uses a real OS thread to bypass gevent's monkey-patching.
+        """
+        import sys
+        from concurrent.futures import ThreadPoolExecutor
+        
+        print(f"INFO: Creating portal session for customer: {customer_id}", file=sys.stderr)
+        result_container = {'session': None, 'error': None}
+        
+        def _make_stripe_call():
             try:
                 session = stripe.billing_portal.Session.create(
                     customer=customer_id,
                     return_url=return_url
                 )
-            finally:
-                logging.disable(original_logging_disabled)
+                result_container['session'] = session
+            except stripe.error.StripeError as e:
+                result_container['error'] = str(e)
+                print(f"STRIPE ERROR creating portal session: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+            except Exception as e:
+                result_container['error'] = str(e)
+                print(f"EXCEPTION creating portal session: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+        
+        try:
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix='stripe-api') as executor:
+                future = executor.submit(_make_stripe_call)
+                future.result(timeout=10)
             
-            print(f"SUCCESS: Created portal session for customer: {customer_id}", file=sys.stderr)
-            return session, None
-            
-        except stripe.error.StripeError as e:
-            print(f"STRIPE ERROR creating portal session: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
-            return None, str(e)
+            if result_container['session']:
+                print(f"SUCCESS: Created portal session for customer: {customer_id}", file=sys.stderr)
+                return result_container['session'], None
+            else:
+                return None, result_container.get('error', 'Unknown error')
+                
+        except TimeoutError:
+            print("ERROR: Stripe portal session timed out", file=sys.stderr)
+            return None, "Request timed out"
         except Exception as e:
-            print(f"EXCEPTION creating portal session: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+            print(f"ERROR: Exception in portal thread: {type(e).__name__}: {str(e)}", file=sys.stderr)
             return None, str(e)
     
     @staticmethod
     def cancel_subscription(subscription_id):
-        """Cancel a Stripe subscription"""
+        """Cancel a Stripe subscription
+        
+        Uses a real OS thread to bypass gevent's monkey-patching.
+        """
         import sys
+        from concurrent.futures import ThreadPoolExecutor
+        
+        print(f"INFO: Cancelling subscription: {subscription_id}", file=sys.stderr)
+        result_container = {'success': False, 'error': None}
+        
+        def _make_stripe_call():
+            try:
+                stripe.Subscription.delete(subscription_id)
+                result_container['success'] = True
+            except stripe.error.StripeError as e:
+                result_container['error'] = str(e)
+                print(f"STRIPE ERROR cancelling subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+            except Exception as e:
+                result_container['error'] = str(e)
+                print(f"EXCEPTION cancelling subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
         
         try:
-            # Apply logging protection to prevent recursion
-            original_logging_disabled = logging.root.manager.disable
-            logging.disable(logging.CRITICAL)
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix='stripe-api') as executor:
+                future = executor.submit(_make_stripe_call)
+                future.result(timeout=10)
             
-            try:
-                subscription = stripe.Subscription.delete(subscription_id)
-            finally:
-                logging.disable(original_logging_disabled)
-            
-            print(f"SUCCESS: Cancelled subscription: {subscription_id}", file=sys.stderr)
-            return True, None
-            
-        except stripe.error.StripeError as e:
-            print(f"STRIPE ERROR cancelling subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
-            return False, str(e)
+            if result_container['success']:
+                print(f"SUCCESS: Cancelled subscription: {subscription_id}", file=sys.stderr)
+                return True, None
+            else:
+                return False, result_container.get('error', 'Unknown error')
+                
+        except TimeoutError:
+            print("ERROR: Stripe cancel timed out", file=sys.stderr)
+            return False, "Request timed out"
         except Exception as e:
-            print(f"EXCEPTION cancelling subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+            print(f"ERROR: Exception in cancel thread: {type(e).__name__}: {str(e)}", file=sys.stderr)
             return False, str(e)
     
     @staticmethod
     def get_subscription(subscription_id):
-        """Get subscription details from Stripe"""
-        import sys
+        """Get subscription details from Stripe
         
-        try:
-            # Apply logging protection to prevent recursion
-            original_logging_disabled = logging.root.manager.disable
-            logging.disable(logging.CRITICAL)
-            
+        Uses a real OS thread to bypass gevent's monkey-patching.
+        """
+        import sys
+        from concurrent.futures import ThreadPoolExecutor
+        
+        result_container = {'subscription': None, 'error': None}
+        
+        def _make_stripe_call():
             try:
                 subscription = stripe.Subscription.retrieve(subscription_id)
-            finally:
-                logging.disable(original_logging_disabled)
+                result_container['subscription'] = subscription
+            except stripe.error.StripeError as e:
+                result_container['error'] = str(e)
+                print(f"STRIPE ERROR retrieving subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+            except Exception as e:
+                result_container['error'] = str(e)
+                print(f"EXCEPTION retrieving subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+        
+        try:
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix='stripe-api') as executor:
+                future = executor.submit(_make_stripe_call)
+                future.result(timeout=10)
             
-            return subscription, None
-            
-        except stripe.error.StripeError as e:
-            print(f"STRIPE ERROR retrieving subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
-            return None, str(e)
+            if result_container['subscription']:
+                return result_container['subscription'], None
+            else:
+                return None, result_container.get('error', 'Unknown error')
+                
+        except TimeoutError:
+            print("ERROR: Stripe retrieve timed out", file=sys.stderr)
+            return None, "Request timed out"
         except Exception as e:
-            print(f"EXCEPTION retrieving subscription: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+            print(f"ERROR: Exception in retrieve thread: {type(e).__name__}: {str(e)}", file=sys.stderr)
             return None, str(e)
     
     @staticmethod
