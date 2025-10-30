@@ -23,7 +23,7 @@ from utils import logger
 from rate_limiter import rate_limit, add_rate_limit_headers
 from cache_manager import cache_get, cache_set, cache_clear, cache_user_data, get_cache
 from admin_panel import admin_bp
-from security_middleware import security_before_request, add_security_headers, get_security_stats
+from security_middleware import security_before_request, security_after_request, get_security_stats
 from honeypot_routes import create_honeypot_routes, get_honeypot_stats
 # Import subscription modules
 from subscriptions import SubscriptionManager, StripeManager, get_all_tiers, format_price
@@ -101,7 +101,7 @@ def before_request():
 @app.after_request
 def after_request(response):
     response = add_rate_limit_headers(response)
-    return add_security_headers(response)
+    return security_after_request(response)
 
 # Add subscription context to all templates
 @app.context_processor

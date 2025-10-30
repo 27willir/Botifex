@@ -131,8 +131,14 @@ class SecurityMiddleware:
         self.rapid_fire_threshold = 15  # Reduced from 20 - be more sensitive to DDoS
         
         # Track failed requests for fail2ban-like behavior
-        self.failed_requests = defaultdict(int)
-        self.failed_request_threshold = 10  # Block after 10 failed requests
+        self.failed_requests = defaultdict(lambda: deque())  # Changed to deque to track timestamps
+        self.failed_request_threshold = 20  # Block after 20 failed requests in window (more forgiving)
+        self.failed_request_window = 300  # 5 minute window for tracking failed requests
+        
+        # Track 404s separately for faster blocking of scanners
+        self.not_found_requests = defaultdict(lambda: deque())
+        self.not_found_threshold = 20  # Block after 20 404s in window (scanners hit way more)
+        self.not_found_window = 60  # 1 minute window - scanners hit this fast
         
         # Admin rate limiting thresholds (higher but still present for security)
         self.admin_max_requests_per_minute = 300  # 5x normal user limit
@@ -164,9 +170,25 @@ class SecurityMiddleware:
             'blexbot', 'screaming frog', 'sitebulb', 'nerdybot'
         ]
         
-        # Don't block legitimate bots or tools that might be used legitimately
+        user_agent_lower = user_agent.lower()
+        
+        # Detect fake/outdated Chrome versions (common in bot attacks)
+        # Chrome 94 is from 2021 - suspicious if still in use in 2025
+        fake_browser_patterns = [
+            r'chrome/9[0-4]\.',  # Chrome 90-94 (very outdated)
+            r'chrome/8[0-9]\.',  # Chrome 80-89 (ancient)
+            r'chrome/7[0-9]\.',  # Chrome 70-79 (ancient)
+        ]
+        
+        for pattern in fake_browser_patterns:
+            if re.search(pattern, user_agent_lower):
+                # Check if this is likely a bot by looking at the full pattern
+                # Real browsers from 2025 should be Chrome 120+
+                logger.warning(f"Detected suspicious outdated browser version: {user_agent}")
+                return True
+        
+        # Don't block legitimate modern browsers or tools that might be used legitimately
         allowed_patterns = [
-            'mozilla', 'chrome', 'safari', 'firefox', 'edge',
             'googlebot', 'bingbot', 'slurp', 'duckduckbot',
             'baiduspider', 'yandexbot', 'facebookexternalhit',
             'go-http-client',  # Some legitimate Go clients
@@ -175,14 +197,34 @@ class SecurityMiddleware:
             'botifex'  # Your own bot
         ]
         
-        user_agent_lower = user_agent.lower()
-        
-        # Check if it's a legitimate browser/bot
+        # Check if it's a legitimate bot/tool
         if any(pattern in user_agent_lower for pattern in allowed_patterns):
             return False
         
         # Only block if it's clearly malicious
         return any(agent in user_agent_lower for agent in malicious_agents)
+    
+    def is_suspicious_ip_range(self, ip):
+        """Check if IP is from a known suspicious range"""
+        if not ip:
+            return False
+        
+        # Known hosting/VPS ranges commonly used by bots
+        # These are not home/business IPs
+        suspicious_ranges = [
+            '45.90.',      # DataCamp Limited - often used for scanning
+            '89.104.',     # M247 Europe - frequently used for bots
+            '176.53.',     # M247 Europe - frequently used for bots  
+            '154.220.',    # Prager IT - known for bot traffic
+            '156.248.',    # Unknown - scanner activity
+            '198.64.198.', # Specific scanner IP range
+        ]
+        
+        for range_prefix in suspicious_ranges:
+            if ip.startswith(range_prefix):
+                return True
+        
+        return False
     
     def track_ip_activity(self, ip, is_admin=False):
         """Track IP activity for rate limiting with multiple thresholds"""
@@ -249,14 +291,37 @@ class SecurityMiddleware:
         """Check if IP is currently blocked"""
         return ip in self.blocked_ips
     
-    def record_failed_request(self, ip):
+    def record_failed_request(self, ip, status_code=None):
         """Record a failed request (404, 403, etc.) for fail2ban-like behavior"""
-        self.failed_requests[ip] += 1
+        now = time.time()
         
-        # Block IP if too many failed requests
-        if self.failed_requests[ip] >= self.failed_request_threshold:
+        # Track general failed requests
+        self.failed_requests[ip].append(now)
+        
+        # Track 404s separately for faster blocking
+        if status_code == 404:
+            self.not_found_requests[ip].append(now)
+            
+            # Clean old 404 entries
+            cutoff = now - self.not_found_window
+            while self.not_found_requests[ip] and self.not_found_requests[ip][0] < cutoff:
+                self.not_found_requests[ip].popleft()
+            
+            # Check 404 threshold (faster blocking for scanners)
+            if len(self.not_found_requests[ip]) >= self.not_found_threshold:
+                self.blocked_ips.add(ip)
+                logger.warning(f"IP {ip} blocked after {len(self.not_found_requests[ip])} 404s in {self.not_found_window}s")
+                return True
+        
+        # Clean old failed request entries
+        cutoff = now - self.failed_request_window
+        while self.failed_requests[ip] and self.failed_requests[ip][0] < cutoff:
+            self.failed_requests[ip].popleft()
+        
+        # Block IP if too many failed requests overall
+        if len(self.failed_requests[ip]) >= self.failed_request_threshold:
             self.blocked_ips.add(ip)
-            logger.warning(f"IP {ip} blocked after {self.failed_requests[ip]} failed requests")
+            logger.warning(f"IP {ip} blocked after {len(self.failed_requests[ip])} failed requests in {self.failed_request_window}s")
             return True
         
         return False
@@ -290,6 +355,15 @@ class SecurityMiddleware:
             if is_admin:
                 logger.critical(f"Admin account on blocked IP {ip} attempted access to {path}")
             return True, "IP blocked for suspicious activity"
+        
+        # Check if IP is from a suspicious range (known bot networks)
+        if self.is_suspicious_ip_range(ip):
+            # Don't block immediately, but track more aggressively
+            self.suspicious_ips[ip] += 1
+            if self.suspicious_ips[ip] >= 5:  # Allow 5 requests from suspicious ranges
+                self.blocked_ips.add(ip)
+                logger.warning(f"IP {ip} from suspicious range blocked after {self.suspicious_ips[ip]} requests")
+                return True, "IP from suspicious network range"
         
         # Check for suspicious file access patterns
         if self.is_suspicious_request(path):
@@ -382,10 +456,27 @@ class SecurityMiddleware:
             if not self.ip_requests[ip]:
                 del self.ip_requests[ip]
         
-        # Remove old blocked IPs
+        # Clean up failed requests tracking
+        failed_cutoff = now - self.failed_request_window
+        for ip in list(self.failed_requests.keys()):
+            while self.failed_requests[ip] and self.failed_requests[ip][0] < failed_cutoff:
+                self.failed_requests[ip].popleft()
+            
+            if not self.failed_requests[ip]:
+                del self.failed_requests[ip]
+        
+        # Clean up 404 tracking
+        not_found_cutoff = now - self.not_found_window
+        for ip in list(self.not_found_requests.keys()):
+            while self.not_found_requests[ip] and self.not_found_requests[ip][0] < not_found_cutoff:
+                self.not_found_requests[ip].popleft()
+            
+            if not self.not_found_requests[ip]:
+                del self.not_found_requests[ip]
+        
+        # Remove old blocked IPs (let them try again after block duration)
         self.blocked_ips.clear()
         self.suspicious_ips.clear()
-        self.failed_requests.clear() # Clear failed requests on cleanup
 
 # Global security middleware instance
 security_middleware = SecurityMiddleware()
@@ -494,6 +585,43 @@ def security_before_request():
             'code': 403
         }), 403
 
+def security_after_request(response):
+    """Flask after_request handler for security - tracks failed requests"""
+    # Track failed requests (404s and other errors) to block scanning bots
+    if response.status_code in [403, 404, 500]:
+        try:
+            ip = get_client_ip(request) or request.remote_addr
+            
+            # Check if this is an admin user - don't penalize admins for 404s
+            is_admin = False
+            try:
+                from flask_login import current_user
+                if current_user and current_user.is_authenticated:
+                    if hasattr(current_user, 'role') and current_user.role == 'admin':
+                        is_admin = True
+            except Exception:
+                pass
+            
+            # Only track failed requests for non-admin users or for admin on non-admin paths
+            if not is_admin or (is_admin and not request.path.startswith('/admin')):
+                # Record the failed request
+                was_blocked = security_middleware.record_failed_request(ip, status_code=response.status_code)
+                
+                if was_blocked:
+                    # Log the block event
+                    security_middleware.log_security_event(
+                        ip=ip,
+                        path=request.path,
+                        user_agent=request.headers.get('User-Agent', ''),
+                        reason=f"Too many {response.status_code} responses - automated blocking"
+                    )
+        except Exception as e:
+            # Don't let tracking errors break the response
+            logger.error(f"Error tracking failed request: {e}")
+    
+    # Add security headers
+    return add_security_headers(response)
+
 def add_security_headers(response):
     """Add comprehensive security headers"""
     # Prevent MIME type sniffing
@@ -543,8 +671,15 @@ def get_security_stats():
         'blocked_ips': len(security_middleware.blocked_ips),
         'suspicious_ips': len(security_middleware.suspicious_ips),
         'tracked_ips': len(security_middleware.ip_requests),
+        'failed_request_ips': len(security_middleware.failed_requests),
+        'not_found_tracked_ips': len(security_middleware.not_found_requests),
         'admin_active_ips': len(security_middleware.admin_activity),
         'blocked_ips_list': list(security_middleware.blocked_ips),
         'suspicious_ips_list': dict(security_middleware.suspicious_ips),
-        'admin_activity_ips': list(security_middleware.admin_activity.keys())
+        'admin_activity_ips': list(security_middleware.admin_activity.keys()),
+        'top_404_ips': sorted(
+            [(ip, len(requests)) for ip, requests in security_middleware.not_found_requests.items()],
+            key=lambda x: x[1],
+            reverse=True
+        )[:10]  # Top 10 IPs by 404 count
     }
