@@ -7,32 +7,48 @@ Your Stripe checkout was failing with:
 STRIPE ERROR: APIConnectionError: Network error: A RecursionError
 ```
 
-**Root Cause**: Your app runs on Gunicorn with **gevent workers**, which monkey-patches Python's networking stack. When Stripe's `urllib3` library tried to make HTTPS requests, gevent's monkey-patched SSL code caused infinite recursion.
+**Root Cause**: Your app runs on Gunicorn with **gevent workers**, which monkey-patches Python's networking stack INCLUDING the `threading` module. When Stripe's `urllib3` library tried to make HTTPS requests, gevent's monkey-patched SSL/threading code caused infinite recursion.
 
-## The Fix
+## The REAL Fix (v2 - subprocess)
 
-All Stripe API calls now run in **real OS threads** using `ThreadPoolExecutor`, which bypasses gevent's problematic monkey-patching.
+All Stripe API calls now run in **separate Python processes** using `subprocess.run()`, which **completely isolates** them from gevent's monkey-patching.
 
-### Changes Made
+### Why ThreadPoolExecutor Didn't Work
+
+The first fix attempt used `ThreadPoolExecutor`, but it still failed because:
+- Gevent monkey-patches the `threading` module itself
+- `ThreadPoolExecutor` uses the patched threading module
+- So it was still creating gevent greenlets, not real OS threads
+- Still hit the recursion error
+
+### Why Subprocess Works
+
+- `subprocess.run()` creates a **completely new Python process**
+- The subprocess has NO gevent imported or loaded
+- Uses Python's original, un-monkey-patched standard library
+- Stripe's urllib3 works normally with real system SSL/sockets
+
+### Changes Made (v2)
 
 ✅ Updated `subscriptions.py`:
-- `create_checkout_session()` - Now uses ThreadPoolExecutor
-- `create_customer_portal_session()` - Now uses ThreadPoolExecutor  
-- `cancel_subscription()` - Now uses ThreadPoolExecutor
-- `get_subscription()` - Now uses ThreadPoolExecutor
+- `create_checkout_session()` - Now uses `subprocess.run()` to execute Stripe calls
+- `create_customer_portal_session()` - Now uses `subprocess.run()`
+- `cancel_subscription()` - Now uses `subprocess.run()`
+- `get_subscription()` - Now uses `subprocess.run()`
 
-✅ Added 10-second timeout protection for all Stripe API calls
+✅ Added 15-second timeout protection for all Stripe API calls
 
-✅ Cleaned up old recursion prevention code (thread-local locks, logging disables, recursion limit changes) that didn't work
+✅ Each subprocess returns JSON results back to main process
 
-✅ Created documentation: `docs/development/STRIPE_GEVENT_FIX.md`
+✅ Clean error handling with proper exception capture
 
-## Why This Works
+## How It Works
 
-- **Gevent** only monkey-patches the main greenlet/thread
-- **ThreadPoolExecutor** creates real OS threads (not greenlets)
-- Real OS threads use the **original un-monkey-patched** Python standard library
-- Stripe's urllib3 can now make HTTPS requests normally
+1. **Main Flask app** (running with gevent) receives checkout request
+2. **Subprocess launched** - Fresh Python interpreter with NO gevent
+3. **Stripe API call** executes in subprocess with normal urllib3/SSL
+4. **JSON result** returned via stdout to main process
+5. **Response sent** back to user with session URL or error
 
 ## Testing
 
@@ -51,19 +67,18 @@ To verify the fix works:
 ## What to Watch For
 
 Monitor your logs for:
-- ✅ `INFO: Making Stripe API call in OS thread...`
+- ✅ `INFO: Making Stripe API call in subprocess...`
 - ✅ `SUCCESS: Created checkout session for...`
-- ❌ Any timeout errors (if Stripe API is slow)
+- ❌ Any timeout errors (subprocess is given 15 seconds)
+- ❌ Any JSON parsing errors (shouldn't happen)
 
 ## Deploy Instructions
 
 ```bash
-# Commit the changes
-git add subscriptions.py docs/development/STRIPE_GEVENT_FIX.md STRIPE_RECURSION_FIX_SUMMARY.md
-git commit -m "Fix Stripe RecursionError with gevent workers using ThreadPoolExecutor"
-
-# Push to deploy
-git push origin main
+# Already deployed!
+git log --oneline -2
+# 8300c25 Fix Stripe RecursionError using subprocess instead of ThreadPoolExecutor
+# 289bcdd Fix Stripe RecursionError with gevent workers using ThreadPoolExecutor (first attempt)
 ```
 
 ## If You Still Have Issues
