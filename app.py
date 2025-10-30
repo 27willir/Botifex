@@ -434,10 +434,24 @@ def health_check():
     try:
         # Quick database connectivity check
         db_enhanced.get_user_count()
+        
+        # Check background thread status
+        from security_middleware import _security_logger_running, _security_log_queue
+        security_logger_status = "running" if _security_logger_running else "stopped"
+        activity_logger_status = "running" if db_enhanced._activity_logger_running else "stopped"
+        
         return jsonify({
             "status": "healthy",
             "timestamp": datetime.now().isoformat(),
-            "database": "connected"
+            "database": "connected",
+            "background_threads": {
+                "security_logger": security_logger_status,
+                "activity_logger": activity_logger_status
+            },
+            "queue_sizes": {
+                "security_log_queue": _security_log_queue.qsize(),
+                "activity_log_queue": db_enhanced._activity_log_queue.qsize()
+            }
         }), 200
     except Exception as e:
         logger.error(f"Health check failed: {e}")
