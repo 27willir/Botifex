@@ -343,6 +343,12 @@ def login():
                     return render_template("login.html")
                 
                 if SecurityConfig.verify_password(user_row.password, password):
+                    # Check if email is verified (required for login)
+                    if not user_row.verified:
+                        logger.warning(f"Login attempt for unverified user: {username}")
+                        flash("Please verify your email before logging in. Check your inbox for the verification link.", "warning")
+                        return render_template("login.html")
+                    
                     user = User(username, user_row.password, user_row.role)
                     login_user(user, remember=True)
                     session.permanent = True
@@ -978,15 +984,18 @@ def verify_email():
         return redirect(url_for("login"))
 
 
-@app.route("/resend-verification", methods=["POST"])
+@app.route("/resend-verification", methods=["GET", "POST"])
 @rate_limit('api', max_requests=3, window_minutes=60)
 def resend_verification():
     """Resend verification email"""
+    if request.method == "GET":
+        return render_template("resend_verification.html")
+    
     email = request.form.get("email", "").strip()
     
     if not email:
         flash("Please provide your email address", "error")
-        return redirect(url_for("login"))
+        return redirect(url_for("resend_verification"))
     
     try:
         # Get user by email
