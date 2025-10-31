@@ -735,24 +735,19 @@
         let statusInterval = null;
         let listingsInterval = null;
 
-        // Function to update bot status
+        // Function to update bot status with health information
         function updateStatus() {
             // Add timeout to prevent hanging requests
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
             
-            fetch("/api/status", { signal: controller.signal })
-                .then(res => {
+            // Fetch both status and health in parallel
+            Promise.all([
+                fetch("/api/status", { signal: controller.signal }).then(res => res.ok ? res.json() : {}),
+                fetch("/api/scraper-health", { signal: controller.signal }).then(res => res.ok ? res.json() : {})
+            ])
+                .then(([statusData, healthData]) => {
                     clearTimeout(timeoutId);
-                    if (!res.ok) {
-                        throw new Error(`HTTP error! status: ${res.status}`);
-                    }
-                    return res.json();
-                })
-                .then(data => {
-                    if (!data || typeof data !== 'object') {
-                        throw new Error('Invalid response data');
-                    }
                     
                     const botControlTable = document.querySelector("#bot-control table");
                     if (!botControlTable) {
@@ -760,8 +755,13 @@
                         return;
                     }
                     
-                    for (const [site, running] of Object.entries(data)) {
+                    for (const [site, running] of Object.entries(statusData)) {
                         if (!site) continue;
+                        
+                        // Get health information for this site
+                        const health = healthData[site] || {};
+                        const healthStatus = health.status || 'unknown';
+                        const lastError = health.last_error;
                         
                         // Fix: Use proper DOM traversal with null checks
                         const rows = botControlTable.querySelectorAll("tr");
@@ -770,7 +770,8 @@
                         for (const row of rows) {
                             const firstCell = row.querySelector("td:first-child");
                             if (firstCell && firstCell.textContent) {
-                                const cellText = firstCell.textContent.trim().toLowerCase();
+                                // Extract just the site name, ignoring badges
+                                const cellText = firstCell.textContent.trim().toLowerCase().split(/\s+/)[0];
                                 const siteName = site.toLowerCase();
                                 if (cellText === siteName) {
                                     targetRow = row;
@@ -787,9 +788,34 @@
                             const actionCell = cells[2];
                             
                             if (statusCell && actionCell) {
-                                statusCell.innerHTML = running
-                                    ? '<span class="status-running">Running</span>'
-                                    : '<span class="status-stopped">Stopped</span>';
+                                // Build status HTML with health indicator
+                                let statusHTML = '';
+                                let statusTitle = '';
+                                
+                                if (running) {
+                                    if (healthStatus === 'healthy') {
+                                        statusHTML = '<span class="status-running" title="Running normally">✓ Running</span>';
+                                    } else if (healthStatus === 'degraded') {
+                                        statusHTML = '<span class="status-running" style="color: #ffaa00;" title="Running with some errors">⚠ Running</span>';
+                                        statusTitle = lastError ? `Last error: ${lastError.message}` : '';
+                                    } else if (healthStatus === 'unhealthy') {
+                                        statusHTML = '<span class="status-running" style="color: #ff6600;" title="Running with many errors">⚠ Unhealthy</span>';
+                                        statusTitle = lastError ? `Last error: ${lastError.message}` : '';
+                                    } else {
+                                        statusHTML = '<span class="status-running">Running</span>';
+                                    }
+                                } else {
+                                    statusHTML = '<span class="status-stopped">Stopped</span>';
+                                    if (lastError) {
+                                        statusTitle = `Last error: ${lastError.message}`;
+                                    }
+                                }
+                                
+                                statusCell.innerHTML = statusHTML;
+                                if (statusTitle) {
+                                    statusCell.title = statusTitle;
+                                }
+                                
                                 actionCell.innerHTML = running
                                     ? `<a href="/stop/${escapeHtml(site)}"><button type="button">Stop</button></a>`
                                     : `<a href="/start/${escapeHtml(site)}"><button type="button">Start</button></a>`;

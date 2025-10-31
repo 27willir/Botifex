@@ -12,6 +12,7 @@ from scraper_thread import (
     start_ebay, stop_ebay, is_ebay_running,
     start_poshmark, stop_poshmark, is_poshmark_running,
     start_mercari, stop_mercari, is_mercari_running,
+    get_scraper_health
 )
 # Import enhanced database module
 import db_enhanced
@@ -1579,6 +1580,18 @@ def api_status():
         "poshmark": is_poshmark_running(),
         "mercari": is_mercari_running()
     })
+
+@app.route("/api/scraper-health")
+@login_required
+@rate_limit('api', max_requests=60)
+def api_scraper_health():
+    """Get detailed health information about all scrapers"""
+    try:
+        health = get_scraper_health()
+        return jsonify(health)
+    except Exception as e:
+        logger.error(f"Error getting scraper health: {e}")
+        return jsonify({"error": "Failed to get scraper health"}), 500
 
 @app.route("/api/listings")
 @login_required

@@ -4,7 +4,19 @@ All notable changes, fixes, and improvements to this project are documented here
 
 ---
 
-## [Unreleased] - 2025-10-28
+## [Unreleased] - 2025-10-31
+
+### Fixed
+- **urllib3 + gevent shutdown cleanup errors**: Fixed AttributeError exceptions during worker shutdown/restart
+  - Root cause: urllib3's connection pool finalizers tried to access gevent's thread-local hub during shutdown when it was no longer available
+  - Solution: Patched `urllib3.connectionpool.HTTPConnectionPool._close_pool_connections` to gracefully handle gevent hub unavailability
+  - Impact: Eliminates noisy "Exception ignored in: <finalize object>" errors in production logs
+  - File modified: `wsgi.py`
+  - Documentation: `docs/development/URLLIB3_GEVENT_SHUTDOWN_FIX.md`
+
+---
+
+## [2025-10-28] - Stripe API Timeout Fix
 
 ### Fixed
 - **CRITICAL**: Removed invalid `timeout` parameter from Stripe API calls that doesn't exist in the Stripe SDK

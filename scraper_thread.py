@@ -11,7 +11,8 @@ from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
 _threads = {}
 _drivers = {}  # Track active drivers
 _thread_locks = {}  # Thread safety locks
-_scraper_errors = {}  # Track errors per scraper
+_scraper_errors = {}  # Track error timestamps per scraper
+_scraper_error_messages = {}  # Track recent error messages per scraper
 _last_start_time = {}  # Track last start time per scraper
 
 # Scraper recovery settings (Circuit Breaker Pattern)
@@ -115,6 +116,19 @@ def _handle_scraper_exception(site_name, exception, context=""):
     Returns:
         bool: True if scraper can continue (circuit closed/half-open), False if should stop (circuit open)
     """
+    error_message = f"{context}: {str(exception)}" if context else str(exception)
+    
+    # Store the error message
+    if site_name not in _scraper_error_messages:
+        _scraper_error_messages[site_name] = []
+    _scraper_error_messages[site_name].append({
+        'timestamp': time.time(),
+        'message': error_message,
+        'type': type(exception).__name__
+    })
+    # Keep only last 10 error messages
+    _scraper_error_messages[site_name] = _scraper_error_messages[site_name][-10:]
+    
     try:
         if isinstance(exception, RecursionError):
             # Special handling for recursion errors - these are critical
@@ -169,27 +183,41 @@ def start_facebook():
     
     def target():
         driver = None
-        try:
-            # Create driver with proper error handling
-            driver = _create_driver("facebook")
-            if not driver:
-                print("ERROR: Failed to create driver for Facebook scraper", file=sys.stderr)
-                return
-            
-            # Run scraper with timeout protection
-            run_facebook_scraper(driver, "facebook")
-            
-        except RecursionError as e:
-            _handle_scraper_exception("facebook", e, "recursion error")
-        except NetworkError as e:
-            _handle_scraper_exception("facebook", e, "network error")
-        except ScraperError as e:
-            _handle_scraper_exception("facebook", e, "scraper error")
-        except Exception as e:
-            _handle_scraper_exception("facebook", e, "unexpected error")
-        finally:
-            # Always cleanup driver
-            _cleanup_driver("facebook")
+        retry_delay = 30  # Wait 30 seconds before retrying on failure
+        
+        # Keep thread alive even if driver creation fails
+        while fb_flags.get("facebook", True):
+            try:
+                # Create driver with proper error handling
+                driver = _create_driver("facebook")
+                if not driver:
+                    print("ERROR: Failed to create driver for Facebook scraper, retrying...", file=sys.stderr, flush=True)
+                    time.sleep(retry_delay)
+                    continue
+                
+                # Run scraper with timeout protection
+                run_facebook_scraper(driver, "facebook")
+                break  # Exit loop if scraper completes normally
+                
+            except RecursionError as e:
+                if not _handle_scraper_exception("facebook", e, "recursion error"):
+                    break  # Circuit breaker opened, stop scraper
+            except NetworkError as e:
+                if not _handle_scraper_exception("facebook", e, "network error"):
+                    break  # Circuit breaker opened, stop scraper
+            except ScraperError as e:
+                # Driver creation errors - wait and retry
+                print(f"Facebook scraper error: {e}, retrying in {retry_delay}s...", file=sys.stderr, flush=True)
+                time.sleep(retry_delay)
+            except Exception as e:
+                if not _handle_scraper_exception("facebook", e, "unexpected error"):
+                    break  # Circuit breaker opened, stop scraper
+            finally:
+                # Always cleanup driver before retry/exit
+                _cleanup_driver("facebook")
+                driver = None
+        
+        print("Facebook scraper thread exiting", file=sys.stderr, flush=True)
     
     t = threading.Thread(target=target, daemon=True, name="facebook_scraper")
     _threads["facebook"] = t
@@ -448,6 +476,38 @@ def get_scraper_status():
         "poshmark": is_poshmark_running(),
         "mercari": is_mercari_running()
     }
+
+def get_scraper_health():
+    """Get detailed health status of all scrapers including error counts."""
+    health = {}
+    for site in ["facebook", "craigslist", "ksl", "ebay", "poshmark", "mercari"]:
+        error_count = len(_scraper_errors.get(site, []))
+        is_running = running(site)
+        recent_errors = _scraper_error_messages.get(site, [])
+        
+        # Get the last error message if any
+        last_error = recent_errors[-1] if recent_errors else None
+        
+        # Determine health status
+        if not is_running:
+            status = "stopped"
+        elif error_count == 0:
+            status = "healthy"
+        elif error_count < MAX_ERRORS_PER_HOUR // 2:
+            status = "degraded"
+        else:
+            status = "unhealthy"
+        
+        health[site] = {
+            "running": is_running,
+            "status": status,
+            "error_count": error_count,
+            "max_errors": MAX_ERRORS_PER_HOUR,
+            "last_error": last_error,
+            "recent_errors": recent_errors[-3:] if recent_errors else []  # Last 3 errors
+        }
+    
+    return health
 
 # ============================
 # APP HELPER FUNCTIONS
