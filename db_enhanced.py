@@ -759,7 +759,8 @@ def get_user_by_email(email):
     with get_pool().get_connection() as conn:
         c = conn.cursor()
         c.execute("""
-            SELECT username, email, password, verified, role, active 
+            SELECT username, email, password, verified, role, active, 
+                   created_at, last_login, login_count 
             FROM users WHERE email = ?
         """, (email,))
         user = c.fetchone()
