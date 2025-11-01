@@ -44,20 +44,27 @@ services:
       - key: GUNICORN_WORKER_CLASS
         value: gevent
       
+      # Chrome/Selenium Configuration
+      - key: CHROME_BIN
+        value: /usr/bin/google-chrome
+      
       # Optional: Add your own environment variables below
       # Uncomment and set your values:
       
-      # Email Configuration (if using notifications)
-      # - key: SMTP_HOST
-      #   value: smtp.gmail.com
-      # - key: SMTP_PORT
-      #   value: "587"
-      # - key: SMTP_USERNAME
-      #   value: your-email@gmail.com
-      # - key: SMTP_PASSWORD
-      #   value: your-app-password
-      # - key: SMTP_FROM_EMAIL
-      #   value: your-email@gmail.com
+      # Email Configuration (REQUIRED for email verification and notifications)
+      # IMPORTANT: Set these values in your Render dashboard or update them here
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        value: your-email@gmail.com  # CHANGE THIS
+      - key: SMTP_PASSWORD
+        value: your-app-password  # CHANGE THIS to your Gmail App Password
+      - key: SMTP_FROM_EMAIL
+        value: your-email@gmail.com  # CHANGE THIS
+      - key: SMTP_FROM_NAME
+        value: Super-Bot
       
       # Stripe Configuration (if using payments)
       # - key: STRIPE_SECRET_KEY

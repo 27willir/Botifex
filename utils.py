@@ -128,17 +128,70 @@ def safe_json_write(path, data):
         logger.exception("safe_json_write failed for %s: %s", path, e)
 
 def make_chrome_driver(headless=True):
+    """Create a Chrome WebDriver with proper configuration for various environments."""
     opts = webdriver.ChromeOptions()
+    
+    # Headless mode
     if headless:
         opts.add_argument("--headless=new")
+    
+    # Essential arguments for server/Docker environments
     opts.add_argument("--disable-gpu")
     opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
+    opts.add_argument("--disable-software-rasterizer")
     opts.add_argument("--window-size=1200,800")
-    # sensible user agent (not a bypass instruction — normal practice)
+    
+    # User agent
     opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36")
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=opts)
-    return driver
+    
+    # Additional stability options
+    opts.add_argument("--disable-extensions")
+    opts.add_argument("--disable-setuid-sandbox")
+    opts.add_argument("--single-process")  # Helps in containerized environments
+    opts.add_argument("--disable-infobars")
+    opts.add_argument("--disable-notifications")
+    
+    # Try to find Chrome/Chromium binary in common locations
+    chrome_paths = [
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+        "/snap/bin/chromium",
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+        os.environ.get("CHROME_BIN"),  # Environment variable (Render/Heroku)
+    ]
+    
+    # Try to detect Chrome binary location
+    chrome_binary = None
+    for path in chrome_paths:
+        if path and Path(path).exists():
+            chrome_binary = path
+            logger.info(f"Found Chrome binary at: {path}")
+            break
+    
+    if chrome_binary:
+        opts.binary_location = chrome_binary
+    else:
+        logger.warning("Chrome binary not found in common locations, relying on default detection")
+    
+    try:
+        # Try to install and use ChromeDriver
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=opts)
+        logger.info("✅ Successfully created Chrome WebDriver")
+        return driver
+    except Exception as e:
+        # If ChromeDriverManager fails, try without service (system chromedriver)
+        logger.warning(f"ChromeDriverManager failed ({e}), trying system chromedriver...")
+        try:
+            driver = webdriver.Chrome(options=opts)
+            logger.info("✅ Successfully created Chrome WebDriver using system chromedriver")
+            return driver
+        except Exception as e2:
+            logger.error(f"Failed to create Chrome WebDriver: {e2}")
+            raise
 
 def build_craigslist_url(location: str, query: str = "", category: str = "sss") -> str:
     """

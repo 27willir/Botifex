@@ -368,7 +368,7 @@ def init_db():
                     email TEXT UNIQUE NOT NULL,
                     password TEXT NOT NULL,
                     role TEXT DEFAULT 'user',
-                    verified BOOLEAN DEFAULT 1,
+                    verified BOOLEAN DEFAULT 0,
                     active BOOLEAN DEFAULT 1,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     last_login DATETIME,
@@ -773,11 +773,11 @@ def create_user_db(username, email, password_hash, role='user'):
         with get_pool().get_connection() as conn:
             c = conn.cursor()
             c.execute("""
-                INSERT INTO users (username, email, password, role, created_at) 
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO users (username, email, password, role, verified, created_at) 
+                VALUES (?, ?, ?, ?, 0, ?)
             """, (username, email, password_hash, role, datetime.now()))
             conn.commit()
-            logger.info(f"Created new user: {username} with role: {role}")
+            logger.info(f"Created new user: {username} with role: {role} (unverified)")
             return True
     except sqlite3.IntegrityError as e:
         logger.warning(f"User creation failed (integrity error): {e}")

@@ -11,6 +11,9 @@ from db import get_settings, save_listing
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
 from location_utils import geocode_location, get_location_coords, miles_to_km
 
+# Session object for persistent cookies
+session = requests.Session()
+
 # ======================
 # CONFIGURATION
 # ======================
@@ -32,6 +35,57 @@ running_flags = {"mercari": True}
 # ======================
 # HELPER FUNCTIONS
 # ======================
+def get_random_user_agent():
+    """Return a random realistic user agent to avoid detection."""
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ]
+    return random.choice(user_agents)
+
+def get_realistic_headers():
+    """Generate realistic browser headers to avoid detection."""
+    return {
+        "User-Agent": get_random_user_agent(),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
+        "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"'
+    }
+
+def initialize_session():
+    """Visit homepage to establish session and get cookies like a real browser."""
+    try:
+        headers = get_realistic_headers()
+        logger.debug("Initializing Mercari session by visiting homepage...")
+        response = session.get("https://www.mercari.com/", headers=headers, timeout=15)
+        if response.status_code == 200:
+            logger.debug("Session initialized successfully")
+            # Small delay to mimic human behavior
+            time.sleep(random.uniform(1, 2))
+            return True
+        else:
+            logger.warning(f"Session initialization returned status {response.status_code}")
+            return False
+    except Exception as e:
+        logger.warning(f"Failed to initialize session: {e}")
+        return False
+
 def human_delay(flag_dict, flag_name, min_sec=1.5, max_sec=4.5):
     """Pause between requests with human-like randomness, respecting stop flags."""
     total = random.uniform(min_sec, max_sec)
@@ -168,8 +222,8 @@ def check_mercari(flag_name="mercari"):
     radius = settings.get("radius", 50)
 
     results = []
-    max_retries = 3
-    base_retry_delay = 2
+    max_retries = 5  # Increased for 403 handling
+    base_retry_delay = 3  # Longer initial delay
     
     # Get location coordinates for distance filtering
     location_coords = get_location_coords(location)
@@ -207,17 +261,37 @@ def check_mercari(flag_name="mercari"):
             
             full_url = base_url + "?" + urllib.parse.urlencode(params)
 
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept-Encoding": "gzip, deflate, br",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Referer": "https://www.mercari.com/",
-                "Origin": "https://www.mercari.com"
-            }
+            # Use realistic headers to avoid detection
+            headers = get_realistic_headers()
+            # Add referer for subsequent requests
+            if attempt > 0:
+                headers["Referer"] = "https://www.mercari.com/"
+            
+            # Add random delay before request to seem more human
+            if attempt > 0:
+                time.sleep(random.uniform(1, 3))
 
-            response = requests.get(full_url, headers=headers, timeout=30)
-            response.raise_for_status()  # Raise exception for bad status codes
+            # Use session for cookie persistence
+            response = session.get(full_url, headers=headers, timeout=30)
+            
+            # Handle 403 specifically - likely bot detection
+            if response.status_code == 403:
+                logger.warning(f"Mercari returned 403 (bot detection). Attempt {attempt + 1}/{max_retries}")
+                if attempt < max_retries - 1:
+                    # Clear session and reinitialize with fresh session
+                    session.cookies.clear()
+                    delay = base_retry_delay * (2 ** attempt) + random.uniform(5, 15)
+                    logger.info(f"Reinitializing session and retrying in {delay:.1f} seconds...")
+                    time.sleep(delay)
+                    # Try to reinitialize session by visiting homepage
+                    initialize_session()
+                    continue
+                else:
+                    logger.error(f"Mercari blocking requests after {max_retries} attempts. Waiting longer before next attempt...")
+                    # Return empty instead of continuing to hammer the server
+                    return []
+            
+            response.raise_for_status()  # Raise exception for other bad status codes
             
             # Parse with BeautifulSoup for better HTML handling
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -363,6 +437,9 @@ def run_mercari_scraper(flag_name="mercari"):
     try:
         logger.info("Starting Mercari scraper")
         load_seen_listings()
+        
+        # Initialize session by visiting homepage first
+        initialize_session()
         
         try:
             while running_flags.get(flag_name, True):

@@ -343,6 +343,13 @@ def login():
                     return render_template("login.html")
                 
                 if SecurityConfig.verify_password(user_row.password, password):
+                    # Check if email is verified (only if email verification is configured)
+                    if is_email_configured() and not user_row.verified:
+                        logger.warning(f"Login attempt for unverified user: {username}")
+                        flash("Please verify your email address before logging in. Check your inbox for the verification link.", "warning")
+                        # Show option to resend verification email
+                        return render_template("login.html", unverified_user=username)
+                    
                     user = User(username, user_row.password, user_row.role)
                     login_user(user, remember=True)
                     session.permanent = True
