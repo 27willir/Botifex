@@ -14,6 +14,7 @@ from scrapers.common import (
     set_recursion_guard, log_selector_failure, log_parse_attempt,
     get_seen_listings_lock
 )
+from scrapers import anti_blocking
 from scrapers.metrics import ScraperMetrics
 
 # ======================
@@ -117,6 +118,16 @@ def check_ksl(flag_name=SITE_NAME):
             
             if not posts:
                 log_selector_failure(SITE_NAME, "xpath", "listing patterns", "posts")
+                snippet = (response.text[:2000] if getattr(response, "text", None) else "").lower()
+                block_keywords = (
+                    "are you a robot",
+                    "unusual activity",
+                    "blocked",
+                    "slow down",
+                )
+                if any(keyword in snippet for keyword in block_keywords):
+                    anti_blocking.record_block(SITE_NAME, "keyword:ksl-block", cooldown_hint=120)
+
                 logger.warning(f"KSL: No posts found with any selector pattern")
                 metrics.success = True  # Not an error, just no results
                 metrics.listings_found = 0

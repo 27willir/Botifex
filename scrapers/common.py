@@ -14,6 +14,8 @@ import requests
 from utils import logger
 from functools import lru_cache
 
+from scrapers import anti_blocking
+
 
 # Thread locks for seen listings (one per scraper)
 _seen_listings_locks = {}
@@ -34,50 +36,24 @@ _url_cache_max_size = 1000  # Limit cache size
 # ======================
 # USER AGENT MANAGEMENT
 # ======================
-# Pre-defined user agents list (avoid recreating on every call)
-_USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
-]
+# Legacy user agent list retained for reference (unused)
 
-def get_random_user_agent():
-    """Return a random realistic user agent to avoid detection. Optimized with pre-defined list."""
-    return random.choice(_USER_AGENTS)
+def get_random_user_agent(site_name=None):
+    """Return a random realistic user agent.
+
+    Wrapped around the anti-blocking header builder so callers benefit from the
+    expanded fingerprint pool without code changes.
+    """
+
+    headers = anti_blocking.build_headers(site_name)
+    return headers.get("User-Agent", "Mozilla/5.0")
 
 
-def get_realistic_headers(referer=None, origin=None):
-    """Generate realistic browser headers to avoid detection."""
-    headers = {
-        "User-Agent": get_random_user_agent(),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "DNT": "1",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Cache-Control": "max-age=0",
-        "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"'
-    }
-    
-    if referer:
-        headers["Referer"] = referer
-    if origin:
-        headers["Origin"] = origin
-    
-    return headers
+def get_realistic_headers(referer=None, origin=None, site_name=None, extra_headers=None):
+    """Generate realistic browser headers enriched with adaptive fingerprints."""
+
+    base_headers = dict(extra_headers) if extra_headers else None
+    return anti_blocking.build_headers(site_name, referer=referer, origin=origin, base_headers=base_headers)
 
 
 # ======================
@@ -102,7 +78,7 @@ def get_session(site_name, initialize_url=None):
             # Initialize session by visiting homepage if provided
             if initialize_url:
                 try:
-                    headers = get_realistic_headers()
+                    headers = get_realistic_headers(site_name=site_name)
                     logger.debug(f"Initializing {site_name} session by visiting homepage...")
                     response = session.get(initialize_url, headers=headers, timeout=15)
                     if response.status_code == 200:
@@ -139,7 +115,7 @@ def initialize_session(site_name, base_url):
     """
     session = get_session(site_name)
     try:
-        headers = get_realistic_headers()
+        headers = get_realistic_headers(site_name=site_name)
         logger.debug(f"Initializing {site_name} session by visiting homepage...")
         response = session.get(base_url, headers=headers, timeout=15)
         if response.status_code == 200:
@@ -194,64 +170,80 @@ def check_rate_limit(response, site_name):
 
 def make_request_with_retry(url, site_name, max_retries=3, session=None, **kwargs):
     """
-    Make HTTP request with automatic retry, rate limit detection, and error handling.
-    
-    Args:
-        url: URL to request
-        site_name: Name of scraper site for logging
-        max_retries: Maximum number of retry attempts
-        session: Optional requests.Session object
-        **kwargs: Additional arguments to pass to requests.get()
-        
-    Returns:
-        requests.Response object or None if all retries failed
+    Make HTTP request with automatic retry, rate limit detection, and adaptive throttling.
     """
-    base_retry_delay = 2
+
     requester = session if session else requests
-    
-    # Ensure headers are set
-    if 'headers' not in kwargs:
-        kwargs['headers'] = get_realistic_headers()
-    
-    # Ensure timeout is set
-    if 'timeout' not in kwargs:
-        kwargs['timeout'] = 30
-    
+    base_kwargs = dict(kwargs)
+
+    if "timeout" not in base_kwargs:
+        base_kwargs["timeout"] = 30
+
     for attempt in range(max_retries):
+        pre_wait = anti_blocking.pre_request_wait(site_name)
+        if pre_wait > 0:
+            logger.debug(f"{site_name}: waiting {pre_wait:.2f}s before request to {url}")
+            time.sleep(pre_wait)
+
+        request_kwargs = dict(base_kwargs)
+        incoming_headers = request_kwargs.get("headers")
+        if incoming_headers:
+            request_kwargs["headers"] = anti_blocking.enrich_headers(site_name, dict(incoming_headers))
+        else:
+            request_kwargs["headers"] = get_realistic_headers(site_name=site_name)
+
         try:
-            response = requester.get(url, **kwargs)
-            
-            # Check for rate limiting
+            anti_blocking.record_request_start(site_name)
+            response = requester.get(url, **request_kwargs)
+
+            # First handle explicit rate-limit responses
             is_rate_limited, retry_after = check_rate_limit(response, site_name)
             if is_rate_limited:
+                anti_blocking.record_block(site_name, f"status:{response.status_code}", retry_after)
                 if attempt < max_retries - 1:
-                    # Clear and reinitialize session if using one
                     if session:
                         session.cookies.clear()
-                    time.sleep(retry_after + random.uniform(1, 5))
+                    delay = max(retry_after, anti_blocking.suggest_retry_delay(site_name, attempt + 1))
+                    logger.info(f"{site_name}: rate limited ({response.status_code}). Retrying in {delay:.1f}s...")
+                    time.sleep(delay)
                     continue
-                else:
-                    logger.error(f"{site_name} rate limited after {max_retries} attempts")
-                    return None
-            
-            # Raise for other bad status codes
+                logger.error(f"{site_name} rate limited after {max_retries} attempts")
+                return None
+
+            soft_block_signal = anti_blocking.detect_soft_block(site_name, response)
+            if soft_block_signal:
+                anti_blocking.record_block(site_name, soft_block_signal)
+                logger.warning(f"{site_name}: potential block detected ({soft_block_signal}) on attempt {attempt + 1}/{max_retries}")
+                if attempt < max_retries - 1:
+                    if session:
+                        session.cookies.clear()
+                    delay = anti_blocking.suggest_retry_delay(site_name, attempt + 1)
+                    time.sleep(delay)
+                    continue
+                logger.error(f"{site_name} blocked after {max_retries} attempts")
+                return None
+
             response.raise_for_status()
+            anti_blocking.record_success(site_name)
             return response
-            
+
         except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
+            anti_blocking.record_failure(site_name)
             logger.warning(f"{site_name} request failed (attempt {attempt + 1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
-                delay = base_retry_delay * (2 ** attempt) + random.uniform(0.5, 2)
+                if session:
+                    session.cookies.clear()
+                delay = anti_blocking.suggest_retry_delay(site_name, attempt + 1)
                 logger.info(f"Retrying in {delay:.1f} seconds...")
                 time.sleep(delay)
                 continue
-            else:
-                logger.error(f"{site_name} request failed after {max_retries} attempts: {e}")
-                return None
+            logger.error(f"{site_name} request failed after {max_retries} attempts: {e}")
+            return None
         except Exception as e:
+            anti_blocking.record_failure(site_name)
             logger.error(f"Unexpected error in {site_name} request: {e}")
             return None
-    
+
     return None
 
 
@@ -530,7 +522,7 @@ def load_settings(username=None):
             "radius": int(settings.get("radius", 50))
         }
     except Exception as e:
-        logger.error(f"⚠️ Failed to load settings for user {username}: {e}")
+        logger.error(f"?? Failed to load settings for user {username}: {e}")
         return {
             "keywords": ["Firebird", "Camaro", "Corvette"],
             "min_price": 1000,
