@@ -14,7 +14,6 @@ from scrapers.common import (
     set_recursion_guard, log_selector_failure, log_parse_attempt,
     get_seen_listings_lock
 )
-from scrapers.metrics import ScraperMetrics
 
 # ======================
 # CONFIGURATION

@@ -7,7 +7,6 @@ services:
     region: oregon  # Options: oregon, ohio, frankfurt, singapore, mumbai, sydney
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --config gunicorn_config.py wsgi:application
-    dockerfilePath: ./Dockerfile  # Optional: use Dockerfile for more control
     envVars:
       # Flask Configuration (REQUIRED - CHANGE SECRET_KEY!)
       - key: SECRET_KEY
