@@ -1,5 +1,7 @@
 import sys
 import threading
+import socket
+from functools import lru_cache
 from datetime import datetime
 import urllib.parse
 from lxml import html
@@ -21,6 +23,62 @@ from scrapers.metrics import ScraperMetrics
 # ======================
 SITE_NAME = "craigslist"
 BASE_URL = "https://boise.craigslist.org"
+
+CRAIGSLIST_DEFAULT_LOCATION = "boise"
+
+# Known aliases and common city names that need to map to Craigslist subdomains.
+# Keys are normalized (lowercase, alphanumeric only) for faster lookups.
+CRAIGSLIST_LOCATION_ALIASES = {
+    "blackfoot": "eastidaho",
+    "idahofalls": "eastidaho",
+    "rexburg": "eastidaho",
+    "pocatello": "eastidaho",
+}
+
+_location_resolution_log = set()
+
+
+def _normalize_location_key(location):
+    """Normalize a location string for consistent craigslist subdomain lookups."""
+    if not location:
+        return CRAIGSLIST_DEFAULT_LOCATION
+    return "".join(ch for ch in location.lower() if ch.isalnum()) or CRAIGSLIST_DEFAULT_LOCATION
+
+
+@lru_cache(maxsize=128)
+def _resolve_subdomain(normalized_key):
+    """Resolve a normalized location key to a valid Craigslist subdomain."""
+    candidates = []
+
+    alias = CRAIGSLIST_LOCATION_ALIASES.get(normalized_key)
+    if alias:
+        candidates.append(alias)
+
+    # Always try the normalized key itself last to preserve user intent if valid.
+    candidates.append(normalized_key)
+
+    for candidate in candidates:
+        host = f"{candidate}.craigslist.org"
+        try:
+            socket.gethostbyname(host)
+            return candidate
+        except socket.gaierror:
+            continue
+
+    # Fallback to default if none resolve
+    return CRAIGSLIST_DEFAULT_LOCATION
+
+
+def resolve_craigslist_location(location):
+    """
+    Resolve the configured location to a valid Craigslist subdomain.
+    Returns the resolved subdomain and a flag indicating whether a fallback occurred.
+    """
+    normalized_key = _normalize_location_key(location)
+    resolved = _resolve_subdomain(normalized_key)
+
+    fallback_used = resolved != normalized_key
+    return resolved, fallback_used
 
 seen_listings = {}
 
@@ -61,7 +119,7 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
     min_price = settings["min_price"]
     max_price = settings["max_price"]
     check_interval = settings["interval"]
-    location = settings.get("location", "boise")
+    location = settings.get("location", CRAIGSLIST_DEFAULT_LOCATION)
     radius = settings.get("radius", 50)
 
     results = []
@@ -69,11 +127,27 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
     # Use metrics tracking
     with ScraperMetrics(SITE_NAME) as metrics:
         try:
+            resolved_location, fallback_used = resolve_craigslist_location(location)
+            log_key = (location.lower(), resolved_location)
+            if fallback_used and log_key not in _location_resolution_log:
+                _location_resolution_log.add(log_key)
+                if resolved_location == CRAIGSLIST_DEFAULT_LOCATION:
+                    logger.warning(
+                        f"Craigslist: Location '{location}' is not a recognized Craigslist region; "
+                        f"falling back to '{resolved_location}'."
+                    )
+                else:
+                    logger.info(
+                        f"Craigslist: Mapping location '{location}' to Craigslist region '{resolved_location}'."
+                    )
+
             # Get location coordinates for distance filtering
             try:
                 location_coords = get_location_coords(location)
                 if location_coords:
-                    logger.debug(f"Craigslist: Searching {location} within {radius} miles")
+                    logger.debug(
+                        f"Craigslist: Searching {location} (subdomain '{resolved_location}') within {radius} miles"
+                    )
                 else:
                     logger.warning(f"Could not geocode location '{location}', using default coordinates")
                     # Use default coordinates for Boise, ID as fallback
@@ -84,12 +158,12 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
                 location_coords = (43.6150, -116.2023)
             
             # Build URL
-            url = f"https://{location}.craigslist.org/search/sss"
+            url = f"https://{resolved_location}.craigslist.org/search/sss"
             params = {"query": " ".join(keywords), "min_price": min_price, "max_price": max_price}
             full_url = url + "?" + urllib.parse.urlencode(params)
 
             # Get persistent session
-            session = get_session(SITE_NAME, f"https://{location}.craigslist.org")
+            session = get_session(SITE_NAME, f"https://{resolved_location}.craigslist.org")
             
             # Make request with automatic retry and rate limit detection
             response = make_request_with_retry(full_url, SITE_NAME, session=session)
