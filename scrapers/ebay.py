@@ -129,89 +129,89 @@ def check_ebay(flag_name=SITE_NAME, user_id=None):
                 return []
             
             logger.debug(f"Found {len(items)} eBay items to process")
-        
-        # Pre-compile keywords for faster matching
-        keywords_lower = [k.lower() for k in keywords]
-        
-        for item in items:
-            try:
-                # Extract title (try multiple selectors efficiently)
-                title_elem = (item.find('div', class_='s-item__title') or 
-                             item.find('h3', class_='s-item__title') or 
-                             item.find('a', class_='s-item__link'))
-                
-                if not title_elem:
+            
+            # Pre-compile keywords for faster matching
+            keywords_lower = [k.lower() for k in keywords]
+            
+            for item in items:
+                try:
+                    # Extract title (try multiple selectors efficiently)
+                    title_elem = (item.find('div', class_='s-item__title') or 
+                                 item.find('h3', class_='s-item__title') or 
+                                 item.find('a', class_='s-item__link'))
+                    
+                    if not title_elem:
+                        continue
+                    
+                    title = title_elem.get_text(strip=True)
+                    
+                    # Skip shop listings or ads (fast check)
+                    if not title or "Shop on eBay" in title:
+                        continue
+                    
+                    # Extract link (consolidated)
+                    link_elem = item.find('a', class_='s-item__link') or item.find('a', href=True)
+                    if not link_elem or not link_elem.get('href'):
+                        continue
+                    
+                    link = link_elem['href']
+                    
+                    # Clean eBay link (remove tracking parameters) - fast path check
+                    if '?' in link:
+                        link = link.split('?', 1)[0]
+                    
+                    # Extract and parse price (consolidated)
+                    price_elem = (item.find('span', class_='s-item__price') or 
+                                 item.find('span', attrs={'class': lambda x: x and 'price' in x.lower() if x else False}))
+                    
+                    price_val = None
+                    if price_elem:
+                        price_text = price_elem.get_text(strip=True)
+                        try:
+                            # Handle price formats efficiently
+                            price_clean = price_text.replace('$', '').replace(',', '').strip()
+                            # Handle range prices (take the first price)
+                            if ' to ' in price_clean:
+                                price_clean = price_clean.split(' to ', 1)[0].strip()
+                            price_val = int(float(price_clean))
+                        except (ValueError, AttributeError):
+                            pass
+                    
+                    # Early exit if price out of range
+                    if price_val and (price_val < min_price or price_val > max_price):
+                        continue
+                    
+                    # Check keywords (use pre-lowercased)
+                    title_lower = title.lower()
+                    if not any(k in title_lower for k in keywords_lower):
+                        continue
+                    
+                    # Check if new listing
+                    if not is_new_listing(link, seen_listings, SITE_NAME):
+                        continue
+                    
+                    # Update seen listings
+                    normalized_link = normalize_url(link)
+                    lock = get_seen_listings_lock(SITE_NAME)
+                    with lock:
+                        seen_listings[normalized_link] = datetime.now()
+                    
+                    # Extract image URL
+                    image_url = None
+                    img_elem = item.find('img', class_='s-item__image-img') or item.find('img')
+                    if img_elem:
+                        image_url = img_elem.get('src')
+                        # Validate URL quickly
+                        if image_url and image_url.startswith("http"):
+                            # Skip tiny placeholder images, try data-src if needed
+                            if 's-l64' in image_url or 's-l50' in image_url or 'data:' in image_url:
+                                image_url = img_elem.get('data-src') or image_url
+                    
+                    send_discord_message(title, link, price_val, image_url, user_id=user_id)
+                    results.append({"title": title, "link": link, "price": price_val, "image": image_url})
+                except Exception as e:
+                    logger.warning(f"Error parsing an eBay listing: {e}")
                     continue
-                
-                title = title_elem.get_text(strip=True)
-                
-                # Skip shop listings or ads (fast check)
-                if not title or "Shop on eBay" in title:
-                    continue
-                
-                # Extract link (consolidated)
-                link_elem = item.find('a', class_='s-item__link') or item.find('a', href=True)
-                if not link_elem or not link_elem.get('href'):
-                    continue
-                
-                link = link_elem['href']
-                
-                # Clean eBay link (remove tracking parameters) - fast path check
-                if '?' in link:
-                    link = link.split('?', 1)[0]
-                
-                # Extract and parse price (consolidated)
-                price_elem = (item.find('span', class_='s-item__price') or 
-                             item.find('span', attrs={'class': lambda x: x and 'price' in x.lower() if x else False}))
-                
-                price_val = None
-                if price_elem:
-                    price_text = price_elem.get_text(strip=True)
-                    try:
-                        # Handle price formats efficiently
-                        price_clean = price_text.replace('$', '').replace(',', '').strip()
-                        # Handle range prices (take the first price)
-                        if ' to ' in price_clean:
-                            price_clean = price_clean.split(' to ', 1)[0].strip()
-                        price_val = int(float(price_clean))
-                    except (ValueError, AttributeError):
-                        pass
-                
-                # Early exit if price out of range
-                if price_val and (price_val < min_price or price_val > max_price):
-                    continue
-                
-                # Check keywords (use pre-lowercased)
-                title_lower = title.lower()
-                if not any(k in title_lower for k in keywords_lower):
-                    continue
-                
-                # Check if new listing
-                if not is_new_listing(link, seen_listings, SITE_NAME):
-                    continue
-                
-                # Update seen listings
-                normalized_link = normalize_url(link)
-                lock = get_seen_listings_lock(SITE_NAME)
-                with lock:
-                    seen_listings[normalized_link] = datetime.now()
-                
-                # Extract image URL
-                image_url = None
-                img_elem = item.find('img', class_='s-item__image-img') or item.find('img')
-                if img_elem:
-                    image_url = img_elem.get('src')
-                    # Validate URL quickly
-                    if image_url and image_url.startswith("http"):
-                        # Skip tiny placeholder images, try data-src if needed
-                        if 's-l64' in image_url or 's-l50' in image_url or 'data:' in image_url:
-                            image_url = img_elem.get('data-src') or image_url
-                
-                send_discord_message(title, link, price_val, image_url, user_id=user_id)
-                results.append({"title": title, "link": link, "price": price_val, "image": image_url})
-            except Exception as e:
-                logger.warning(f"Error parsing an eBay listing: {e}")
-                continue
 
             if results:
                 save_seen_listings(seen_listings, SITE_NAME)
