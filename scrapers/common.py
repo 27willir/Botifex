@@ -129,6 +129,29 @@ def clear_session(site_name):
             logger.debug(f"Cleared session for {site_name}")
 
 
+def initialize_session(site_name, base_url):
+    """
+    Initialize a session by visiting the homepage to get cookies.
+    
+    Args:
+        site_name: Name of the scraper site
+        base_url: Base URL to visit for initialization
+    """
+    session = get_session(site_name)
+    try:
+        headers = get_realistic_headers()
+        logger.debug(f"Initializing {site_name} session by visiting homepage...")
+        response = session.get(base_url, headers=headers, timeout=15)
+        if response.status_code == 200:
+            logger.debug(f"{site_name} session initialized successfully")
+            # Small delay to mimic human behavior
+            time.sleep(random.uniform(0.5, 1.5))
+        else:
+            logger.warning(f"{site_name} session initialization returned status {response.status_code}")
+    except Exception as e:
+        logger.warning(f"Failed to initialize {site_name} session: {e}")
+
+
 # ======================
 # RATE LIMIT DETECTION
 # ======================
@@ -549,6 +572,16 @@ def set_recursion_guard(site_name, value):
     """
     guard_attr = f'in_{site_name}_scraper'
     setattr(_recursion_guards, guard_attr, value)
+
+
+def clear_recursion_guard(site_name):
+    """
+    Clear recursion guard for a scraper.
+    
+    Args:
+        site_name: Name of the scraper site
+    """
+    set_recursion_guard(site_name, False)
 
 
 # ======================
