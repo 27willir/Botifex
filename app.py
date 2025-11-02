@@ -638,8 +638,10 @@ def start_all():
 def stop_all():
     """Stop all scrapers that are available in user's subscription plan"""
     try:
+        user_id = current_user.id
+
         # Get user's subscription tier
-        subscription = db_enhanced.get_user_subscription(current_user.id)
+        subscription = db_enhanced.get_user_subscription(user_id)
         tier = subscription.get('tier', 'free')
         
         # Override to 'pro' for admins
@@ -652,26 +654,26 @@ def stop_all():
         # Stop only the scrapers that are allowed for this subscription
         stopped_platforms = []
         if 'facebook' in allowed_platforms:
-            stop_facebook()
+            stop_facebook(user_id)
             stopped_platforms.append('Facebook')
         if 'craigslist' in allowed_platforms:
-            stop_craigslist()
+            stop_craigslist(user_id)
             stopped_platforms.append('Craigslist')
         if 'ksl' in allowed_platforms:
-            stop_ksl()
+            stop_ksl(user_id)
             stopped_platforms.append('KSL')
         if 'ebay' in allowed_platforms:
-            stop_ebay()
+            stop_ebay(user_id)
             stopped_platforms.append('eBay')
         if 'poshmark' in allowed_platforms:
-            stop_poshmark()
+            stop_poshmark(user_id)
             stopped_platforms.append('Poshmark')
         if 'mercari' in allowed_platforms:
-            stop_mercari()
+            stop_mercari(user_id)
             stopped_platforms.append('Mercari')
         
         db_enhanced.log_user_activity(
-            current_user.id, 
+            user_id, 
             'stop_all_scrapers', 
             f'Stopped scrapers: {", ".join(stopped_platforms)}', 
             request.remote_addr, 
