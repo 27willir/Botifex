@@ -571,6 +571,49 @@ def get_system_stats():
         "max_scrapers_per_user": MAX_SCRAPERS_PER_USER
     }
 
+def get_scraper_health():
+    """Get health information for all scrapers across all users."""
+    sites = ["facebook", "craigslist", "ksl", "ebay", "poshmark", "mercari"]
+    health = {}
+    now = time.time()
+    hour_ago = now - ERROR_RESET_PERIOD
+    
+    for site in sites:
+        # Count active instances across all users
+        active_count = 0
+        total_errors = 0
+        recent_errors = []
+        
+        for user_id in _threads.keys():
+            # Check if running for this user
+            if user_id in _threads and site in _threads[user_id]:
+                if _threads[user_id][site].is_alive():
+                    active_count += 1
+            
+            # Get error info for this user/site combo
+            key = f"{user_id}_{site}"
+            if key in _scraper_errors:
+                # Count recent errors (last hour)
+                recent = [t for t in _scraper_errors[key] if t > hour_ago]
+                total_errors += len(recent)
+                
+                # Get error messages if available
+                if key in _scraper_error_messages and _scraper_error_messages[key]:
+                    recent_errors.extend(_scraper_error_messages[key][-3:])  # Last 3 errors
+        
+        health[site] = {
+            "active_instances": active_count,
+            "error_count_last_hour": total_errors,
+            "status": "healthy" if total_errors < MAX_ERRORS_PER_HOUR else "degraded",
+            "recent_errors": recent_errors[-5:]  # Keep last 5 errors across all users
+        }
+    
+    return {
+        "scrapers": health,
+        "system": get_system_stats(),
+        "timestamp": now
+    }
+
 # ============================
 # APP HELPER FUNCTIONS
 # ============================
