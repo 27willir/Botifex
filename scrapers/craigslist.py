@@ -116,81 +116,81 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
                 metrics.success = True  # Not an error, just no results
                 metrics.listings_found = 0
                 return []
-        
-        # Pre-compile title lower for keyword matching (outside loop)
-        keywords_lower = [k.lower() for k in keywords]
-        
-        for post in posts:
-            try:
-                # Combined XPath query for link and title (single pass)
-                # Try titlestring class first, then result-title, then any anchor
-                link = None
-                title = None
-                
-                # Method 1: titlestring class
-                anchor = post.xpath(".//a[@class='titlestring']")
-                if anchor:
-                    link = anchor[0].get('href')
-                    title = anchor[0].text_content().strip() if anchor[0].text_content() else None
-                
-                # Method 2: result-title class (fallback)
-                if not link:
-                    anchor = post.xpath(".//a[contains(@class, 'result-title')]")
+            
+            # Pre-compile title lower for keyword matching (outside loop)
+            keywords_lower = [k.lower() for k in keywords]
+            
+            for post in posts:
+                try:
+                    # Combined XPath query for link and title (single pass)
+                    # Try titlestring class first, then result-title, then any anchor
+                    link = None
+                    title = None
+                    
+                    # Method 1: titlestring class
+                    anchor = post.xpath(".//a[@class='titlestring']")
                     if anchor:
                         link = anchor[0].get('href')
                         title = anchor[0].text_content().strip() if anchor[0].text_content() else None
-                
-                # Method 3: Any anchor with href (last resort)
-                if not link:
-                    anchor = post.xpath(".//a[@href]")
-                    if anchor:
-                        link = anchor[0].get('href')
-                        title = anchor[0].text_content().strip() if anchor[0].text_content() else None
-                
-                if not link or not title:
-                    continue
-                
-                # Extract and parse price (consolidated)
-                price_elem = post.xpath(".//span[contains(@class, 'price')]/text()")
-                price_val = None
-                if price_elem:
-                    try:
-                        price_val = int(price_elem[0].replace("$", "").replace(",", ""))
-                    except (ValueError, IndexError):
-                        pass
-                
-                # Early exit if price out of range
-                if price_val and (price_val < min_price or price_val > max_price):
-                    continue
-                
-                # Check keywords (use pre-lowercased title)
-                title_lower = title.lower()
-                if not any(k in title_lower for k in keywords_lower):
-                    continue
-                
-                # Check if new listing
-                if not is_new_listing(link, seen_listings, SITE_NAME):
-                    continue
-                
-                # Update seen listings
-                normalized_link = normalize_url(link)
-                lock = get_seen_listings_lock(SITE_NAME)
-                with lock:
-                    seen_listings[normalized_link] = datetime.now()
-                
-                # Extract image URL
-                image_url = None
-                img_elem = post.xpath(".//img/@src")
-                if img_elem:
-                    image_url = img_elem[0]
-                    # Make sure it's a full URL
-                    if image_url and not image_url.startswith("http"):
-                        image_url = "https://images.craigslist.org" + image_url
-                
-                    send_discord_message(title, link, price_val, image_url, user_id=user_id)
-                    results.append({"title": title, "link": link, "price": price_val, "image": image_url})
-            except Exception as e:
-                logger.warning(f"Error parsing a Craigslist post: {e}")
+                    
+                    # Method 2: result-title class (fallback)
+                    if not link:
+                        anchor = post.xpath(".//a[contains(@class, 'result-title')]")
+                        if anchor:
+                            link = anchor[0].get('href')
+                            title = anchor[0].text_content().strip() if anchor[0].text_content() else None
+                    
+                    # Method 3: Any anchor with href (last resort)
+                    if not link:
+                        anchor = post.xpath(".//a[@href]")
+                        if anchor:
+                            link = anchor[0].get('href')
+                            title = anchor[0].text_content().strip() if anchor[0].text_content() else None
+                    
+                    if not link or not title:
+                        continue
+                    
+                    # Extract and parse price (consolidated)
+                    price_elem = post.xpath(".//span[contains(@class, 'price')]/text()")
+                    price_val = None
+                    if price_elem:
+                        try:
+                            price_val = int(price_elem[0].replace("$", "").replace(",", ""))
+                        except (ValueError, IndexError):
+                            pass
+                    
+                    # Early exit if price out of range
+                    if price_val and (price_val < min_price or price_val > max_price):
+                        continue
+                    
+                    # Check keywords (use pre-lowercased title)
+                    title_lower = title.lower()
+                    if not any(k in title_lower for k in keywords_lower):
+                        continue
+                    
+                    # Check if new listing
+                    if not is_new_listing(link, seen_listings, SITE_NAME):
+                        continue
+                    
+                    # Update seen listings
+                    normalized_link = normalize_url(link)
+                    lock = get_seen_listings_lock(SITE_NAME)
+                    with lock:
+                        seen_listings[normalized_link] = datetime.now()
+                    
+                    # Extract image URL
+                    image_url = None
+                    img_elem = post.xpath(".//img/@src")
+                    if img_elem:
+                        image_url = img_elem[0]
+                        # Make sure it's a full URL
+                        if image_url and not image_url.startswith("http"):
+                            image_url = "https://images.craigslist.org" + image_url
+                    
+                        send_discord_message(title, link, price_val, image_url, user_id=user_id)
+                        results.append({"title": title, "link": link, "price": price_val, "image": image_url})
+                except Exception as e:
+                    logger.warning(f"Error parsing a Craigslist post: {e}")
 
             if results:
                 save_seen_listings(seen_listings, SITE_NAME)
