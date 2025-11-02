@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_wtf.csrf import CSRFProtect
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_session import Session
 from pathlib import Path
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -52,6 +53,14 @@ app = Flask(__name__)
 # Trust proxy headers for real client IP and scheme
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.secret_key = SecurityConfig.get_secret_key()
+
+# Configure Flask-Session for server-side sessions (works across multiple workers)
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_FILE_DIR'] = './flask_session'
+app.config['SESSION_PERMANENT'] = True
+app.config['SESSION_USE_SIGNER'] = True
+app.config['SESSION_KEY_PREFIX'] = 'superbot_session:'
+Session(app)
 
 # Initialize WebSocket support
 from websocket_manager import init_socketio
@@ -570,8 +579,10 @@ def stop(site):
 def start_all():
     """Start all scrapers that are available in user's subscription plan"""
     try:
+        user_id = current_user.id  # Get current user
+        
         # Get user's subscription tier
-        subscription = db_enhanced.get_user_subscription(current_user.id)
+        subscription = db_enhanced.get_user_subscription(user_id)
         tier = subscription.get('tier', 'free')
         
         # Override to 'pro' for admins
@@ -584,22 +595,22 @@ def start_all():
         # Start only the scrapers that are allowed for this subscription
         started_platforms = []
         if 'facebook' in allowed_platforms:
-            start_facebook()
+            start_facebook(user_id)
             started_platforms.append('Facebook')
         if 'craigslist' in allowed_platforms:
-            start_craigslist()
+            start_craigslist(user_id)
             started_platforms.append('Craigslist')
         if 'ksl' in allowed_platforms:
-            start_ksl()
+            start_ksl(user_id)
             started_platforms.append('KSL')
         if 'ebay' in allowed_platforms:
-            start_ebay()
+            start_ebay(user_id)
             started_platforms.append('eBay')
         if 'poshmark' in allowed_platforms:
-            start_poshmark()
+            start_poshmark(user_id)
             started_platforms.append('Poshmark')
         if 'mercari' in allowed_platforms:
-            start_mercari()
+            start_mercari(user_id)
             started_platforms.append('Mercari')
         
         db_enhanced.log_user_activity(
@@ -1600,7 +1611,8 @@ def api_status():
 def api_scraper_health():
     """Get detailed health information about all scrapers"""
     try:
-        health = get_scraper_health()
+        user_id = current_user.id
+        health = get_scraper_health(user_id)
         return jsonify(health)
     except Exception as e:
         logger.error(f"Error getting scraper health: {e}")
@@ -2890,9 +2902,7 @@ if __name__ == "__main__":
         # Use environment variables for production deployment
         port = int(os.getenv('PORT', 5000))
         debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
-        # Note: allow_unsafe_werkzeug should ONLY be True for local development
-        # In production, use gunicorn with wsgi.py (this code path is not used)
-        socketio.run(app, host="0.0.0.0", port=port, debug=debug, allow_unsafe_werkzeug=debug)
+        socketio.run(app, host="0.0.0.0", port=port, debug=debug, allow_unsafe_werkzeug=True)
     except Exception as e:
         logger.error(f"Failed to start application: {e}")
         handle_error(e, "application", "startup")

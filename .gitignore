@@ -38,6 +38,9 @@ share/python-wheels/
 *.db-shm
 superbot.db*
 
+# Flask Sessions
+flask_session/
+
 # Logs
 logs/
 *.log
@@ -72,12 +75,3 @@ tmp/
 # OS
 Thumbs.db
 .DS_Store
-
-# Project documentation (already in docs/project-notes/)
-*_SUMMARY.md
-*_REPORT.md
-*_STATUS.md
-*_COMPLETE.md
-
-# Plan files
-*.plan.md

@@ -32,7 +32,7 @@ running_flags = {SITE_NAME: True}
 # ======================
 # HELPER FUNCTIONS
 # ======================
-def send_discord_message(title, link, price=None, image_url=None, user_id=None):
+def send_discord_message(title, link, price=None, image_url=None):
     """Save listing to database and send notification."""
     try:
         # Validate data before saving
@@ -46,17 +46,17 @@ def send_discord_message(title, link, price=None, image_url=None, user_id=None):
             logger.debug(f"Invalid/placeholder image URL, setting to None: {image_url}")
             image_url = None
         
-        # Save to database with user_id
-        save_listing(title, price, link, image_url, SITE_NAME, user_id=user_id)
-        logger.info(f"📢 New KSL for {user_id}: {title} | ${price} | {link}")
+        # Save to database
+        save_listing(title, price, link, image_url, SITE_NAME)
+        logger.info(f"📢 New KSL: {title} | ${price} | {link}")
     except Exception as e:
         logger.error(f"⚠️ Failed to save listing for {link}: {e}")
 
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_ksl(flag_name=SITE_NAME, user_id=None):
-    settings = load_settings(username=user_id)
+def check_ksl(flag_name=SITE_NAME):
+    settings = load_settings()
     keywords = settings["keywords"]
     min_price = settings["min_price"]
     max_price = settings["max_price"]
@@ -190,7 +190,7 @@ def check_ksl(flag_name=SITE_NAME, user_id=None):
                         if image_url and not image_url.startswith("http"):
                             image_url = "https://img.ksl.com" + image_url
                     
-                    send_discord_message(title, link, price_val, image_url, user_id=user_id)
+                    send_discord_message(title, link, price_val, image_url)
                     results.append({"title": title, "link": link, "price": price_val, "image": image_url})
                 except Exception as e:
                     logger.warning(f"Error parsing a KSL post: {e}")
@@ -226,18 +226,18 @@ def run_ksl_scraper(flag_name=SITE_NAME, user_id=None):
     set_recursion_guard(SITE_NAME, True)
     
     try:
-        logger.info(f"Starting KSL scraper for user {user_id}")
+        logger.info("Starting KSL scraper")
         seen_listings = load_seen_listings(SITE_NAME)
         
         try:
             while running_flags.get(flag_name, True):
                 try:
-                    logger.debug(f"Running KSL scraper check for user {user_id}")
-                    results = check_ksl(flag_name, user_id=user_id)
+                    logger.debug("Running KSL scraper check")
+                    results = check_ksl(flag_name)
                     if results:
-                        logger.info(f"KSL scraper found {len(results)} new listings for user {user_id}")
+                        logger.info(f"KSL scraper found {len(results)} new listings")
                     else:
-                        logger.debug(f"KSL scraper found no new listings for user {user_id}")
+                        logger.debug("KSL scraper found no new listings")
                 except RecursionError as e:
                     print(f"ERROR: RecursionError in KSL scraper: {e}", file=sys.stderr, flush=True)
                     # Wait before retrying to avoid tight loop

@@ -118,7 +118,7 @@ def validate_listing(title, link, price=None):
     
     return True, None
 
-def send_discord_message(title, link, price=None, image_url=None, user_id=None):
+def send_discord_message(title, link, price=None, image_url=None):
     """Save listing to database and send notification."""
     try:
         # Validate data before saving
@@ -127,16 +127,16 @@ def send_discord_message(title, link, price=None, image_url=None, user_id=None):
             logger.warning(f"⚠️ Skipping invalid listing: {error}")
             return
         
-        # Save to database with user_id
-        save_listing(title, price, link, image_url, "poshmark", user_id=user_id)
-        logger.info(f"📢 New Poshmark for {user_id}: {title} | ${price} | {link}")
+        # Save to database
+        save_listing(title, price, link, image_url, "poshmark")
+        logger.info(f"📢 New Poshmark: {title} | ${price} | {link}")
     except Exception as e:
         logger.error(f"⚠️ Failed to save listing for {link}: {e}")
 
-def load_settings(username=None):
+def load_settings():
     """Load settings from database"""
     try:
-        settings = get_settings(username=username)  # Get user-specific or global settings
+        settings = get_settings()  # Get global settings
         return {
             "keywords": [k.strip() for k in settings.get("keywords","Firebird,Camaro,Corvette").split(",") if k.strip()],
             "min_price": int(settings.get("min_price", 1000)),
@@ -159,8 +159,8 @@ def load_settings(username=None):
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_poshmark(flag_name="poshmark", user_id=None):
-    settings = load_settings(username=user_id)
+def check_poshmark(flag_name="poshmark"):
+    settings = load_settings()
     keywords = settings["keywords"]
     min_price = settings["min_price"]
     max_price = settings["max_price"]
@@ -322,7 +322,7 @@ def check_poshmark(flag_name="poshmark", user_id=None):
                             elif image_url.startswith('/'):
                                 image_url = "https://poshmark.com" + image_url
                 
-                send_discord_message(title, link, price_val, image_url, user_id=user_id)
+                send_discord_message(title, link, price_val, image_url)
                 results.append({"title": title, "link": link, "price": price_val, "image": image_url})
             except Exception as e:
                 logger.warning(f"Error parsing a Poshmark listing: {e}")
@@ -354,18 +354,18 @@ def run_poshmark_scraper(flag_name="poshmark", user_id=None):
     _recursion_guard.in_scraper = True
     
     try:
-        logger.info(f"Starting Poshmark scraper for user {user_id}")
+        logger.info("Starting Poshmark scraper")
         load_seen_listings()
         
         try:
             while running_flags.get(flag_name, True):
                 try:
-                    logger.debug(f"Running Poshmark scraper check for user {user_id}")
-                    results = check_poshmark(flag_name, user_id=user_id)
+                    logger.debug("Running Poshmark scraper check")
+                    results = check_poshmark(flag_name)
                     if results:
-                        logger.info(f"Poshmark scraper found {len(results)} new listings for user {user_id}")
+                        logger.info(f"Poshmark scraper found {len(results)} new listings")
                     else:
-                        logger.debug(f"Poshmark scraper found no new listings for user {user_id}")
+                        logger.debug("Poshmark scraper found no new listings")
                 except RecursionError as e:
                     import sys
                     print(f"ERROR: RecursionError in Poshmark scraper: {e}", file=sys.stderr, flush=True)

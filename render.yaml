@@ -52,29 +52,26 @@ services:
       # Uncomment and set your values:
       
       # Email Configuration (REQUIRED for email verification and notifications)
-      # IMPORTANT: Set these in the Render Dashboard under Environment Variables
-      # Do NOT commit actual credentials to the repository
-      # - key: SMTP_HOST
-      #   value: smtp.gmail.com
-      # - key: SMTP_PORT
-      #   value: "587"
-      # - key: SMTP_USERNAME
-      #   value: your-email@gmail.com
-      # - key: SMTP_PASSWORD
-      #   value: your-app-password-here
-      # - key: SMTP_FROM_EMAIL
-      #   value: your-email@gmail.com
-      # - key: SMTP_FROM_NAME
-      #   value: YourAppName
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        value: BotifexBot@gmail.com
+      - key: SMTP_PASSWORD
+        value: sjcc zhve zmce wqlj
+      - key: SMTP_FROM_EMAIL
+        value: BotifexBot@gmail.com
+      - key: SMTP_FROM_NAME
+        value: Botifex
       
       # Business Contact Information
-      # Set these in the Render Dashboard
-      # - key: BUSINESS_EMAIL
-      #   value: your-business@example.com
-      # - key: BUSINESS_PHONE
-      #   value: (123)-456-7890
-      # - key: SUPPORT_EMAIL
-      #   value: support@example.com
+      - key: BUSINESS_EMAIL
+        value: Botifex2025@gmail.com
+      - key: BUSINESS_PHONE
+        value: (208)-681-6169
+      - key: SUPPORT_EMAIL
+        value: Botifex2025@gmail.com
       
       # Stripe Configuration (if using payments)
       # - key: STRIPE_SECRET_KEY

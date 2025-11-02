@@ -100,10 +100,10 @@ class HealthMonitor:
     def _check_scraper_health(self):
         """Check scraper system health."""
         try:
-            from scraper_thread import get_scraper_status
-            status = get_scraper_status()
-            # Check if any scrapers are running but not responding
-            if any(status.values()):
+            from scraper_thread import get_system_stats
+            stats = get_system_stats()
+            # Check if any scrapers are running system-wide
+            if stats['total_scrapers'] > 0:
                 self.health_status["scrapers"]["status"] = "healthy"
                 self.health_status["scrapers"]["last_check"] = datetime.now()
                 self.health_status["scrapers"]["error_count"] = 0

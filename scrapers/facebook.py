@@ -133,7 +133,7 @@ def validate_listing(title, link, price=None):
     
     return True, None
 
-def send_discord_message(title, link, price=None, image_url=None, user_id=None):
+def send_discord_message(title, link, price=None, image_url=None):
     """Save listing to database and send notification."""
     try:
         # Validate data before saving
@@ -142,16 +142,16 @@ def send_discord_message(title, link, price=None, image_url=None, user_id=None):
             logger.warning(f"⚠️ Skipping invalid listing: {error}")
             return
         
-        # Save to database with user_id
-        ErrorHandler.handle_database_error(save_listing, title, price, link, image_url, "facebook", user_id=user_id)
-        logger.info(f"📢 New Facebook Listing for {user_id}: {title} | ${price} | {link}")
+        # Save to database
+        ErrorHandler.handle_database_error(save_listing, title, price, link, image_url, "facebook")
+        logger.info(f"📢 New Facebook Listing: {title} | ${price} | {link}")
     except Exception as e:
         logger.error(f"Failed to save Facebook listing for {link}: {e}")
 
-def load_settings(username=None):
+def load_settings():
     """Load settings from database"""
     try:
-        settings = get_settings(username=username)  # Get user-specific or global settings
+        settings = get_settings()  # Get global settings
         return {
             "keywords": [k.strip() for k in settings.get("keywords","Firebird,Camaro,Corvette").split(",") if k.strip()],
             "min_price": int(settings.get("min_price", 1000)),
@@ -232,9 +232,9 @@ def get_facebook_url(settings):
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_facebook(driver, user_id=None):
+def check_facebook(driver):
     try:
-        settings = ErrorHandler.handle_database_error(lambda: load_settings(user_id))
+        settings = ErrorHandler.handle_database_error(load_settings)
         keywords = settings["keywords"]
         min_price = settings["min_price"]
         max_price = settings["max_price"]
@@ -331,7 +331,7 @@ def check_facebook(driver, user_id=None):
                 except Exception:
                     pass  # Silently ignore image extraction errors
 
-                send_discord_message(title, link, price, image_url, user_id=user_id)
+                send_discord_message(title, link, price, image_url)
                 new_links.append(link)
             except Exception as e:
                 logger.warning(f"Error processing Facebook listing: {e}")
@@ -370,12 +370,12 @@ def run_facebook_scraper(driver, flag_name="facebook", user_id=None):
     
     try:
         load_seen_listings()
-        logger.info(f"Starting Facebook scraper for user {user_id}")
+        logger.info("Starting Facebook scraper")
         
         try:
             while running_flags.get(flag_name, True):
                 try:
-                    check_facebook(driver, user_id=user_id)
+                    check_facebook(driver)
                 except RecursionError as e:
                     import sys
                     print(f"ERROR: RecursionError in Facebook scraper: {e}", file=sys.stderr, flush=True)

@@ -561,6 +561,26 @@ def get_scraper_status(user_id):
         "mercari": is_mercari_running(user_id)
     }
 
+def get_scraper_health(user_id):
+    """Get detailed health information about all scrapers for a specific user."""
+    status = get_scraper_status(user_id)
+    
+    # Get error information for each scraper
+    health = {}
+    for scraper_name in status.keys():
+        error_key = f"{user_id}_{scraper_name}"
+        errors = _scraper_error_messages.get(error_key, [])
+        recent_errors = errors[-5:] if errors else []  # Last 5 errors
+        
+        health[scraper_name] = {
+            "running": status[scraper_name],
+            "error_count": len(_scraper_errors.get(error_key, [])),
+            "recent_errors": recent_errors,
+            "last_start": _last_start_time.get(error_key)
+        }
+    
+    return health
+
 def get_system_stats():
     """Get system-wide statistics."""
     return {
@@ -569,49 +589,6 @@ def get_system_stats():
         "total_scrapers": get_total_active_scrapers(),
         "max_concurrent_users": MAX_CONCURRENT_USERS,
         "max_scrapers_per_user": MAX_SCRAPERS_PER_USER
-    }
-
-def get_scraper_health():
-    """Get health information for all scrapers across all users."""
-    sites = ["facebook", "craigslist", "ksl", "ebay", "poshmark", "mercari"]
-    health = {}
-    now = time.time()
-    hour_ago = now - ERROR_RESET_PERIOD
-    
-    for site in sites:
-        # Count active instances across all users
-        active_count = 0
-        total_errors = 0
-        recent_errors = []
-        
-        for user_id in _threads.keys():
-            # Check if running for this user
-            if user_id in _threads and site in _threads[user_id]:
-                if _threads[user_id][site].is_alive():
-                    active_count += 1
-            
-            # Get error info for this user/site combo
-            key = f"{user_id}_{site}"
-            if key in _scraper_errors:
-                # Count recent errors (last hour)
-                recent = [t for t in _scraper_errors[key] if t > hour_ago]
-                total_errors += len(recent)
-                
-                # Get error messages if available
-                if key in _scraper_error_messages and _scraper_error_messages[key]:
-                    recent_errors.extend(_scraper_error_messages[key][-3:])  # Last 3 errors
-        
-        health[site] = {
-            "active_instances": active_count,
-            "error_count_last_hour": total_errors,
-            "status": "healthy" if total_errors < MAX_ERRORS_PER_HOUR else "degraded",
-            "recent_errors": recent_errors[-5:]  # Keep last 5 errors across all users
-        }
-    
-    return {
-        "scrapers": health,
-        "system": get_system_stats(),
-        "timestamp": now
     }
 
 # ============================
