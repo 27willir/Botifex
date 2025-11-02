@@ -1,219 +1,66 @@
-import random, time, json
+import sys
 import threading
+import time
+import random
+import json
 from datetime import datetime
+import urllib.parse
+from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
-from pathlib import Path
-import urllib.parse
-from lxml import html
 from utils import debug_scraper_output, logger
-from db import get_settings, save_listing
+from db import save_listing
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
-from location_utils import geocode_location, get_location_coords, miles_to_km
-
-# Session object for persistent cookies
-session = requests.Session()
+from location_utils import get_location_coords, miles_to_km
+from scrapers.common import (
+    human_delay, normalize_url, is_new_listing, save_seen_listings,
+    load_seen_listings, validate_listing, load_settings, get_session,
+    make_request_with_retry, validate_image_url, check_recursion_guard,
+    set_recursion_guard, clear_recursion_guard, log_selector_failure, 
+    log_parse_attempt, get_seen_listings_lock, get_random_user_agent,
+    get_realistic_headers, initialize_session
+)
+from scrapers.metrics import ScraperMetrics
 
 # ======================
 # CONFIGURATION
 # ======================
-mercari_url = "https://www.mercari.com"
+SITE_NAME = "mercari"
+BASE_URL = "https://www.mercari.com"
 
 seen_listings = {}
-_seen_listings_lock = threading.Lock()  # Thread safety for seen_listings
-
-# ======================
-# RECURSION GUARD
-# ======================
-_recursion_guard = threading.local()
 
 # ======================
 # RUNNING FLAG
 # ======================
-running_flags = {"mercari": True}
+running_flags = {SITE_NAME: True}
 
 # ======================
 # HELPER FUNCTIONS
 # ======================
-def get_random_user_agent():
-    """Return a random realistic user agent to avoid detection."""
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    ]
-    return random.choice(user_agents)
-
-def get_realistic_headers():
-    """Generate realistic browser headers to avoid detection."""
-    return {
-        "User-Agent": get_random_user_agent(),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "DNT": "1",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Cache-Control": "max-age=0",
-        "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"'
-    }
-
-def initialize_session():
-    """Visit homepage to establish session and get cookies like a real browser."""
-    try:
-        headers = get_realistic_headers()
-        logger.debug("Initializing Mercari session by visiting homepage...")
-        response = session.get("https://www.mercari.com/", headers=headers, timeout=15)
-        if response.status_code == 200:
-            logger.debug("Session initialized successfully")
-            # Small delay to mimic human behavior
-            time.sleep(random.uniform(1, 2))
-            return True
-        else:
-            logger.warning(f"Session initialization returned status {response.status_code}")
-            return False
-    except Exception as e:
-        logger.warning(f"Failed to initialize session: {e}")
-        return False
-
-def human_delay(flag_dict, flag_name, min_sec=1.5, max_sec=4.5):
-    """Pause between requests with human-like randomness, respecting stop flags."""
-    total = random.uniform(min_sec, max_sec)
-    step = 0.25  # smaller step for faster stop response
-    while total > 0 and flag_dict.get(flag_name, True):
-        sleep_time = min(step, total)
-        time.sleep(sleep_time)
-        total -= sleep_time
-
-def normalize_url(url):
-    """Normalize URL by removing query parameters and fragments for comparison."""
-    if not url:
-        return None
-    try:
-        # Remove query parameters and fragments
-        parsed = urllib.parse.urlparse(url)
-        normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-        return normalized.rstrip('/')
-    except Exception as e:
-        logger.debug(f"Error normalizing URL {url}: {e}")
-        return url
-
-def is_new_listing(link):
-    """Return True if this listing is new or last seen more than 24h ago."""
-    normalized_link = normalize_url(link)
-    if not normalized_link:
-        # If URL normalization failed, treat as new to attempt processing
-        logger.debug(f"URL normalization failed for {link}, treating as new")
-        return True
-    
-    with _seen_listings_lock:
-        if normalized_link not in seen_listings:
-            return True
-        last_seen = seen_listings[normalized_link]
-        return (datetime.now() - last_seen).total_seconds() > 86400
-
-def save_seen_listings(filename="mercari_seen.json"):
-    """Save seen listings with timestamps to JSON."""
-    try:
-        with _seen_listings_lock:
-            Path(filename).write_text(
-                json.dumps({k: v.isoformat() for k, v in seen_listings.items()}, indent=2),
-                encoding="utf-8"
-            )
-        logger.debug(f"Saved seen listings to {filename}")
-    except (OSError, PermissionError) as e:
-        logger.error(f"File system error saving seen listings: {e}")
-    except Exception as e:
-        logger.error(f"Error saving seen listings: {e}")
-
-def load_seen_listings(filename="mercari_seen.json"):
-    """Load seen listings from JSON, if available."""
-    global seen_listings
-    try:
-        text = Path(filename).read_text(encoding="utf-8")
-        data = json.loads(text) if text else {}
-        with _seen_listings_lock:
-            seen_listings = {k: datetime.fromisoformat(v) for k, v in data.items()}
-        logger.debug(f"Loaded {len(seen_listings)} seen listings from {filename}")
-    except FileNotFoundError:
-        logger.info(f"Seen listings file not found: {filename}, starting fresh")
-        with _seen_listings_lock:
-            seen_listings = {}
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.error(f"Invalid JSON in seen listings file: {e}")
-        with _seen_listings_lock:
-            seen_listings = {}
-    except Exception as e:
-        logger.error(f"Error loading seen listings: {e}")
-        with _seen_listings_lock:
-            seen_listings = {}
-
-def validate_listing(title, link, price=None):
-    """Validate listing data before saving."""
-    if not title or not isinstance(title, str) or len(title.strip()) == 0:
-        return False, "Invalid or empty title"
-    
-    if not link or not isinstance(link, str) or not link.startswith("http"):
-        return False, "Invalid or missing link"
-    
-    if price is not None and (not isinstance(price, (int, float)) or price < 0):
-        return False, "Invalid price"
-    
-    return True, None
-
-def send_discord_message(title, link, price=None, image_url=None):
+def send_discord_message(title, link, price=None, image_url=None, user_id=None):
     """Save listing to database and send notification."""
     try:
+        # Validate image URL
+        validated_image = validate_image_url(image_url)
+        
         # Validate data before saving
         is_valid, error = validate_listing(title, link, price)
         if not is_valid:
             logger.warning(f"⚠️ Skipping invalid listing: {error}")
             return
         
-        # Save to database
-        save_listing(title, price, link, image_url, "mercari")
-        logger.info(f"📢 New Mercari: {title} | ${price} | {link}")
+        # Save to database with user_id
+        save_listing(title, price, link, validated_image, "mercari", user_id=user_id)
+        logger.info(f"📢 New Mercari for {user_id}: {title} | ${price} | {link}")
     except Exception as e:
         logger.error(f"⚠️ Failed to save listing for {link}: {e}")
-
-def load_settings():
-    """Load settings from database"""
-    try:
-        settings = get_settings()  # Get global settings
-        return {
-            "keywords": [k.strip() for k in settings.get("keywords","Firebird,Camaro,Corvette").split(",") if k.strip()],
-            "min_price": int(settings.get("min_price", 1000)),
-            "max_price": int(settings.get("max_price", 30000)),
-            "interval": int(settings.get("interval", 60)),
-            "location": settings.get("location", "boise"),
-            "radius": int(settings.get("radius", 50))
-        }
-    except Exception as e:
-        logger.error(f"⚠️ Failed to load settings: {e}")
-        return {
-            "keywords": ["Firebird","Camaro","Corvette"],
-            "min_price": 1000,
-            "max_price": 30000,
-            "interval": 60,
-            "location": "boise",
-            "radius": 50
-        }
 
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_mercari(flag_name="mercari"):
-    settings = load_settings()
+def check_mercari(flag_name=SITE_NAME, user_id=None):
+    settings = load_settings(username=user_id)
     keywords = settings["keywords"]
     min_price = settings["min_price"]
     max_price = settings["max_price"]
@@ -272,6 +119,7 @@ def check_mercari(flag_name="mercari"):
                 time.sleep(random.uniform(1, 3))
 
             # Use session for cookie persistence
+            session = get_session(SITE_NAME, BASE_URL)
             response = session.get(full_url, headers=headers, timeout=30)
             
             # Handle 403 specifically - likely bot detection
@@ -284,7 +132,7 @@ def check_mercari(flag_name="mercari"):
                     logger.info(f"Reinitializing session and retrying in {delay:.1f} seconds...")
                     time.sleep(delay)
                     # Try to reinitialize session by visiting homepage
-                    initialize_session()
+                    initialize_session(SITE_NAME, BASE_URL)
                     continue
                 else:
                     logger.error(f"Mercari blocking requests after {max_retries} attempts. Waiting longer before next attempt...")
@@ -313,37 +161,29 @@ def check_mercari(flag_name="mercari"):
 
     # Process the results if we successfully got the page
     try:
-        # Mercari uses different HTML structures
-        # Method 1: Try to find listing cards (most common structure)
-        items = soup.find_all('div', class_='item-box')
-        if not items:
-            # Method 2: Try alternative structure
-            items = soup.find_all('div', attrs={'class': lambda x: x and 'item' in x.lower() if x else False})
-        
-        if not items:
-            # Method 3: Try even more generic
-            items = soup.find_all('div', attrs={'class': lambda x: x and 'listing' in x.lower() if x else False})
+        # Try to find listing items (consolidated selectors)
+        items = (soup.find_all('div', class_='item-box') or 
+                soup.find_all('div', attrs={'class': lambda x: x and 'item' in x.lower() if x else False}) or 
+                soup.find_all('div', attrs={'class': lambda x: x and 'listing' in x.lower() if x else False}))
         
         logger.debug(f"Found {len(items)} Mercari items to process")
         
+        # Pre-compile keywords for faster matching
+        keywords_lower = [k.lower() for k in keywords]
+        
         for item in items:
             try:
-                # Extract title
-                title_elem = item.find('h3', class_='item-name')
-                if not title_elem:
-                    title_elem = item.find('a', class_='item-name')
-                if not title_elem:
-                    title_elem = item.find('h3')
-                if not title_elem:
-                    title_elem = item.find('a', href=True)
+                # Extract title (consolidated selector)
+                title_elem = (item.find('h3', class_='item-name') or 
+                             item.find('a', class_='item-name') or 
+                             item.find('h3') or 
+                             item.find('a', href=True))
                 
                 if not title_elem:
                     continue
                 
                 title = title_elem.get_text(strip=True)
-                
-                # Skip empty titles
-                if title == "":
+                if not title:
                     continue
                 
                 # Extract link
@@ -355,62 +195,63 @@ def check_mercari(flag_name="mercari"):
                 if not link:
                     continue
                 
-                # Make sure link is absolute
+                # Make sure link is absolute (fast path check)
                 if link.startswith('/'):
                     link = "https://www.mercari.com" + link
                 
-                # Extract price
-                price_elem = item.find('div', class_='item-price')
-                if not price_elem:
-                    # Try alternative price location
-                    price_elem = item.find('span', class_='price')
+                # Extract and parse price (consolidated)
+                price_elem = item.find('div', class_='item-price') or item.find('span', class_='price')
                 
                 price_val = None
                 if price_elem:
                     price_text = price_elem.get_text(strip=True)
                     try:
-                        # Handle different price formats
-                        # "$123" or "123" or "$123.45" or "¥123" (Japanese yen)
+                        # Handle different price formats efficiently
                         price_clean = price_text.replace('$', '').replace('¥', '').replace(',', '').strip()
-                        
-                        # Convert to float then int
                         price_val = int(float(price_clean))
-                    except (ValueError, AttributeError) as e:
-                        logger.debug(f"Could not parse price from '{price_text}': {e}")
+                    except (ValueError, AttributeError):
+                        pass
                 
-                # Filter by price range
+                # Early exit if price out of range
                 if price_val and (price_val < min_price or price_val > max_price):
                     continue
                 
-                # Check if any keyword matches and if it's a new listing
-                if any(k.lower() in title.lower() for k in keywords) and is_new_listing(link):
-                    normalized_link = normalize_url(link)
-                    with _seen_listings_lock:
-                        seen_listings[normalized_link] = datetime.now()
-                    
-                    # Extract image URL
-                    image_url = None
-                    try:
-                        img_elem = item.find('img')
-                        if img_elem:
-                            image_url = img_elem.get('src') or img_elem.get('data-src') or img_elem.get('data-original')
-                            # Make sure it's a full URL
-                            if image_url and not image_url.startswith("http"):
-                                if image_url.startswith('//'):
-                                    image_url = 'https:' + image_url
-                                elif image_url.startswith('/'):
-                                    image_url = "https://www.mercari.com" + image_url
-                    except Exception as e:
-                        logger.debug(f"Could not extract image for {link}: {e}")
-                    
-                    send_discord_message(title, link, price_val, image_url)
-                    results.append({"title": title, "link": link, "price": price_val, "image": image_url})
+                # Check keywords (use pre-lowercased)
+                title_lower = title.lower()
+                if not any(k in title_lower for k in keywords_lower):
+                    continue
+                
+                # Check if new listing
+                if not is_new_listing(link, seen_listings, SITE_NAME):
+                    continue
+                
+                # Update seen listings
+                normalized_link = normalize_url(link)
+                lock = get_seen_listings_lock(SITE_NAME)
+                with lock:
+                    seen_listings[normalized_link] = datetime.now()
+                
+                # Extract image URL
+                image_url = None
+                img_elem = item.find('img')
+                if img_elem:
+                    image_url = img_elem.get('src') or img_elem.get('data-src') or img_elem.get('data-original')
+                    # Make sure it's a full URL (fast path checks)
+                    if image_url:
+                        if not image_url.startswith("http"):
+                            if image_url.startswith('//'):
+                                image_url = 'https:' + image_url
+                            elif image_url.startswith('/'):
+                                image_url = "https://www.mercari.com" + image_url
+                
+                send_discord_message(title, link, price_val, image_url, user_id=user_id)
+                results.append({"title": title, "link": link, "price": price_val, "image": image_url})
             except Exception as e:
                 logger.warning(f"Error parsing a Mercari listing: {e}")
                 continue
 
         if results:
-            save_seen_listings()
+            save_seen_listings(seen_listings, SITE_NAME)
         else:
             logger.info(f"No new Mercari listings. Next check in {check_interval}s...")
 
@@ -424,32 +265,32 @@ def check_mercari(flag_name="mercari"):
 # ======================
 # CONTINUOUS RUNNER
 # ======================
-def run_mercari_scraper(flag_name="mercari"):
+def run_mercari_scraper(flag_name="mercari", user_id=None):
     """Run scraper continuously until stopped via running_flags."""
     # Check for recursion
-    if getattr(_recursion_guard, 'in_scraper', False):
+    if check_recursion_guard(SITE_NAME):
         import sys
         print("ERROR: Recursion detected in Mercari scraper", file=sys.stderr, flush=True)
         return
     
-    _recursion_guard.in_scraper = True
+    set_recursion_guard(SITE_NAME, True)
     
     try:
-        logger.info("Starting Mercari scraper")
-        load_seen_listings()
+        logger.info(f"Starting Mercari scraper for user {user_id}")
+        seen_listings.update(load_seen_listings(SITE_NAME))
         
         # Initialize session by visiting homepage first
-        initialize_session()
+        initialize_session(SITE_NAME, BASE_URL)
         
         try:
             while running_flags.get(flag_name, True):
                 try:
-                    logger.debug("Running Mercari scraper check")
-                    results = check_mercari(flag_name)
+                    logger.debug(f"Running Mercari scraper check for user {user_id}")
+                    results = check_mercari(flag_name, user_id=user_id)
                     if results:
-                        logger.info(f"Mercari scraper found {len(results)} new listings")
+                        logger.info(f"Mercari scraper found {len(results)} new listings for user {user_id}")
                     else:
-                        logger.debug("Mercari scraper found no new listings")
+                        logger.debug(f"Mercari scraper found no new listings for user {user_id}")
                 except RecursionError as e:
                     import sys
                     print(f"ERROR: RecursionError in Mercari scraper: {e}", file=sys.stderr, flush=True)
@@ -466,7 +307,7 @@ def run_mercari_scraper(flag_name="mercari"):
                     # Continue running but log the error
                     continue
                 
-                settings = load_settings()
+                settings = load_settings(username=user_id)
                 # Delay dynamically based on interval
                 human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
                 
@@ -484,5 +325,5 @@ def run_mercari_scraper(flag_name="mercari"):
         finally:
             logger.info("Mercari scraper stopped")
     finally:
-        _recursion_guard.in_scraper = False
+        clear_recursion_guard(SITE_NAME)
 

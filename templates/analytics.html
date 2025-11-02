@@ -645,6 +645,16 @@
             `;
         }
 
+        function showEmptyChart(ctx, message) {
+            const canvas = ctx.canvas;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.font = '16px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(message || 'No data available', canvas.width / 2, canvas.height / 2);
+        }
+
         function updateCharts() {
             updatePriceChart();
             updateKeywordChart();
@@ -656,7 +666,8 @@
 
         function updatePriceChart() {
             try {
-                const ctx = document.getElementById('priceChart').getContext('2d');
+                const canvas = document.getElementById('priceChart');
+                const ctx = canvas.getContext('2d');
                 
                 if (charts.priceChart) {
                     charts.priceChart.destroy();
@@ -664,6 +675,7 @@
 
                 if (!currentData || !currentData.priceAnalytics || !currentData.priceAnalytics.analytics) {
                     console.error('No price analytics data available');
+                    showEmptyChart(ctx, 'No data available');
                     return;
                 }
 
@@ -672,6 +684,7 @@
                 
                 if (data.length === 0) {
                     console.warn('Price analytics data is empty');
+                    showEmptyChart(ctx, 'No price data for selected filters');
                     return;
                 }
                 
@@ -734,7 +747,8 @@
         }
 
         function updateKeywordChart() {
-            const ctx = document.getElementById('keywordChart').getContext('2d');
+            const canvas = document.getElementById('keywordChart');
+            const ctx = canvas.getContext('2d');
             
             if (charts.keywordChart) {
                 charts.keywordChart.destroy();
@@ -742,10 +756,17 @@
 
             if (!currentData || !currentData.keywordAnalysis || !currentData.keywordAnalysis.analysis) {
                 console.error('No keyword analysis data available');
+                showEmptyChart(ctx, 'No keyword data available');
                 return;
             }
 
             const data = currentData.keywordAnalysis.analysis || [];
+            
+            if (data.length === 0) {
+                showEmptyChart(ctx, 'No keywords found');
+                return;
+            }
+            
             const labels = data.slice(0, 10).map(item => item[0]);
             const counts = data.slice(0, 10).map(item => item[1]);
 
@@ -775,7 +796,8 @@
         }
 
         function updateSourceChart() {
-            const ctx = document.getElementById('sourceChart').getContext('2d');
+            const canvas = document.getElementById('sourceChart');
+            const ctx = canvas.getContext('2d');
             
             if (charts.sourceChart) {
                 charts.sourceChart.destroy();
@@ -783,10 +805,17 @@
 
             if (!currentData || !currentData.sourceComparison || !currentData.sourceComparison.comparison) {
                 console.error('No source comparison data available');
+                showEmptyChart(ctx, 'No source data available');
                 return;
             }
 
             const data = currentData.sourceComparison.comparison || [];
+            
+            if (data.length === 0) {
+                showEmptyChart(ctx, 'No sources found');
+                return;
+            }
+            
             const labels = data.map(item => item[0]);
             const counts = data.map(item => item[1]);
             const avgPrices = data.map(item => item[2]);
@@ -838,7 +867,8 @@
         }
 
         function updateDistributionChart() {
-            const ctx = document.getElementById('distributionChart').getContext('2d');
+            const canvas = document.getElementById('distributionChart');
+            const ctx = canvas.getContext('2d');
             
             if (charts.distributionChart) {
                 charts.distributionChart.destroy();
@@ -846,10 +876,17 @@
 
             if (!currentData || !currentData.priceDistribution || !currentData.priceDistribution.distribution) {
                 console.error('No price distribution data available');
+                showEmptyChart(ctx, 'No distribution data available');
                 return;
             }
 
             const data = currentData.priceDistribution.distribution || [];
+            
+            if (data.length === 0) {
+                showEmptyChart(ctx, 'No price distribution data');
+                return;
+            }
+            
             const labels = data.map(item => item.range);
             const counts = data.map(item => item.count);
 
@@ -888,7 +925,8 @@
         }
 
         function updateActivityChart() {
-            const ctx = document.getElementById('activityChart').getContext('2d');
+            const canvas = document.getElementById('activityChart');
+            const ctx = canvas.getContext('2d');
             
             if (charts.activityChart) {
                 charts.activityChart.destroy();
@@ -896,10 +934,17 @@
 
             if (!currentData || !currentData.hourlyActivity || !currentData.hourlyActivity.activity) {
                 console.error('No hourly activity data available');
+                showEmptyChart(ctx, 'No activity data available');
                 return;
             }
 
             const data = currentData.hourlyActivity.activity || [];
+            
+            if (data.length === 0) {
+                showEmptyChart(ctx, 'No hourly activity data');
+                return;
+            }
+            
             const hours = Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0'));
             const activityByHour = new Array(24).fill(0);
             
@@ -944,7 +989,8 @@
         }
 
         function updateDailyChart() {
-            const ctx = document.getElementById('dailyChart').getContext('2d');
+            const canvas = document.getElementById('dailyChart');
+            const ctx = canvas.getContext('2d');
             
             if (charts.dailyChart) {
                 charts.dailyChart.destroy();
@@ -952,10 +998,17 @@
 
             if (!currentData || !currentData.priceAnalytics || !currentData.priceAnalytics.analytics) {
                 console.error('No price analytics data available for daily chart');
+                showEmptyChart(ctx, 'No daily data available');
                 return;
             }
 
             const data = currentData.priceAnalytics.analytics || [];
+            
+            if (data.length === 0) {
+                showEmptyChart(ctx, 'No daily listings data');
+                return;
+            }
+            
             const labels = data.map(item => new Date(item[0]).toLocaleDateString()).reverse();
             const counts = data.map(item => item[1]).reverse();
 
@@ -1150,6 +1203,13 @@
             `;
         }
 
+        function supportsConicGradient() {
+            // Check if browser supports conic-gradient
+            const testDiv = document.createElement('div');
+            testDiv.style.backgroundImage = 'conic-gradient(#000, #fff)';
+            return testDiv.style.backgroundImage.includes('conic-gradient');
+        }
+
         function renderSellingMarketplacePieChart(marketplaceData, totalSold) {
             const container = document.getElementById('sellingMarketplaceChart');
             
@@ -1207,15 +1267,20 @@
                 currentAngle += angle;
             });
             
-            // Create visual pie chart using conic gradient
+            // Create visual pie chart using conic gradient or fallback
             const gradientStops = segments.map((seg) => {
                 const start = seg.startAngle;
                 const end = start + seg.angle;
                 return `${seg.color} ${start}deg ${end}deg`;
             }).join(', ');
             
+            // Check for conic gradient support
+            const pieChartStyle = supportsConicGradient() 
+                ? `background: conic-gradient(${gradientStops});`
+                : `background: linear-gradient(135deg, ${segments[0]?.color || '#00bfff'}, ${segments[segments.length-1]?.color || '#007bff'});`;
+            
             container.innerHTML = `
-                <div style="width: 160px; height: 160px; border-radius: 50%; background: conic-gradient(${gradientStops}); margin: 0 auto 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);"></div>
+                <div style="width: 160px; height: 160px; border-radius: 50%; ${pieChartStyle} margin: 0 auto 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);"></div>
                 
                 <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
                     ${segments.map(seg => `
@@ -1235,7 +1300,20 @@
         }
 
         function showLoading() {
-            // Don't replace canvas elements - just show a loading indicator
+            // Show loading state on each chart
+            const chartCanvases = ['priceChart', 'keywordChart', 'sourceChart', 'distributionChart', 'activityChart', 'dailyChart'];
+            chartCanvases.forEach(canvasId => {
+                const canvas = document.getElementById(canvasId);
+                if (canvas) {
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = 'rgba(0, 191, 255, 0.8)';
+                    ctx.font = '18px Inter, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('⏳ Loading...', canvas.width / 2, canvas.height / 2);
+                }
+            });
             console.log('Loading analytics...');
         }
 

@@ -133,7 +133,7 @@ def validate_listing(title, link, price=None):
     
     return True, None
 
-def send_discord_message(title, link, price=None, image_url=None):
+def send_discord_message(title, link, price=None, image_url=None, user_id=None):
     """Save listing to database and send notification."""
     try:
         # Validate data before saving
@@ -142,16 +142,16 @@ def send_discord_message(title, link, price=None, image_url=None):
             logger.warning(f"⚠️ Skipping invalid listing: {error}")
             return
         
-        # Save to database
-        ErrorHandler.handle_database_error(save_listing, title, price, link, image_url, "facebook")
-        logger.info(f"📢 New Facebook Listing: {title} | ${price} | {link}")
+        # Save to database with user_id
+        ErrorHandler.handle_database_error(save_listing, title, price, link, image_url, "facebook", user_id=user_id)
+        logger.info(f"📢 New Facebook Listing for {user_id}: {title} | ${price} | {link}")
     except Exception as e:
         logger.error(f"Failed to save Facebook listing for {link}: {e}")
 
-def load_settings():
+def load_settings(username=None):
     """Load settings from database"""
     try:
-        settings = get_settings()  # Get global settings
+        settings = get_settings(username=username)  # Get user-specific or global settings
         return {
             "keywords": [k.strip() for k in settings.get("keywords","Firebird,Camaro,Corvette").split(",") if k.strip()],
             "min_price": int(settings.get("min_price", 1000)),
@@ -232,9 +232,9 @@ def get_facebook_url(settings):
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_facebook(driver):
+def check_facebook(driver, user_id=None):
     try:
-        settings = ErrorHandler.handle_database_error(load_settings)
+        settings = ErrorHandler.handle_database_error(lambda: load_settings(user_id))
         keywords = settings["keywords"]
         min_price = settings["min_price"]
         max_price = settings["max_price"]
@@ -251,80 +251,88 @@ def check_facebook(driver):
         human_scroll(driver, running_flags, "facebook")
 
         tree = html.fromstring(driver.page_source)
+        # Pre-filter anchors efficiently
         anchors = [a for a in tree.xpath("//a[@href]") if isinstance(a.get("href"), str)]
+
+        # Pre-compile price pattern outside loop
+        price_pattern = re.compile(r"\$\s?([\d,]+)")
+        
+        # Pre-compile keywords for faster matching
+        keywords_lower = [k.lower() for k in keywords]
+        
+        # Pre-compile filter patterns for image validation
+        bad_img_patterns = {"icon", "logo", "placeholder", "blank"}
 
         new_links = []
         for a in anchors:
             try:
-                link = a.get("href").split("?")[0].strip()
+                link = a.get("href").split("?", 1)[0].strip()
                 title = (a.text_content() or "").strip()
 
                 if not title or not link:
                     continue
 
-                # Extract price from title
+                # Extract price from title (using pre-compiled pattern)
                 price = None
-                price_match = re.search(r"\$\s?([\d,]+)", title)
+                price_match = price_pattern.search(title)
                 if price_match:
                     try:
                         price = int(price_match.group(1).replace(",", ""))
-                    except (ValueError, AttributeError) as e:
-                        logger.debug(f"Could not parse price from title '{title}': {e}")
-                        price = None
+                    except (ValueError, AttributeError):
+                        pass
 
+                # Early exit if price out of range
                 if price is not None and (price < min_price or price > max_price):
                     continue
 
-                # Check keywords and if new
-                if any(keyword.lower() in title.lower() for keyword in keywords) and is_new_listing(link):
-                    normalized_link = normalize_url(link)
-                    with _seen_listings_lock:
-                        seen_listings[normalized_link] = datetime.now()
+                # Check keywords (use pre-lowercased)
+                title_lower = title.lower()
+                if not any(k in title_lower for k in keywords_lower):
+                    continue
+                
+                # Check if new listing
+                if not is_new_listing(link):
+                    continue
 
-                    # Attempt to get image URL with improved extraction
-                    image_url = None
-                    try:
-                        # Try multiple methods to find the listing image
-                        # Method 1: Find images within the parent link element
-                        try:
-                            parent_link = driver.find_element(By.XPATH, f"//a[@href='{link}']")
-                            images = parent_link.find_elements(By.TAG_NAME, "img")
-                            if images:
-                                for img in images:
-                                    src = img.get_attribute("src")
-                                    # Filter out tiny icons and placeholders
-                                    if src and "https://" in src and not any(x in src.lower() for x in ["icon", "logo", "placeholder", "blank"]):
-                                        image_url = src
-                                        break
-                        except Exception:
-                            pass
-                        
-                        # Method 2: Look for images with marketplace-specific attributes
-                        if not image_url:
-                            try:
-                                imgs = driver.find_elements(By.CSS_SELECTOR, "img[data-imgperflogname='marketplace_search_result_image']")
-                                if imgs and len(imgs) > 0:
-                                    image_url = imgs[0].get_attribute("src")
-                            except Exception:
-                                pass
-                        
-                        # Method 3: Search for any high-quality image near the listing
-                        if not image_url:
-                            try:
-                                all_imgs = driver.find_elements(By.TAG_NAME, "img")
-                                for img in all_imgs[:10]:  # Check first 10 images only
-                                    src = img.get_attribute("src")
-                                    if src and "scontent" in src and "https://" in src:
-                                        image_url = src
-                                        break
-                            except Exception:
-                                pass
-                                
-                    except Exception as e:
-                        logger.debug(f"Could not extract image URL for {link}: {e}")
+                # Update seen listings
+                normalized_link = normalize_url(link)
+                with _seen_listings_lock:
+                    seen_listings[normalized_link] = datetime.now()
 
-                    send_discord_message(title, link, price, image_url)
-                    new_links.append(link)
+                # Attempt to get image URL (simplified and optimized)
+                image_url = None
+                try:
+                    # Method 1: Find images within the parent link element
+                    parent_link = driver.find_element(By.XPATH, f"//a[@href='{link}']")
+                    images = parent_link.find_elements(By.TAG_NAME, "img")
+                    for img in images:
+                        src = img.get_attribute("src")
+                        # Fast filter check
+                        if src and src.startswith("https://"):
+                            src_lower = src.lower()
+                            if not any(pattern in src_lower for pattern in bad_img_patterns):
+                                image_url = src
+                                break
+                    
+                    # Method 2: Marketplace-specific images (if method 1 failed)
+                    if not image_url:
+                        imgs = driver.find_elements(By.CSS_SELECTOR, "img[data-imgperflogname='marketplace_search_result_image']")
+                        if imgs:
+                            image_url = imgs[0].get_attribute("src")
+                    
+                    # Method 3: High-quality CDN images (if method 2 failed)
+                    if not image_url:
+                        all_imgs = driver.find_elements(By.TAG_NAME, "img")
+                        for img in all_imgs[:10]:  # Check first 10 only
+                            src = img.get_attribute("src")
+                            if src and "scontent" in src and src.startswith("https://"):
+                                image_url = src
+                                break
+                except Exception:
+                    pass  # Silently ignore image extraction errors
+
+                send_discord_message(title, link, price, image_url, user_id=user_id)
+                new_links.append(link)
             except Exception as e:
                 logger.warning(f"Error processing Facebook listing: {e}")
                 continue
@@ -350,7 +358,7 @@ def check_facebook(driver):
 # ======================
 # CONTINUOUS RUNNER
 # ======================
-def run_facebook_scraper(driver, flag_name="facebook"):
+def run_facebook_scraper(driver, flag_name="facebook", user_id=None):
     """Run Facebook scraper with proper error handling and timeout protection."""
     # Check for recursion
     if getattr(_recursion_guard, 'in_scraper', False):
@@ -362,12 +370,12 @@ def run_facebook_scraper(driver, flag_name="facebook"):
     
     try:
         load_seen_listings()
-        logger.info("Starting Facebook scraper")
+        logger.info(f"Starting Facebook scraper for user {user_id}")
         
         try:
             while running_flags.get(flag_name, True):
                 try:
-                    check_facebook(driver)
+                    check_facebook(driver, user_id=user_id)
                 except RecursionError as e:
                     import sys
                     print(f"ERROR: RecursionError in Facebook scraper: {e}", file=sys.stderr, flush=True)

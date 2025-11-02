@@ -193,8 +193,9 @@ The Super-Bot Team
                         </p>
                     </div>
                     <div class="footer">
-                        <p>Need help? <a href="{base_url}/support">Contact Support</a></p>
-                        <p>© 2025 Super-Bot. All rights reserved.</p>
+                        <p>Need help? <a href="mailto:Botifex2025@gmail.com">Contact Support</a></p>
+                        <p>📧 Botifex2025@gmail.com | 📞 (208) 681-6169</p>
+                        <p>© 2025 Botifex LLC. All rights reserved.</p>
                     </div>
                 </div>
             </body>
@@ -373,8 +374,9 @@ The Super-Bot Team
                         </p>
                     </div>
                     <div class="footer">
-                        <p>Questions? <a href="{base_url}/support">Contact Support</a></p>
-                        <p>© 2025 Super-Bot. All rights reserved.</p>
+                        <p>Questions? <a href="mailto:Botifex2025@gmail.com">Contact Support</a></p>
+                        <p>📧 Botifex2025@gmail.com | 📞 (208) 681-6169</p>
+                        <p>© 2025 Botifex LLC. All rights reserved.</p>
                     </div>
                 </div>
             </body>

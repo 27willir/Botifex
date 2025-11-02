@@ -481,15 +481,16 @@ def landing():
 @rate_limit('api', max_requests=60)
 def dashboard():
     """Main dashboard for authenticated users"""
+    user_id = current_user.id
     listings = get_listings_from_db()
     settings = get_user_settings()
     status = {
-        "facebook": is_facebook_running(),
-        "craigslist": is_craigslist_running(),
-        "ksl": is_ksl_running(),
-        "ebay": is_ebay_running(),
-        "poshmark": is_poshmark_running(),
-        "mercari": is_mercari_running(),
+        "facebook": is_facebook_running(user_id),
+        "craigslist": is_craigslist_running(user_id),
+        "ksl": is_ksl_running(user_id),
+        "ebay": is_ebay_running(user_id),
+        "poshmark": is_poshmark_running(user_id),
+        "mercari": is_mercari_running(user_id),
     }
     return render_template("index.html", listings=listings, settings=settings, status=status)
 
@@ -499,28 +500,30 @@ def dashboard():
 @check_platform_access()
 @rate_limit('scraper', max_requests=10)
 def start(site):
+    user_id = current_user.id  # Get current user
+    
     if site == "facebook":
-        start_facebook()
+        start_facebook(user_id)
     elif site == "craigslist":
-        start_craigslist()
+        start_craigslist(user_id)
     elif site == "ksl":
-        start_ksl()
+        start_ksl(user_id)
     elif site == "ebay":
-        start_ebay()
+        start_ebay(user_id)
     elif site == "poshmark":
         # Poshmark is pro-only, check subscription
         subscription = db_enhanced.get_user_subscription(current_user.id)
         if subscription.get('tier') != 'pro' and current_user.role != 'admin':
             flash("Poshmark is only available for Pro subscribers. Please upgrade your plan.", "error")
             return redirect(url_for("subscription_plans"))
-        start_poshmark()
+        start_poshmark(user_id)
     elif site == "mercari":
         # Mercari is pro-only, check subscription
         subscription = db_enhanced.get_user_subscription(current_user.id)
         if subscription.get('tier') != 'pro' and current_user.role != 'admin':
             flash("Mercari is only available for Pro subscribers. Please upgrade your plan.", "error")
             return redirect(url_for("subscription_plans"))
-        start_mercari()
+        start_mercari(user_id)
     
     db_enhanced.log_user_activity(
         current_user.id, 
@@ -536,18 +539,20 @@ def start(site):
 @check_platform_access()
 @rate_limit('scraper', max_requests=10)
 def stop(site):
+    user_id = current_user.id  # Get current user
+    
     if site == "facebook":
-        stop_facebook()
+        stop_facebook(user_id)
     elif site == "craigslist":
-        stop_craigslist()
+        stop_craigslist(user_id)
     elif site == "ksl":
-        stop_ksl()
+        stop_ksl(user_id)
     elif site == "ebay":
-        stop_ebay()
+        stop_ebay(user_id)
     elif site == "poshmark":
-        stop_poshmark()
+        stop_poshmark(user_id)
     elif site == "mercari":
-        stop_mercari()
+        stop_mercari(user_id)
     
     db_enhanced.log_user_activity(
         current_user.id, 
@@ -1579,13 +1584,14 @@ def stripe_webhook():
 @login_required
 @rate_limit('api', max_requests=120)
 def api_status():
+    user_id = current_user.id
     return jsonify({
-        "facebook": is_facebook_running(),
-        "craigslist": is_craigslist_running(),
-        "ksl": is_ksl_running(),
-        "ebay": is_ebay_running(),
-        "poshmark": is_poshmark_running(),
-        "mercari": is_mercari_running()
+        "facebook": is_facebook_running(user_id),
+        "craigslist": is_craigslist_running(user_id),
+        "ksl": is_ksl_running(user_id),
+        "ebay": is_ebay_running(user_id),
+        "poshmark": is_poshmark_running(user_id),
+        "mercari": is_mercari_running(user_id)
     })
 
 @app.route("/api/scraper-health")
@@ -1599,6 +1605,36 @@ def api_scraper_health():
     except Exception as e:
         logger.error(f"Error getting scraper health: {e}")
         return jsonify({"error": "Failed to get scraper health"}), 500
+
+@app.route("/api/scraper-metrics")
+@login_required
+@rate_limit('api', max_requests=60)
+def api_scraper_metrics():
+    """Get performance metrics for all scrapers."""
+    try:
+        from scrapers.metrics import get_metrics_summary
+        metrics = get_metrics_summary(hours=24)
+        return jsonify(metrics)
+    except Exception as e:
+        logger.error(f"Error getting scraper metrics: {e}")
+        return jsonify({"error": "Failed to get metrics"}), 500
+
+@app.route("/api/scraper-metrics/<site_name>")
+@login_required
+@rate_limit('api', max_requests=60)
+def api_scraper_metrics_detail(site_name):
+    """Get detailed metrics for specific scraper."""
+    try:
+        from scrapers.metrics import get_metrics_summary, get_recent_runs
+        metrics = get_metrics_summary(site_name, hours=24)
+        recent_runs = get_recent_runs(site_name, limit=20)
+        return jsonify({
+            "summary": metrics,
+            "recent_runs": recent_runs
+        })
+    except Exception as e:
+        logger.error(f"Error getting metrics for {site_name}: {e}")
+        return jsonify({"error": "Failed to get metrics"}), 500
 
 @app.route("/api/listings")
 @login_required
@@ -2854,7 +2890,9 @@ if __name__ == "__main__":
         # Use environment variables for production deployment
         port = int(os.getenv('PORT', 5000))
         debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
-        socketio.run(app, host="0.0.0.0", port=port, debug=debug, allow_unsafe_werkzeug=True)
+        # Note: allow_unsafe_werkzeug should ONLY be True for local development
+        # In production, use gunicorn with wsgi.py (this code path is not used)
+        socketio.run(app, host="0.0.0.0", port=port, debug=debug, allow_unsafe_werkzeug=debug)
     except Exception as e:
         logger.error(f"Failed to start application: {e}")
         handle_error(e, "application", "startup")

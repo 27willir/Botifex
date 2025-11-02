@@ -32,7 +32,7 @@ running_flags = {SITE_NAME: True}
 # ======================
 # HELPER FUNCTIONS
 # ======================
-def send_discord_message(title, link, price=None, image_url=None, user_id=None):
+def send_discord_message(title, link, price=None, image_url=None):
     """Save listing to database and send notification."""
     try:
         # Validate data before saving
@@ -46,17 +46,17 @@ def send_discord_message(title, link, price=None, image_url=None, user_id=None):
             logger.debug(f"Invalid/placeholder image URL, setting to None: {image_url}")
             image_url = None
         
-        # Save to database with user_id
-        save_listing(title, price, link, image_url, SITE_NAME, user_id=user_id)
-        logger.info(f"📢 New KSL for {user_id}: {title} | ${price} | {link}")
+        # Save to database
+        save_listing(title, price, link, image_url, SITE_NAME)
+        logger.info(f"📢 New KSL: {title} | ${price} | {link}")
     except Exception as e:
         logger.error(f"⚠️ Failed to save listing for {link}: {e}")
 
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_ksl(flag_name=SITE_NAME, user_id=None):
-    settings = load_settings(username=user_id)
+def check_ksl(flag_name=SITE_NAME):
+    settings = load_settings()
     keywords = settings["keywords"]
     min_price = settings["min_price"]
     max_price = settings["max_price"]
@@ -122,76 +122,77 @@ def check_ksl(flag_name=SITE_NAME, user_id=None):
                 metrics.listings_found = 0
                 return []
             
-            # Pre-compile keywords for faster matching
-            keywords_lower = [k.lower() for k in keywords]
-            
             for post in posts:
                 try:
-                    # Extract link efficiently (single XPath with fallback)
-                    link_elems = (post.xpath(".//a[@class='listing-item-link']/@href") or 
-                                 post.xpath(".//a[contains(@class,'listing')]/@href") or 
-                                 post.xpath(".//a/@href"))
+                    # Try multiple ways to extract link
+                    link = None
+                    link_elems = post.xpath(".//a[@class='listing-item-link']/@href")
+                    if link_elems:
+                        link = link_elems[0]
+                    elif post.xpath(".//a[contains(@class,'listing')]/@href"):
+                        link = post.xpath(".//a[contains(@class,'listing')]/@href")[0]
+                    elif post.xpath(".//a/@href"):
+                        link = post.xpath(".//a/@href")[0]
                     
-                    if not link_elems:
+                    if not link:
                         continue
-                    
-                    link = link_elems[0]
-                    
-                    # Make sure it's a full URL (fast path check)
+                        
+                    # Make sure it's a full URL
                     if not link.startswith("http"):
                         link = "https://classifieds.ksl.com" + link
                     
-                    # Extract title efficiently (single XPath with fallback)
-                    title_elems = (post.xpath(".//h2/text()") or 
-                                  post.xpath(".//h3/text()") or 
-                                  post.xpath(".//div[contains(@class,'title')]/text()"))
+                    # Try multiple ways to extract title
+                    title = None
+                    title_elems = post.xpath(".//h2/text()")
+                    if title_elems:
+                        title = title_elems[0].strip()
+                    elif post.xpath(".//h3/text()"):
+                        title = post.xpath(".//h3/text()")[0].strip()
+                    elif post.xpath(".//div[contains(@class,'title')]/text()"):
+                        title = post.xpath(".//div[contains(@class,'title')]/text()")[0].strip()
                     
-                    if not title_elems:
+                    if not title:
                         continue
                     
-                    title = title_elems[0].strip()
-                    
-                    # Extract and parse price (consolidated)
-                    price_elems = (post.xpath(".//h3/text()") or 
-                                  post.xpath(".//span[contains(@class,'price')]/text()") or 
-                                  post.xpath(".//*[contains(text(),'$')]/text()"))
+                    # Try multiple ways to extract price
+                    price = post.xpath(".//h3/text()")
+                    if not price:
+                        price = post.xpath(".//span[contains(@class,'price')]/text()")
+                    if not price:
+                        price = post.xpath(".//*[contains(text(),'$')]/text()")
                     
                     price_val = None
-                    if price_elems:
+                    if price:
                         try:
-                            price_val = int(price_elems[0].replace("$", "").replace(",", "").strip())
+                            price_val = int(price[0].replace("$", "").replace(",", "").strip())
                         except (ValueError, AttributeError):
                             pass
-                    
-                    # Early exit if price out of range
+
                     if price_val and (price_val < min_price or price_val > max_price):
                         continue
-                    
-                    # Check keywords (use pre-lowercased)
-                    title_lower = title.lower()
-                    if not any(k in title_lower for k in keywords_lower):
-                        continue
-                    
-                    # Check if new listing
-                    if not is_new_listing(link, seen_listings, SITE_NAME):
-                        continue
-                    
-                    # Update seen listings
-                    normalized_link = normalize_url(link)
-                    lock = get_seen_listings_lock(SITE_NAME)
-                    with lock:
-                        seen_listings[normalized_link] = datetime.now()
-                    
-                    # Extract image URL (consolidated)
-                    img_elem = post.xpath(".//img/@src") or post.xpath(".//img/@data-src")
-                    image_url = None
-                    if img_elem:
-                        image_url = img_elem[0]
-                        if image_url and not image_url.startswith("http"):
-                            image_url = "https://img.ksl.com" + image_url
-                    
-                    send_discord_message(title, link, price_val, image_url, user_id=user_id)
-                    results.append({"title": title, "link": link, "price": price_val, "image": image_url})
+
+                    if any(k.lower() in title.lower() for k in keywords) and is_new_listing(link, seen_listings, SITE_NAME):
+                        normalized_link = normalize_url(link)
+                        lock = get_seen_listings_lock(SITE_NAME)
+                        with lock:
+                            seen_listings[normalized_link] = datetime.now()
+                        
+                        # Extract image URL
+                        image_url = None
+                        try:
+                            img_elem = post.xpath(".//img/@src")
+                            if not img_elem:
+                                img_elem = post.xpath(".//img/@data-src")
+                            
+                            if img_elem:
+                                image_url = img_elem[0]
+                                if image_url and not image_url.startswith("http"):
+                                    image_url = "https://img.ksl.com" + image_url
+                        except Exception as e:
+                            logger.debug(f"Could not extract image for {link}: {e}")
+                        
+                        send_discord_message(title, link, price_val, image_url)
+                        results.append({"title": title, "link": link, "price": price_val, "image": image_url})
                 except Exception as e:
                     logger.warning(f"Error parsing a KSL post: {e}")
 
@@ -215,7 +216,7 @@ def check_ksl(flag_name=SITE_NAME, user_id=None):
 # ======================
 # CONTINUOUS RUNNER
 # ======================
-def run_ksl_scraper(flag_name=SITE_NAME, user_id=None):
+def run_ksl_scraper(flag_name=SITE_NAME):
     """Run KSL scraper with proper error handling."""
     global seen_listings
     
@@ -226,18 +227,18 @@ def run_ksl_scraper(flag_name=SITE_NAME, user_id=None):
     set_recursion_guard(SITE_NAME, True)
     
     try:
-        logger.info(f"Starting KSL scraper for user {user_id}")
+        logger.info("Starting KSL scraper")
         seen_listings = load_seen_listings(SITE_NAME)
         
         try:
             while running_flags.get(flag_name, True):
                 try:
-                    logger.debug(f"Running KSL scraper check for user {user_id}")
-                    results = check_ksl(flag_name, user_id=user_id)
+                    logger.debug("Running KSL scraper check")
+                    results = check_ksl(flag_name)
                     if results:
-                        logger.info(f"KSL scraper found {len(results)} new listings for user {user_id}")
+                        logger.info(f"KSL scraper found {len(results)} new listings")
                     else:
-                        logger.debug(f"KSL scraper found no new listings for user {user_id}")
+                        logger.debug("KSL scraper found no new listings")
                 except RecursionError as e:
                     print(f"ERROR: RecursionError in KSL scraper: {e}", file=sys.stderr, flush=True)
                     # Wait before retrying to avoid tight loop

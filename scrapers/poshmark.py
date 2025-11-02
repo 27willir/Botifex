@@ -118,7 +118,7 @@ def validate_listing(title, link, price=None):
     
     return True, None
 
-def send_discord_message(title, link, price=None, image_url=None):
+def send_discord_message(title, link, price=None, image_url=None, user_id=None):
     """Save listing to database and send notification."""
     try:
         # Validate data before saving
@@ -127,16 +127,16 @@ def send_discord_message(title, link, price=None, image_url=None):
             logger.warning(f"⚠️ Skipping invalid listing: {error}")
             return
         
-        # Save to database
-        save_listing(title, price, link, image_url, "poshmark")
-        logger.info(f"📢 New Poshmark: {title} | ${price} | {link}")
+        # Save to database with user_id
+        save_listing(title, price, link, image_url, "poshmark", user_id=user_id)
+        logger.info(f"📢 New Poshmark for {user_id}: {title} | ${price} | {link}")
     except Exception as e:
         logger.error(f"⚠️ Failed to save listing for {link}: {e}")
 
-def load_settings():
+def load_settings(username=None):
     """Load settings from database"""
     try:
-        settings = get_settings()  # Get global settings
+        settings = get_settings(username=username)  # Get user-specific or global settings
         return {
             "keywords": [k.strip() for k in settings.get("keywords","Firebird,Camaro,Corvette").split(",") if k.strip()],
             "min_price": int(settings.get("min_price", 1000)),
@@ -159,8 +159,8 @@ def load_settings():
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_poshmark(flag_name="poshmark"):
-    settings = load_settings()
+def check_poshmark(flag_name="poshmark", user_id=None):
+    settings = load_settings(username=user_id)
     keywords = settings["keywords"]
     min_price = settings["min_price"]
     max_price = settings["max_price"]
@@ -240,37 +240,29 @@ def check_poshmark(flag_name="poshmark"):
 
     # Process the results if we successfully got the page
     try:
-        # Poshmark uses different HTML structures
-        # Method 1: Try to find listing cards (most common structure)
-        items = soup.find_all('div', class_='tile')
-        if not items:
-            # Method 2: Try alternative structure
-            items = soup.find_all('div', attrs={'class': lambda x: x and 'listing' in x.lower() if x else False})
-        
-        if not items:
-            # Method 3: Try even more generic
-            items = soup.find_all('div', attrs={'class': lambda x: x and 'item' in x.lower() if x else False})
+        # Try to find listing items (consolidated selectors)
+        items = (soup.find_all('div', class_='tile') or 
+                soup.find_all('div', attrs={'class': lambda x: x and 'listing' in x.lower() if x else False}) or 
+                soup.find_all('div', attrs={'class': lambda x: x and 'item' in x.lower() if x else False}))
         
         logger.debug(f"Found {len(items)} Poshmark items to process")
         
+        # Pre-compile keywords for faster matching
+        keywords_lower = [k.lower() for k in keywords]
+        
         for item in items:
             try:
-                # Extract title
-                title_elem = item.find('a', class_='title')
-                if not title_elem:
-                    title_elem = item.find('div', class_='title')
-                if not title_elem:
-                    title_elem = item.find('h3')
-                if not title_elem:
-                    title_elem = item.find('a', href=True)
+                # Extract title (consolidated selector)
+                title_elem = (item.find('a', class_='title') or 
+                             item.find('div', class_='title') or 
+                             item.find('h3') or 
+                             item.find('a', href=True))
                 
                 if not title_elem:
                     continue
                 
                 title = title_elem.get_text(strip=True)
-                
-                # Skip empty titles
-                if title == "":
+                if not title:
                     continue
                 
                 # Extract link
@@ -282,56 +274,56 @@ def check_poshmark(flag_name="poshmark"):
                 if not link:
                     continue
                 
-                # Make sure link is absolute
+                # Make sure link is absolute (fast path check)
                 if link.startswith('/'):
                     link = "https://poshmark.com" + link
                 
-                # Extract price
-                price_elem = item.find('span', class_='price')
-                if not price_elem:
-                    # Try alternative price location
-                    price_elem = item.find('div', class_='price')
+                # Extract and parse price (consolidated)
+                price_elem = item.find('span', class_='price') or item.find('div', class_='price')
                 
                 price_val = None
                 if price_elem:
                     price_text = price_elem.get_text(strip=True)
                     try:
-                        # Handle different price formats
-                        # "$123" or "123" or "$123.45"
+                        # Handle price formats efficiently
                         price_clean = price_text.replace('$', '').replace(',', '').strip()
-                        
-                        # Convert to float then int
                         price_val = int(float(price_clean))
-                    except (ValueError, AttributeError) as e:
-                        logger.debug(f"Could not parse price from '{price_text}': {e}")
+                    except (ValueError, AttributeError):
+                        pass
                 
-                # Filter by price range
+                # Early exit if price out of range
                 if price_val and (price_val < min_price or price_val > max_price):
                     continue
                 
-                # Check if any keyword matches and if it's a new listing
-                if any(k.lower() in title.lower() for k in keywords) and is_new_listing(link):
-                    normalized_link = normalize_url(link)
-                    with _seen_listings_lock:
-                        seen_listings[normalized_link] = datetime.now()
-                    
-                    # Extract image URL
-                    image_url = None
-                    try:
-                        img_elem = item.find('img')
-                        if img_elem:
-                            image_url = img_elem.get('src') or img_elem.get('data-src')
-                            # Make sure it's a full URL
-                            if image_url and not image_url.startswith("http"):
-                                if image_url.startswith('//'):
-                                    image_url = 'https:' + image_url
-                                elif image_url.startswith('/'):
-                                    image_url = "https://poshmark.com" + image_url
-                    except Exception as e:
-                        logger.debug(f"Could not extract image for {link}: {e}")
-                    
-                    send_discord_message(title, link, price_val, image_url)
-                    results.append({"title": title, "link": link, "price": price_val, "image": image_url})
+                # Check keywords (use pre-lowercased)
+                title_lower = title.lower()
+                if not any(k in title_lower for k in keywords_lower):
+                    continue
+                
+                # Check if new listing
+                if not is_new_listing(link):
+                    continue
+                
+                # Update seen listings
+                normalized_link = normalize_url(link)
+                with _seen_listings_lock:
+                    seen_listings[normalized_link] = datetime.now()
+                
+                # Extract image URL
+                image_url = None
+                img_elem = item.find('img')
+                if img_elem:
+                    image_url = img_elem.get('src') or img_elem.get('data-src')
+                    # Make sure it's a full URL (fast path checks)
+                    if image_url:
+                        if not image_url.startswith("http"):
+                            if image_url.startswith('//'):
+                                image_url = 'https:' + image_url
+                            elif image_url.startswith('/'):
+                                image_url = "https://poshmark.com" + image_url
+                
+                send_discord_message(title, link, price_val, image_url, user_id=user_id)
+                results.append({"title": title, "link": link, "price": price_val, "image": image_url})
             except Exception as e:
                 logger.warning(f"Error parsing a Poshmark listing: {e}")
                 continue
@@ -351,7 +343,7 @@ def check_poshmark(flag_name="poshmark"):
 # ======================
 # CONTINUOUS RUNNER
 # ======================
-def run_poshmark_scraper(flag_name="poshmark"):
+def run_poshmark_scraper(flag_name="poshmark", user_id=None):
     """Run scraper continuously until stopped via running_flags."""
     # Check for recursion
     if getattr(_recursion_guard, 'in_scraper', False):
@@ -362,18 +354,18 @@ def run_poshmark_scraper(flag_name="poshmark"):
     _recursion_guard.in_scraper = True
     
     try:
-        logger.info("Starting Poshmark scraper")
+        logger.info(f"Starting Poshmark scraper for user {user_id}")
         load_seen_listings()
         
         try:
             while running_flags.get(flag_name, True):
                 try:
-                    logger.debug("Running Poshmark scraper check")
-                    results = check_poshmark(flag_name)
+                    logger.debug(f"Running Poshmark scraper check for user {user_id}")
+                    results = check_poshmark(flag_name, user_id=user_id)
                     if results:
-                        logger.info(f"Poshmark scraper found {len(results)} new listings")
+                        logger.info(f"Poshmark scraper found {len(results)} new listings for user {user_id}")
                     else:
-                        logger.debug("Poshmark scraper found no new listings")
+                        logger.debug(f"Poshmark scraper found no new listings for user {user_id}")
                 except RecursionError as e:
                     import sys
                     print(f"ERROR: RecursionError in Poshmark scraper: {e}", file=sys.stderr, flush=True)

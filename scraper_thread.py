@@ -7,18 +7,23 @@ from webdriver_manager.chrome import ChromeDriverManager
 from utils import logger, make_chrome_driver, debug_scraper_output
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
 
-# make sure this exists
+# PER-USER THREAD MANAGEMENT
+# Format: {user_id: {scraper_name: thread}}
 _threads = {}
-_drivers = {}  # Track active drivers
-_thread_locks = {}  # Thread safety locks
-_scraper_errors = {}  # Track error timestamps per scraper
-_scraper_error_messages = {}  # Track recent error messages per scraper
-_last_start_time = {}  # Track last start time per scraper
+_drivers = {}  # Format: {user_id: {scraper_name: driver}}
+_thread_locks = {}  # Format: {user_id: Lock}
+_scraper_errors = {}  # Format: {f"{user_id}_{scraper}": [timestamps]}
+_scraper_error_messages = {}  # Format: {f"{user_id}_{scraper}": [error_dicts]}
+_last_start_time = {}  # Format: {f"{user_id}_{scraper}": timestamp}
+
+# Resource limits
+MAX_SCRAPERS_PER_USER = 6  # User can run all 6 scrapers
+MAX_CONCURRENT_USERS = 100  # System-wide limit
 
 # Scraper recovery settings (Circuit Breaker Pattern)
-COOLDOWN_BASE = 30  # Base cooldown period in seconds (will use exponential backoff)
-MAX_ERRORS_PER_HOUR = 10  # Maximum errors before circuit opens (disables scraper)
-ERROR_RESET_PERIOD = 3600  # Reset error count after 1 hour of no errors
+COOLDOWN_BASE = 30  # Base cooldown period in seconds
+MAX_ERRORS_PER_HOUR = 10  # Maximum errors before circuit opens
+ERROR_RESET_PERIOD = 3600  # Reset error count after 1 hour
 
 # NOTE: each scraper module exposes its own running_flags dict
 from scrapers.facebook import running_flags as fb_flags, run_facebook_scraper
@@ -29,143 +34,164 @@ from scrapers.poshmark import running_flags as poshmark_flags, run_poshmark_scra
 from scrapers.mercari import running_flags as mercari_flags, run_mercari_scraper
 
 # ----------------------------
+# RESOURCE MANAGEMENT
+# ----------------------------
+def get_active_scraper_count(user_id):
+    """Count how many scrapers user has running"""
+    if user_id not in _threads:
+        return 0
+    return sum(1 for thread in _threads[user_id].values() if thread.is_alive())
+
+def get_total_active_users():
+    """Count total users with active scrapers"""
+    active_users = 0
+    for user_id, user_threads in _threads.items():
+        if any(thread.is_alive() for thread in user_threads.values()):
+            active_users += 1
+    return active_users
+
+def get_total_active_scrapers():
+    """Count total scrapers across all users"""
+    total = 0
+    for user_threads in _threads.values():
+        total += sum(1 for thread in user_threads.values() if thread.is_alive())
+    return total
+
+def can_start_scraper(user_id):
+    """Check if user can start another scraper"""
+    user_count = get_active_scraper_count(user_id)
+    total_users = get_total_active_users()
+    
+    if user_count >= MAX_SCRAPERS_PER_USER:
+        return False, f"Maximum {MAX_SCRAPERS_PER_USER} scrapers already running"
+    
+    if total_users >= MAX_CONCURRENT_USERS:
+        return False, f"System at capacity ({MAX_CONCURRENT_USERS} users)"
+    
+    return True, None
+
+# ----------------------------
+# USER INITIALIZATION
+# ----------------------------
+def _init_user_structures(user_id):
+    """Initialize data structures for a new user"""
+    if user_id not in _threads:
+        _threads[user_id] = {}
+    if user_id not in _drivers:
+        _drivers[user_id] = {}
+    if user_id not in _thread_locks:
+        _thread_locks[user_id] = threading.Lock()
+
+# ----------------------------
 # CENTRALIZED DRIVER MANAGEMENT
 # ----------------------------
-def _create_driver(site_name):
-    """Create and track a new driver for the given site."""
+def _create_driver(site_name, user_id):
+    """Create and track a new driver for the given site and user."""
     try:
         driver = make_chrome_driver(headless=True)
-        _drivers[site_name] = driver
-        _thread_locks[site_name] = threading.Lock()
-        # Use print instead of logger to avoid recursion
-        print(f"✅ Created driver for {site_name}", file=sys.stderr, flush=True)
+        _init_user_structures(user_id)
+        _drivers[user_id][site_name] = driver
+        print(f"✅ Created driver for {site_name} (user: {user_id})", file=sys.stderr, flush=True)
         return driver
     except RecursionError as e:
-        # Handle recursion errors specially - don't try to log them
-        print(f"❌ RECURSION ERROR creating driver for {site_name}: {e}", file=sys.stderr, flush=True)
+        print(f"❌ RECURSION ERROR creating driver for {site_name} (user: {user_id}): {e}", file=sys.stderr, flush=True)
         raise ScraperError(f"Failed to create driver due to recursion: {e}")
     except (OSError, ConnectionError) as e:
-        print(f"❌ Network/system error creating driver for {site_name}: {e}", file=sys.stderr, flush=True)
+        print(f"❌ Network/system error creating driver for {site_name} (user: {user_id}): {e}", file=sys.stderr, flush=True)
         raise NetworkError(f"Failed to create driver due to network/system issue: {e}")
     except Exception as e:
-        print(f"❌ Failed to create driver for {site_name}: {e}", file=sys.stderr, flush=True)
+        print(f"❌ Failed to create driver for {site_name} (user: {user_id}): {e}", file=sys.stderr, flush=True)
         raise ScraperError(f"Failed to create driver: {e}")
 
-def _cleanup_driver(site_name):
-    """Safely cleanup driver for the given site."""
-    if site_name in _drivers:
+def _cleanup_driver(site_name, user_id):
+    """Safely cleanup driver for the given site and user."""
+    if user_id in _drivers and site_name in _drivers[user_id]:
         try:
-            driver = _drivers[site_name]
+            driver = _drivers[user_id][site_name]
             if driver:
                 driver.quit()
-                print(f"✅ Cleaned up driver for {site_name}", file=sys.stderr, flush=True)
-        except RecursionError as e:
-            print(f"⚠️ RECURSION ERROR cleaning up driver for {site_name}: {e}", file=sys.stderr, flush=True)
-        except (OSError, ConnectionError) as e:
-            print(f"⚠️ Network error cleaning up driver for {site_name}: {e}", file=sys.stderr, flush=True)
+                print(f"✅ Cleaned up driver for {site_name} (user: {user_id})", file=sys.stderr, flush=True)
         except Exception as e:
-            print(f"⚠️ Error cleaning up driver for {site_name}: {e}", file=sys.stderr, flush=True)
+            print(f"⚠️ Error cleaning up driver for {site_name} (user: {user_id}): {e}", file=sys.stderr, flush=True)
         finally:
-            _drivers.pop(site_name, None)
-            _thread_locks.pop(site_name, None)
+            _drivers[user_id].pop(site_name, None)
 
-def _cleanup_all_drivers():
-    """Cleanup all active drivers."""
-    for site_name in list(_drivers.keys()):
-        _cleanup_driver(site_name)
-
-def _get_driver_lock(site_name):
-    """Get thread lock for the given site."""
-    return _thread_locks.get(site_name)
-
-def _track_scraper_error(site_name):
-    """Track scraper errors with circuit breaker pattern.
+def _cleanup_user(user_id):
+    """Cleanup all resources for a user if they have no active scrapers"""
+    if user_id not in _threads:
+        return
     
-    Returns:
-        tuple: (can_continue: bool, error_count: int, cooldown_seconds: int)
-    """
+    # Check if user has any active scrapers
+    has_active = any(thread.is_alive() for thread in _threads[user_id].values())
+    if has_active:
+        return
+    
+    # Clean up all drivers for this user
+    if user_id in _drivers:
+        for site_name in list(_drivers[user_id].keys()):
+            _cleanup_driver(site_name, user_id)
+        del _drivers[user_id]
+    
+    # Clean up thread references
+    if user_id in _threads:
+        del _threads[user_id]
+    
+    if user_id in _thread_locks:
+        del _thread_locks[user_id]
+    
+    print(f"✅ Cleaned up resources for user {user_id}", file=sys.stderr, flush=True)
+
+def _track_scraper_error(site_name, user_id):
+    """Track scraper errors with circuit breaker pattern."""
+    key = f"{user_id}_{site_name}"
     now = time.time()
-    if site_name not in _scraper_errors:
-        _scraper_errors[site_name] = []
     
-    # Add current error
-    _scraper_errors[site_name].append(now)
+    if key not in _scraper_errors:
+        _scraper_errors[key] = []
+    
+    _scraper_errors[key].append(now)
     
     # Clean up errors older than 1 hour
     hour_ago = now - ERROR_RESET_PERIOD
-    _scraper_errors[site_name] = [t for t in _scraper_errors[site_name] if t > hour_ago]
+    _scraper_errors[key] = [t for t in _scraper_errors[key] if t > hour_ago]
     
-    # Count recent errors
-    error_count = len(_scraper_errors[site_name])
+    error_count = len(_scraper_errors[key])
     
-    # Check if circuit should be opened (too many errors)
     if error_count >= MAX_ERRORS_PER_HOUR:
-        print(f"CIRCUIT OPEN: {site_name} scraper disabled ({error_count} errors in last hour)", 
+        print(f"CIRCUIT OPEN: {site_name} scraper disabled for user {user_id} ({error_count} errors)", 
               file=sys.stderr, flush=True)
         return False, error_count, 0
     
-    # Calculate exponential backoff cooldown based on error count
-    # First error: 30s, second: 60s, third: 120s, etc.
-    cooldown = COOLDOWN_BASE * (2 ** min(error_count - 1, 5))  # Cap at 2^5 = 32x base
-    
+    cooldown = COOLDOWN_BASE * (2 ** min(error_count - 1, 5))
     return True, error_count, cooldown
 
-def _handle_scraper_exception(site_name, exception, context=""):
-    """Handle scraper exceptions with circuit breaker pattern and exponential backoff.
-    
-    Returns:
-        bool: True if scraper can continue (circuit closed/half-open), False if should stop (circuit open)
-    """
+def _handle_scraper_exception(site_name, user_id, exception, context=""):
+    """Handle scraper exceptions with circuit breaker pattern."""
+    key = f"{user_id}_{site_name}"
     error_message = f"{context}: {str(exception)}" if context else str(exception)
     
-    # Store the error message
-    if site_name not in _scraper_error_messages:
-        _scraper_error_messages[site_name] = []
-    _scraper_error_messages[site_name].append({
+    if key not in _scraper_error_messages:
+        _scraper_error_messages[key] = []
+    _scraper_error_messages[key].append({
         'timestamp': time.time(),
         'message': error_message,
         'type': type(exception).__name__
     })
-    # Keep only last 10 error messages
-    _scraper_error_messages[site_name] = _scraper_error_messages[site_name][-10:]
+    _scraper_error_messages[key] = _scraper_error_messages[key][-10:]
     
-    try:
-        if isinstance(exception, RecursionError):
-            # Special handling for recursion errors - these are critical
-            print(f"RECURSION ERROR in {site_name} scraper {context}: {exception}", 
-                  file=sys.stderr, flush=True)
-            try:
-                logger.error(f"Recursion error in {site_name} scraper {context}")
-            except:
-                pass  # Logger might be part of the recursion problem
-        else:
-            print(f"ERROR in {site_name} scraper {context}: {exception}", 
-                  file=sys.stderr, flush=True)
-            try:
-                logger.error(f"Error in {site_name} scraper {context}: {exception}")
-            except:
-                # If logging fails, we've already printed to stderr
-                pass
-    except Exception as e:
-        # Last resort - just print to stderr
-        print(f"FATAL: Error handling exception in {site_name} scraper: {e}", 
-              file=sys.stderr, flush=True)
+    print(f"ERROR in {site_name} scraper (user: {user_id}) {context}: {exception}", 
+          file=sys.stderr, flush=True)
     
-    # Track the error and get cooldown period (circuit breaker logic)
-    can_continue, error_count, cooldown = _track_scraper_error(site_name)
+    can_continue, error_count, cooldown = _track_scraper_error(site_name, user_id)
     
     if not can_continue:
-        # Circuit is OPEN - too many errors, disable scraper
-        print(f"CIRCUIT OPEN: {site_name} scraper stopped due to excessive errors", 
-              file=sys.stderr, flush=True)
         try:
-            logger.critical(f"{site_name} scraper disabled after {error_count} errors in last hour")
+            logger.critical(f"{site_name} scraper disabled for user {user_id} after {error_count} errors")
         except:
             pass
         return False
     
-    # Circuit is CLOSED or HALF-OPEN - apply exponential backoff cooldown
-    print(f"Applying {cooldown}s cooldown for {site_name} scraper (error {error_count}/{MAX_ERRORS_PER_HOUR})", 
+    print(f"Applying {cooldown}s cooldown for {site_name} (user: {user_id}, error {error_count}/{MAX_ERRORS_PER_HOUR})", 
           file=sys.stderr, flush=True)
     time.sleep(cooldown)
     
@@ -174,389 +200,424 @@ def _handle_scraper_exception(site_name, exception, context=""):
 # ============================
 # FACEBOOK SCRAPER THREADS
 # ============================
-def start_facebook():
-    if "facebook" in _threads and _threads["facebook"].is_alive():
-        logger.warning("Facebook scraper is already running")
+def start_facebook(user_id):
+    _init_user_structures(user_id)
+    
+    if "facebook" in _threads[user_id] and _threads[user_id]["facebook"].is_alive():
+        logger.warning(f"Facebook scraper already running for user {user_id}")
+        return False
+    
+    can_start, reason = can_start_scraper(user_id)
+    if not can_start:
+        logger.warning(f"Cannot start Facebook scraper for {user_id}: {reason}")
         return False
     
     fb_flags["facebook"] = True
     
     def target():
         driver = None
-        retry_delay = 30  # Wait 30 seconds before retrying on failure
+        retry_delay = 30
         
-        # Keep thread alive even if driver creation fails
         while fb_flags.get("facebook", True):
             try:
-                # Create driver with proper error handling
-                driver = _create_driver("facebook")
+                driver = _create_driver("facebook", user_id)
                 if not driver:
-                    print("ERROR: Failed to create driver for Facebook scraper, retrying...", file=sys.stderr, flush=True)
                     time.sleep(retry_delay)
                     continue
                 
-                # Run scraper with timeout protection
-                run_facebook_scraper(driver, "facebook")
-                break  # Exit loop if scraper completes normally
+                run_facebook_scraper(driver, "facebook", user_id=user_id)
+                break
                 
             except RecursionError as e:
-                if not _handle_scraper_exception("facebook", e, "recursion error"):
-                    break  # Circuit breaker opened, stop scraper
+                if not _handle_scraper_exception("facebook", user_id, e, "recursion error"):
+                    break
             except NetworkError as e:
-                if not _handle_scraper_exception("facebook", e, "network error"):
-                    break  # Circuit breaker opened, stop scraper
+                if not _handle_scraper_exception("facebook", user_id, e, "network error"):
+                    break
             except ScraperError as e:
-                # Driver creation errors - wait and retry
-                print(f"Facebook scraper error: {e}, retrying in {retry_delay}s...", file=sys.stderr, flush=True)
+                print(f"Facebook scraper error (user: {user_id}): {e}, retrying in {retry_delay}s...", file=sys.stderr, flush=True)
                 time.sleep(retry_delay)
             except Exception as e:
-                if not _handle_scraper_exception("facebook", e, "unexpected error"):
-                    break  # Circuit breaker opened, stop scraper
+                if not _handle_scraper_exception("facebook", user_id, e, "unexpected error"):
+                    break
             finally:
-                # Always cleanup driver before retry/exit
-                _cleanup_driver("facebook")
+                _cleanup_driver("facebook", user_id)
                 driver = None
         
-        print("Facebook scraper thread exiting", file=sys.stderr, flush=True)
+        _cleanup_user(user_id)
+        print(f"Facebook scraper thread exiting for user {user_id}", file=sys.stderr, flush=True)
     
-    t = threading.Thread(target=target, daemon=True, name="facebook_scraper")
-    _threads["facebook"] = t
+    t = threading.Thread(target=target, daemon=True, name=f"facebook_scraper_{user_id}")
+    _threads[user_id]["facebook"] = t
     t.start()
-    logger.info("✅ Started Facebook scraper thread")
+    logger.info(f"✅ Started Facebook scraper for user {user_id}")
     return True
 
-def stop_facebook():
+def stop_facebook(user_id):
+    if user_id not in _threads or "facebook" not in _threads[user_id]:
+        return True
+    
     fb_flags["facebook"] = False
-    t = _threads.get("facebook")
+    t = _threads[user_id]["facebook"]
     if t:
-        t.join(timeout=5)  # Give more time for graceful shutdown
+        t.join(timeout=5)
         if t.is_alive():
-            logger.warning("Facebook scraper thread did not stop gracefully")
-    # Always cleanup driver regardless of thread status
-    _cleanup_driver("facebook")
-    logger.info("🛑 Stopped Facebook scraper")
+            logger.warning(f"Facebook scraper thread did not stop gracefully for user {user_id}")
+    
+    _cleanup_driver("facebook", user_id)
+    _cleanup_user(user_id)
+    logger.info(f"🛑 Stopped Facebook scraper for user {user_id}")
     return True
 
-def is_facebook_running():
-    t = _threads.get("facebook")
-    return t.is_alive() if t else False
+def is_facebook_running(user_id):
+    if user_id not in _threads or "facebook" not in _threads[user_id]:
+        return False
+    return _threads[user_id]["facebook"].is_alive()
 
 # ============================
 # CRAIGSLIST SCRAPER THREADS
 # ============================
-def start_craigslist():
-    if "craigslist" in _threads and _threads["craigslist"].is_alive():
-        logger.warning("Craigslist scraper is already running")
+def start_craigslist(user_id):
+    _init_user_structures(user_id)
+    
+    if "craigslist" in _threads[user_id] and _threads[user_id]["craigslist"].is_alive():
+        logger.warning(f"Craigslist scraper already running for user {user_id}")
+        return False
+    
+    can_start, reason = can_start_scraper(user_id)
+    if not can_start:
+        logger.warning(f"Cannot start Craigslist scraper for {user_id}: {reason}")
         return False
     
     cl_flags["craigslist"] = True
     
     def target():
         try:
-            logger.info("Starting Craigslist scraper")
-            run_craigslist_scraper(flag_name="craigslist")
+            run_craigslist_scraper(flag_name="craigslist", user_id=user_id)
         except RecursionError as e:
-            _handle_scraper_exception("craigslist", e, "recursion error")
+            _handle_scraper_exception("craigslist", user_id, e, "recursion error")
         except Exception as e:
-            _handle_scraper_exception("craigslist", e, "thread error")
+            _handle_scraper_exception("craigslist", user_id, e, "thread error")
         finally:
-            logger.info("Craigslist scraper thread finished")
+            _cleanup_user(user_id)
     
-    t = threading.Thread(target=target, daemon=True, name="craigslist_scraper")
-    _threads["craigslist"] = t
+    t = threading.Thread(target=target, daemon=True, name=f"craigslist_scraper_{user_id}")
+    _threads[user_id]["craigslist"] = t
     t.start()
-    logger.info("✅ Started Craigslist scraper thread")
+    logger.info(f"✅ Started Craigslist scraper for user {user_id}")
     return True
 
-def stop_craigslist():
+def stop_craigslist(user_id):
+    if user_id not in _threads or "craigslist" not in _threads[user_id]:
+        return True
+    
     cl_flags["craigslist"] = False
-    t = _threads.get("craigslist")
+    t = _threads[user_id]["craigslist"]
     if t:
-        t.join(timeout=5)  # Give more time for graceful shutdown
-        if t.is_alive():
-            logger.warning("Craigslist scraper thread did not stop gracefully")
-    logger.info("🛑 Stopped Craigslist scraper")
+        t.join(timeout=5)
+    
+    _cleanup_user(user_id)
+    logger.info(f"🛑 Stopped Craigslist scraper for user {user_id}")
     return True
 
-def is_craigslist_running():
-    t = _threads.get("craigslist")
-    return t.is_alive() if t else False
+def is_craigslist_running(user_id):
+    if user_id not in _threads or "craigslist" not in _threads[user_id]:
+        return False
+    return _threads[user_id]["craigslist"].is_alive()
 
 # ============================
 # KSL SCRAPER THREADS
 # ============================
-def start_ksl():
-    if "ksl" in _threads and _threads["ksl"].is_alive():
-        logger.warning("KSL scraper is already running")
+def start_ksl(user_id):
+    _init_user_structures(user_id)
+    
+    if "ksl" in _threads[user_id] and _threads[user_id]["ksl"].is_alive():
+        logger.warning(f"KSL scraper already running for user {user_id}")
+        return False
+    
+    can_start, reason = can_start_scraper(user_id)
+    if not can_start:
+        logger.warning(f"Cannot start KSL scraper for {user_id}: {reason}")
         return False
     
     ksl_flags["ksl"] = True
     
     def target():
         try:
-            logger.info("Starting KSL scraper")
-            run_ksl_scraper(flag_name="ksl")
+            run_ksl_scraper(flag_name="ksl", user_id=user_id)
         except RecursionError as e:
-            _handle_scraper_exception("ksl", e, "recursion error")
+            _handle_scraper_exception("ksl", user_id, e, "recursion error")
         except Exception as e:
-            _handle_scraper_exception("ksl", e, "thread error")
+            _handle_scraper_exception("ksl", user_id, e, "thread error")
         finally:
-            logger.info("KSL scraper thread finished")
+            _cleanup_user(user_id)
     
-    t = threading.Thread(target=target, daemon=True, name="ksl_scraper")
-    _threads["ksl"] = t
+    t = threading.Thread(target=target, daemon=True, name=f"ksl_scraper_{user_id}")
+    _threads[user_id]["ksl"] = t
     t.start()
-    logger.info("✅ Started KSL scraper thread")
+    logger.info(f"✅ Started KSL scraper for user {user_id}")
     return True
 
-def stop_ksl():
+def stop_ksl(user_id):
+    if user_id not in _threads or "ksl" not in _threads[user_id]:
+        return True
+    
     ksl_flags["ksl"] = False
-    t = _threads.get("ksl")
+    t = _threads[user_id]["ksl"]
     if t:
-        t.join(timeout=5)  # Give more time for graceful shutdown
-        if t.is_alive():
-            logger.warning("KSL scraper thread did not stop gracefully")
-    logger.info("🛑 Stopped KSL scraper")
+        t.join(timeout=5)
+    
+    _cleanup_user(user_id)
+    logger.info(f"🛑 Stopped KSL scraper for user {user_id}")
     return True
 
-def is_ksl_running():
-    t = _threads.get("ksl")
-    return t.is_alive() if t else False
+def is_ksl_running(user_id):
+    if user_id not in _threads or "ksl" not in _threads[user_id]:
+        return False
+    return _threads[user_id]["ksl"].is_alive()
 
 # ============================
 # EBAY SCRAPER THREADS
 # ============================
-def start_ebay():
-    if "ebay" in _threads and _threads["ebay"].is_alive():
-        logger.warning("eBay scraper is already running")
+def start_ebay(user_id):
+    _init_user_structures(user_id)
+    
+    if "ebay" in _threads[user_id] and _threads[user_id]["ebay"].is_alive():
+        logger.warning(f"eBay scraper already running for user {user_id}")
+        return False
+    
+    can_start, reason = can_start_scraper(user_id)
+    if not can_start:
+        logger.warning(f"Cannot start eBay scraper for {user_id}: {reason}")
         return False
     
     ebay_flags["ebay"] = True
     
     def target():
         try:
-            logger.info("Starting eBay scraper")
-            run_ebay_scraper(flag_name="ebay")
+            run_ebay_scraper(flag_name="ebay", user_id=user_id)
         except RecursionError as e:
-            _handle_scraper_exception("ebay", e, "recursion error")
+            _handle_scraper_exception("ebay", user_id, e, "recursion error")
         except Exception as e:
-            _handle_scraper_exception("ebay", e, "thread error")
+            _handle_scraper_exception("ebay", user_id, e, "thread error")
         finally:
-            logger.info("eBay scraper thread finished")
+            _cleanup_user(user_id)
     
-    t = threading.Thread(target=target, daemon=True, name="ebay_scraper")
-    _threads["ebay"] = t
+    t = threading.Thread(target=target, daemon=True, name=f"ebay_scraper_{user_id}")
+    _threads[user_id]["ebay"] = t
     t.start()
-    logger.info("✅ Started eBay scraper thread")
+    logger.info(f"✅ Started eBay scraper for user {user_id}")
     return True
 
-def stop_ebay():
+def stop_ebay(user_id):
+    if user_id not in _threads or "ebay" not in _threads[user_id]:
+        return True
+    
     ebay_flags["ebay"] = False
-    t = _threads.get("ebay")
+    t = _threads[user_id]["ebay"]
     if t:
-        t.join(timeout=5)  # Give more time for graceful shutdown
-        if t.is_alive():
-            logger.warning("eBay scraper thread did not stop gracefully")
-    logger.info("🛑 Stopped eBay scraper")
+        t.join(timeout=5)
+    
+    _cleanup_user(user_id)
+    logger.info(f"🛑 Stopped eBay scraper for user {user_id}")
     return True
 
-def is_ebay_running():
-    t = _threads.get("ebay")
-    return t.is_alive() if t else False
+def is_ebay_running(user_id):
+    if user_id not in _threads or "ebay" not in _threads[user_id]:
+        return False
+    return _threads[user_id]["ebay"].is_alive()
 
 # ============================
 # POSHMARK SCRAPER THREADS
 # ============================
-def start_poshmark():
-    if "poshmark" in _threads and _threads["poshmark"].is_alive():
-        logger.warning("Poshmark scraper is already running")
+def start_poshmark(user_id):
+    _init_user_structures(user_id)
+    
+    if "poshmark" in _threads[user_id] and _threads[user_id]["poshmark"].is_alive():
+        logger.warning(f"Poshmark scraper already running for user {user_id}")
+        return False
+    
+    can_start, reason = can_start_scraper(user_id)
+    if not can_start:
+        logger.warning(f"Cannot start Poshmark scraper for {user_id}: {reason}")
         return False
     
     poshmark_flags["poshmark"] = True
     
     def target():
         try:
-            logger.info("Starting Poshmark scraper")
-            run_poshmark_scraper(flag_name="poshmark")
+            run_poshmark_scraper(flag_name="poshmark", user_id=user_id)
         except RecursionError as e:
-            _handle_scraper_exception("poshmark", e, "recursion error")
+            _handle_scraper_exception("poshmark", user_id, e, "recursion error")
         except Exception as e:
-            _handle_scraper_exception("poshmark", e, "thread error")
+            _handle_scraper_exception("poshmark", user_id, e, "thread error")
         finally:
-            logger.info("Poshmark scraper thread finished")
+            _cleanup_user(user_id)
     
-    t = threading.Thread(target=target, daemon=True, name="poshmark_scraper")
-    _threads["poshmark"] = t
+    t = threading.Thread(target=target, daemon=True, name=f"poshmark_scraper_{user_id}")
+    _threads[user_id]["poshmark"] = t
     t.start()
-    logger.info("✅ Started Poshmark scraper thread")
+    logger.info(f"✅ Started Poshmark scraper for user {user_id}")
     return True
 
-def stop_poshmark():
+def stop_poshmark(user_id):
+    if user_id not in _threads or "poshmark" not in _threads[user_id]:
+        return True
+    
     poshmark_flags["poshmark"] = False
-    t = _threads.get("poshmark")
+    t = _threads[user_id]["poshmark"]
     if t:
-        t.join(timeout=5)  # Give more time for graceful shutdown
-        if t.is_alive():
-            logger.warning("Poshmark scraper thread did not stop gracefully")
-    logger.info("🛑 Stopped Poshmark scraper")
+        t.join(timeout=5)
+    
+    _cleanup_user(user_id)
+    logger.info(f"🛑 Stopped Poshmark scraper for user {user_id}")
     return True
 
-def is_poshmark_running():
-    t = _threads.get("poshmark")
-    return t.is_alive() if t else False
+def is_poshmark_running(user_id):
+    if user_id not in _threads or "poshmark" not in _threads[user_id]:
+        return False
+    return _threads[user_id]["poshmark"].is_alive()
 
 # ============================
 # MERCARI SCRAPER THREADS
 # ============================
-def start_mercari():
-    if "mercari" in _threads and _threads["mercari"].is_alive():
-        logger.warning("Mercari scraper is already running")
+def start_mercari(user_id):
+    _init_user_structures(user_id)
+    
+    if "mercari" in _threads[user_id] and _threads[user_id]["mercari"].is_alive():
+        logger.warning(f"Mercari scraper already running for user {user_id}")
+        return False
+    
+    can_start, reason = can_start_scraper(user_id)
+    if not can_start:
+        logger.warning(f"Cannot start Mercari scraper for {user_id}: {reason}")
         return False
     
     mercari_flags["mercari"] = True
     
     def target():
         try:
-            logger.info("Starting Mercari scraper")
-            run_mercari_scraper(flag_name="mercari")
+            run_mercari_scraper(flag_name="mercari", user_id=user_id)
         except RecursionError as e:
-            _handle_scraper_exception("mercari", e, "recursion error")
+            _handle_scraper_exception("mercari", user_id, e, "recursion error")
         except Exception as e:
-            _handle_scraper_exception("mercari", e, "thread error")
+            _handle_scraper_exception("mercari", user_id, e, "thread error")
         finally:
-            logger.info("Mercari scraper thread finished")
+            _cleanup_user(user_id)
     
-    t = threading.Thread(target=target, daemon=True, name="mercari_scraper")
-    _threads["mercari"] = t
+    t = threading.Thread(target=target, daemon=True, name=f"mercari_scraper_{user_id}")
+    _threads[user_id]["mercari"] = t
     t.start()
-    logger.info("✅ Started Mercari scraper thread")
+    logger.info(f"✅ Started Mercari scraper for user {user_id}")
     return True
 
-def stop_mercari():
+def stop_mercari(user_id):
+    if user_id not in _threads or "mercari" not in _threads[user_id]:
+        return True
+    
     mercari_flags["mercari"] = False
-    t = _threads.get("mercari")
+    t = _threads[user_id]["mercari"]
     if t:
-        t.join(timeout=5)  # Give more time for graceful shutdown
-        if t.is_alive():
-            logger.warning("Mercari scraper thread did not stop gracefully")
-    logger.info("🛑 Stopped Mercari scraper")
+        t.join(timeout=5)
+    
+    _cleanup_user(user_id)
+    logger.info(f"🛑 Stopped Mercari scraper for user {user_id}")
     return True
 
-def is_mercari_running():
-    t = _threads.get("mercari")
-    return t.is_alive() if t else False
+def is_mercari_running(user_id):
+    if user_id not in _threads or "mercari" not in _threads[user_id]:
+        return False
+    return _threads[user_id]["mercari"].is_alive()
 
 # ============================
 # GLOBAL CLEANUP FUNCTIONS
 # ============================
-def stop_all_scrapers():
-    """Stop all running scrapers and cleanup resources."""
-    logger.info("🛑 Stopping all scrapers...")
+def stop_all_scrapers(user_id=None):
+    """Stop all scrapers for a user, or all users if user_id is None."""
+    if user_id:
+        logger.info(f"🛑 Stopping all scrapers for user {user_id}...")
+        stop_facebook(user_id)
+        stop_craigslist(user_id)
+        stop_ksl(user_id)
+        stop_ebay(user_id)
+        stop_poshmark(user_id)
+        stop_mercari(user_id)
+        _cleanup_user(user_id)
+    else:
+        logger.info("🛑 Stopping all scrapers for all users...")
+        for uid in list(_threads.keys()):
+            stop_all_scrapers(uid)
     
-    # Stop all scrapers
-    stop_facebook()
-    stop_craigslist()
-    stop_ksl()
-    stop_ebay()
-    stop_poshmark()
-    stop_mercari()
-    
-    # Cleanup all drivers
-    _cleanup_all_drivers()
-    
-    logger.info("✅ All scrapers stopped and resources cleaned up")
+    logger.info("✅ All scrapers stopped")
 
-def get_scraper_status():
-    """Get status of all scrapers."""
+def get_scraper_status(user_id):
+    """Get status of all scrapers for a specific user."""
     return {
-        "facebook": is_facebook_running(),
-        "craigslist": is_craigslist_running(),
-        "ksl": is_ksl_running(),
-        "ebay": is_ebay_running(),
-        "poshmark": is_poshmark_running(),
-        "mercari": is_mercari_running()
+        "facebook": is_facebook_running(user_id),
+        "craigslist": is_craigslist_running(user_id),
+        "ksl": is_ksl_running(user_id),
+        "ebay": is_ebay_running(user_id),
+        "poshmark": is_poshmark_running(user_id),
+        "mercari": is_mercari_running(user_id)
     }
 
-def get_scraper_health():
-    """Get detailed health status of all scrapers including error counts."""
-    health = {}
-    for site in ["facebook", "craigslist", "ksl", "ebay", "poshmark", "mercari"]:
-        error_count = len(_scraper_errors.get(site, []))
-        is_running = running(site)
-        recent_errors = _scraper_error_messages.get(site, [])
-        
-        # Get the last error message if any
-        last_error = recent_errors[-1] if recent_errors else None
-        
-        # Determine health status
-        if not is_running:
-            status = "stopped"
-        elif error_count == 0:
-            status = "healthy"
-        elif error_count < MAX_ERRORS_PER_HOUR // 2:
-            status = "degraded"
-        else:
-            status = "unhealthy"
-        
-        health[site] = {
-            "running": is_running,
-            "status": status,
-            "error_count": error_count,
-            "max_errors": MAX_ERRORS_PER_HOUR,
-            "last_error": last_error,
-            "recent_errors": recent_errors[-3:] if recent_errors else []  # Last 3 errors
-        }
-    
-    return health
+def get_system_stats():
+    """Get system-wide statistics."""
+    return {
+        "total_users": len(_threads),
+        "active_users": get_total_active_users(),
+        "total_scrapers": get_total_active_scrapers(),
+        "max_concurrent_users": MAX_CONCURRENT_USERS,
+        "max_scrapers_per_user": MAX_SCRAPERS_PER_USER
+    }
 
 # ============================
 # APP HELPER FUNCTIONS
 # ============================
 def list_sites():
-    return ["facebook","craigslist","ksl","ebay","poshmark","mercari"]
+    return ["facebook", "craigslist", "ksl", "ebay", "poshmark", "mercari"]
 
-# Generic functions for app.py
-def start_scraper(site):
+def start_scraper(site, user_id):
     if site == "facebook":
-        return start_facebook()
+        return start_facebook(user_id)
     elif site == "craigslist":
-        return start_craigslist()
+        return start_craigslist(user_id)
     elif site == "ksl":
-        return start_ksl()
+        return start_ksl(user_id)
     elif site == "ebay":
-        return start_ebay()
+        return start_ebay(user_id)
     elif site == "poshmark":
-        return start_poshmark()
+        return start_poshmark(user_id)
     elif site == "mercari":
-        return start_mercari()
+        return start_mercari(user_id)
     return False
 
-def stop_scraper(site):
+def stop_scraper(site, user_id):
     if site == "facebook":
-        return stop_facebook()
+        return stop_facebook(user_id)
     elif site == "craigslist":
-        return stop_craigslist()
+        return stop_craigslist(user_id)
     elif site == "ksl":
-        return stop_ksl()
+        return stop_ksl(user_id)
     elif site == "ebay":
-        return stop_ebay()
+        return stop_ebay(user_id)
     elif site == "poshmark":
-        return stop_poshmark()
+        return stop_poshmark(user_id)
     elif site == "mercari":
-        return stop_mercari()
+        return stop_mercari(user_id)
     return False
 
-def running(site):
+def running(site, user_id):
     if site == "facebook":
-        return is_facebook_running()
+        return is_facebook_running(user_id)
     elif site == "craigslist":
-        return is_craigslist_running()
+        return is_craigslist_running(user_id)
     elif site == "ksl":
-        return is_ksl_running()
+        return is_ksl_running(user_id)
     elif site == "ebay":
-        return is_ebay_running()
+        return is_ebay_running(user_id)
     elif site == "poshmark":
-        return is_poshmark_running()
+        return is_poshmark_running(user_id)
     elif site == "mercari":
-        return is_mercari_running()
+        return is_mercari_running(user_id)
     return False

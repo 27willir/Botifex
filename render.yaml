@@ -52,19 +52,29 @@ services:
       # Uncomment and set your values:
       
       # Email Configuration (REQUIRED for email verification and notifications)
-      # IMPORTANT: Set these values in your Render dashboard or update them here
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USERNAME
-        value: your-email@gmail.com  # CHANGE THIS
-      - key: SMTP_PASSWORD
-        value: your-app-password  # CHANGE THIS to your Gmail App Password
-      - key: SMTP_FROM_EMAIL
-        value: your-email@gmail.com  # CHANGE THIS
-      - key: SMTP_FROM_NAME
-        value: Super-Bot
+      # IMPORTANT: Set these in the Render Dashboard under Environment Variables
+      # Do NOT commit actual credentials to the repository
+      # - key: SMTP_HOST
+      #   value: smtp.gmail.com
+      # - key: SMTP_PORT
+      #   value: "587"
+      # - key: SMTP_USERNAME
+      #   value: your-email@gmail.com
+      # - key: SMTP_PASSWORD
+      #   value: your-app-password-here
+      # - key: SMTP_FROM_EMAIL
+      #   value: your-email@gmail.com
+      # - key: SMTP_FROM_NAME
+      #   value: YourAppName
+      
+      # Business Contact Information
+      # Set these in the Render Dashboard
+      # - key: BUSINESS_EMAIL
+      #   value: your-business@example.com
+      # - key: BUSINESS_PHONE
+      #   value: (123)-456-7890
+      # - key: SUPPORT_EMAIL
+      #   value: support@example.com
       
       # Stripe Configuration (if using payments)
       # - key: STRIPE_SECRET_KEY

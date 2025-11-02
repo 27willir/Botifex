@@ -1,0 +1,368 @@
+{% extends "admin/_base_admin.html" %}
+
+{% block title %}Scraper Health{% endblock %}
+{% block page_title %}Scraper Health Monitor{% endblock %}
+{% block page_subtitle %}Real-time monitoring of all scraper performance{% endblock %}
+
+{% block extra_styles %}
+.scrapers-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 24px;
+    margin-bottom: 32px;
+}
+
+.scraper-card {
+    background: rgba(26, 26, 46, 0.6);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(0, 191, 255, 0.2);
+    border-radius: 16px;
+    padding: 24px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.scraper-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #00bfff, transparent);
+}
+
+.scraper-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(0, 191, 255, 0.4);
+    box-shadow: 0 8px 24px rgba(0, 191, 255, 0.2);
+}
+
+.scraper-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.scraper-name {
+    font-size: 20px;
+    font-weight: 700;
+    text-transform: capitalize;
+    color: #fff;
+}
+
+.status-badge {
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.status-excellent {
+    background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+    color: #000;
+}
+
+.status-good {
+    background: linear-gradient(135deg, #00bfff 0%, #007bff 100%);
+    color: #fff;
+}
+
+.status-degraded {
+    background: linear-gradient(135deg, #ffaa00 0%, #ff8800 100%);
+    color: #000;
+}
+
+.status-poor {
+    background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+    color: #fff;
+}
+
+.status-unknown {
+    background: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.metric {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 191, 255, 0.1);
+}
+
+.metric-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.metric-value {
+    font-size: 24px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #00bfff 0%, #007bff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.metric-value.success-rate {
+    font-size: 28px;
+}
+
+.success-rate-high {
+    background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.success-rate-medium {
+    background: linear-gradient(135deg, #ffaa00 0%, #ff8800 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.success-rate-low {
+    background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.metric-small {
+    font-size: 18px;
+}
+
+.overall-stats {
+    background: rgba(26, 26, 46, 0.6);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(0, 191, 255, 0.2);
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 32px;
+}
+
+.overall-stats h2 {
+    margin-top: 0;
+    margin-bottom: 24px;
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.overall-stats h2 i {
+    color: #00bfff;
+}
+
+.overall-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+}
+
+.overall-metric {
+    text-align: center;
+}
+
+.overall-metric .value {
+    font-size: 36px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #00bfff 0%, #007bff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+}
+
+.overall-metric .label {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #00bfff 0%, #007bff 100%);
+    color: white;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: none;
+    margin-bottom: 24px;
+}
+
+.refresh-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 191, 255, 0.4);
+}
+
+.no-data {
+    text-align: center;
+    padding: 40px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.error-message {
+    background: rgba(255, 68, 68, 0.1);
+    border: 1px solid rgba(255, 68, 68, 0.3);
+    color: #ff4444;
+    padding: 12px;
+    border-radius: 8px;
+    margin-top: 12px;
+}
+{% endblock %}
+
+{% block content %}
+<button class="refresh-btn" onclick="refreshMetrics()">
+    <i class="fas fa-sync-alt"></i> Refresh Metrics
+</button>
+
+<div class="overall-stats">
+    <h2><i class="fas fa-chart-line"></i> Overall Performance (24h)</h2>
+    <div class="overall-grid">
+        <div class="overall-metric">
+            <div class="value" id="total-scrapers">{{ scrapers|length }}</div>
+            <div class="label">Active Scrapers</div>
+        </div>
+        <div class="overall-metric">
+            <div class="value" id="total-runs">-</div>
+            <div class="label">Total Runs</div>
+        </div>
+        <div class="overall-metric">
+            <div class="value" id="total-listings">-</div>
+            <div class="label">Listings Found</div>
+        </div>
+        <div class="overall-metric">
+            <div class="value" id="avg-success-rate">-</div>
+            <div class="label">Avg Success Rate</div>
+        </div>
+    </div>
+</div>
+
+<div class="scrapers-grid">
+    {% for scraper in scrapers %}
+    <div class="scraper-card" id="scraper-{{ scraper.name }}">
+        <div class="scraper-header">
+            <div class="scraper-name">
+                <i class="fas fa-robot"></i> {{ scraper.name }}
+            </div>
+            <div class="status-badge status-{{ scraper.status }}">
+                {{ scraper.status }}
+            </div>
+        </div>
+        
+        {% if scraper.metrics %}
+        <div class="metrics-grid">
+            <div class="metric">
+                <div class="metric-label">Success Rate</div>
+                <div class="metric-value success-rate {% if scraper.metrics.success_rate >= 95 %}success-rate-high{% elif scraper.metrics.success_rate >= 80 %}success-rate-medium{% else %}success-rate-low{% endif %}">
+                    {{ scraper.metrics.success_rate }}%
+                </div>
+            </div>
+            
+            <div class="metric">
+                <div class="metric-label">Total Runs</div>
+                <div class="metric-value metric-small">
+                    {{ scraper.metrics.total_runs }}
+                </div>
+            </div>
+            
+            <div class="metric">
+                <div class="metric-label">Listings Found</div>
+                <div class="metric-value metric-small">
+                    {{ scraper.metrics.total_listings }}
+                </div>
+            </div>
+            
+            <div class="metric">
+                <div class="metric-label">Avg Duration</div>
+                <div class="metric-value metric-small">
+                    {{ "%.2f"|format(scraper.metrics.avg_duration) }}s
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0, 191, 255, 0.1);">
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: rgba(255, 255, 255, 0.5);">
+                <span>Successful: {{ scraper.metrics.successful_runs }}</span>
+                <span>Failed: {{ scraper.metrics.failed_runs }}</span>
+            </div>
+        </div>
+        
+        {% if scraper.metrics.last_run %}
+        <div style="margin-top: 8px; font-size: 11px; color: rgba(255, 255, 255, 0.5);">
+            Last run: {{ scraper.metrics.last_run.timestamp[:19] if scraper.metrics.last_run.timestamp else 'Never' }}
+        </div>
+        {% endif %}
+        
+        {% else %}
+        <div class="no-data">
+            <i class="fas fa-info-circle"></i><br>
+            No data available
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+function calculateOverallStats() {
+    let totalRuns = 0;
+    let totalListings = 0;
+    let totalSuccessRate = 0;
+    let scraperCount = 0;
+    
+    {% for scraper in scrapers %}
+    {% if scraper.metrics %}
+    totalRuns += {{ scraper.metrics.total_runs }};
+    totalListings += {{ scraper.metrics.total_listings }};
+    totalSuccessRate += {{ scraper.metrics.success_rate }};
+    scraperCount++;
+    {% endif %}
+    {% endfor %}
+    
+    document.getElementById('total-runs').textContent = totalRuns.toLocaleString();
+    document.getElementById('total-listings').textContent = totalListings.toLocaleString();
+    
+    if (scraperCount > 0) {
+        const avgRate = (totalSuccessRate / scraperCount).toFixed(1);
+        document.getElementById('avg-success-rate').textContent = avgRate + '%';
+    } else {
+        document.getElementById('avg-success-rate').textContent = 'N/A';
+    }
+}
+
+function refreshMetrics() {
+    window.location.reload();
+}
+
+// Calculate overall stats on page load
+document.addEventListener('DOMContentLoaded', calculateOverallStats);
+
+// Auto-refresh every 30 seconds
+setInterval(refreshMetrics, 30000);
+</script>
+{% endblock %}
+

@@ -87,8 +87,11 @@ def send_email_notification(to_email, subject, message_body, listing_url=None):
                         {f'<a href="{listing_url}" class="button">View Listing</a>' if listing_url else ''}
                     </div>
                     <div class="footer">
-                        <p>You're receiving this because you enabled email notifications in Super-Bot.</p>
-                        <p>To manage your notification preferences, log in to your Super-Bot dashboard.</p>
+                        <p>You're receiving this because you enabled email notifications in Botifex.</p>
+                        <p>To manage your notification preferences, log in to your Botifex dashboard.</p>
+                        <p style="margin-top: 10px; color: #888;">
+                            Need help? Contact us: <a href="mailto:Botifex2025@gmail.com" style="color: #4CAF50;">Botifex2025@gmail.com</a> | (208) 681-6169
+                        </p>
                     </div>
                 </div>
             </body>

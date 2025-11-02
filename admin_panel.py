@@ -9,6 +9,15 @@ from rate_limiter import reset_user_rate_limits
 from cache_manager import get_cache, cache_user_data
 from security_middleware import get_security_stats
 
+# Import scraper metrics
+try:
+    from scrapers.metrics import get_metrics_summary, get_performance_status, get_recent_runs
+except ImportError:
+    logger.warning("Could not import scraper metrics module")
+    get_metrics_summary = None
+    get_performance_status = None
+    get_recent_runs = None
+
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
 # Debug route to check user role
@@ -579,3 +588,114 @@ def update_user_subscription(username):
         logger.error(f"Error updating subscription: {e}")
         flash("Error updating subscription", "error")
         return redirect(url_for('admin.user_detail', username=username))
+
+
+# ======================
+# SCRAPER HEALTH MONITORING
+# ======================
+
+@admin_bp.route('/scrapers')
+@login_required
+@admin_required
+def scrapers_health():
+    """Scraper health monitoring page"""
+    try:
+        if not get_metrics_summary:
+            flash("Scraper metrics module not available", "error")
+            return redirect(url_for('admin.dashboard'))
+        
+        # Get metrics for all scrapers
+        scrapers = ['craigslist', 'ebay', 'facebook', 'ksl', 'mercari', 'poshmark']
+        scraper_data = []
+        
+        for scraper_name in scrapers:
+            try:
+                metrics = get_metrics_summary(scraper_name, hours=24)
+                status = get_performance_status(scraper_name)
+                
+                scraper_data.append({
+                    'name': scraper_name,
+                    'status': status,
+                    'metrics': metrics
+                })
+            except Exception as e:
+                logger.error(f"Error getting metrics for {scraper_name}: {e}")
+                scraper_data.append({
+                    'name': scraper_name,
+                    'status': 'unknown',
+                    'metrics': None
+                })
+        
+        return render_template('admin/scrapers.html', scrapers=scraper_data)
+    
+    except Exception as e:
+        logger.error(f"Error loading scraper health page: {e}")
+        flash("Error loading scraper health", "error")
+        return redirect(url_for('admin.dashboard'))
+
+
+@admin_bp.route('/api/scraper-health')
+@login_required
+@admin_required
+def api_scraper_health():
+    """Get scraper health data (API)"""
+    try:
+        if not get_metrics_summary:
+            return jsonify({'error': 'Metrics module not available'}), 500
+        
+        scrapers = ['craigslist', 'ebay', 'facebook', 'ksl', 'mercari', 'poshmark']
+        health_data = {}
+        
+        for scraper_name in scrapers:
+            try:
+                metrics = get_metrics_summary(scraper_name, hours=24)
+                status = get_performance_status(scraper_name)
+                
+                health_data[scraper_name] = {
+                    'status': status,
+                    'total_runs': metrics['total_runs'] if metrics else 0,
+                    'success_rate': metrics['success_rate'] if metrics else 0,
+                    'total_listings': metrics['total_listings'] if metrics else 0,
+                    'avg_duration': metrics['avg_duration'] if metrics else 0,
+                    'last_run': metrics['last_run'] if metrics and 'last_run' in metrics else None
+                }
+            except Exception as e:
+                logger.error(f"Error getting health for {scraper_name}: {e}")
+                health_data[scraper_name] = {
+                    'status': 'error',
+                    'error': str(e)
+                }
+        
+        return jsonify(health_data)
+    
+    except Exception as e:
+        logger.error(f"Error getting scraper health: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_bp.route('/api/scraper-details/<scraper_name>')
+@login_required
+@admin_required
+def api_scraper_details(scraper_name):
+    """Get detailed metrics for a specific scraper"""
+    try:
+        if not get_metrics_summary or not get_recent_runs:
+            return jsonify({'error': 'Metrics module not available'}), 500
+        
+        # Get metrics for different time periods
+        metrics_24h = get_metrics_summary(scraper_name, hours=24)
+        metrics_1h = get_metrics_summary(scraper_name, hours=1)
+        recent_runs = get_recent_runs(scraper_name, limit=20)
+        status = get_performance_status(scraper_name)
+        
+        return jsonify({
+            'scraper': scraper_name,
+            'status': status,
+            'metrics_24h': metrics_24h,
+            'metrics_1h': metrics_1h,
+            'recent_runs': recent_runs
+        })
+    
+    except Exception as e:
+        logger.error(f"Error getting details for {scraper_name}: {e}")
+        return jsonify({'error': str(e)}), 500
