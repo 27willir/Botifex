@@ -8,8 +8,10 @@ import time
 import json
 import threading
 import urllib.parse
+import re
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 import requests
 from utils import logger
 from functools import lru_cache
@@ -31,6 +33,15 @@ _session_lock = threading.Lock()
 _url_cache = {}
 _url_cache_lock = threading.Lock()
 _url_cache_max_size = 1000  # Limit cache size
+
+# Pre-compiled pattern for extracting JSON-LD scripts
+_JSON_LD_SCRIPT_RE = re.compile(
+    r"<script[^>]+type=[\"']application/(?:ld\+json|json)[\"'][^>]*>(.*?)</script>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Price cleanup regex
+_PRICE_CLEAN_RE = re.compile(r"[^0-9.]")
 
 
 # ======================
@@ -468,6 +479,212 @@ def load_seen_listings(site_name, filename=None):
     except Exception as e:
         logger.error(f"Error loading seen listings for {site_name}: {e}")
         return {}
+
+
+# ======================
+# JSON-LD EXTRACTION
+# ======================
+def _coerce_price_value(value: Any) -> Optional[int]:
+    """Convert a JSON-LD price value into an integer number of currency units."""
+
+    if value is None:
+        return None
+
+    if isinstance(value, (int, float)):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None
+
+    if isinstance(value, str):
+        cleaned = _PRICE_CLEAN_RE.sub("", value)
+        if not cleaned:
+            return None
+        try:
+            return int(float(cleaned))
+        except ValueError:
+            return None
+
+    return None
+
+
+def _extract_offer_metadata(offers: Any) -> Dict[str, Any]:
+    """Extract price information from a JSON-LD offers structure."""
+
+    if not offers:
+        return {"price": None, "currency": None, "raw": None}
+
+    offer_candidates: List[Dict[str, Any]] = []
+
+    if isinstance(offers, dict):
+        offer_candidates.append(offers)
+    elif isinstance(offers, list):
+        offer_candidates.extend([o for o in offers if isinstance(o, dict)])
+
+    for offer in offer_candidates:
+        price_value = (
+            offer.get("price")
+            or offer.get("lowPrice")
+            or offer.get("highPrice")
+        )
+        price = _coerce_price_value(price_value)
+        if price is not None:
+            return {
+                "price": price,
+                "currency": offer.get("priceCurrency"),
+                "raw": price_value,
+            }
+
+    # If none of the offers had a parseable price, fall back to the first raw value
+    if offer_candidates:
+        raw_value = (
+            offer_candidates[0].get("price")
+            or offer_candidates[0].get("lowPrice")
+            or offer_candidates[0].get("highPrice")
+        )
+        return {
+            "price": _coerce_price_value(raw_value),
+            "currency": offer_candidates[0].get("priceCurrency"),
+            "raw": raw_value,
+        }
+
+    return {"price": None, "currency": None, "raw": None}
+
+
+def _normalize_json_ld_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a JSON-LD item into a standard listing dict."""
+
+    title = (
+        item.get("name")
+        or item.get("title")
+        or item.get("headline")
+        or item.get("alternateName")
+    )
+
+    url = item.get("url") or item.get("@id") or item.get("id")
+
+    image_field = item.get("image")
+    image_url: Optional[str] = None
+    if isinstance(image_field, str):
+        image_url = image_field.strip()
+    elif isinstance(image_field, list):
+        for element in image_field:
+            if isinstance(element, str) and element.strip():
+                image_url = element.strip()
+                if image_url.startswith("http"):
+                    break
+
+    description = item.get("description") or item.get("abstract")
+
+    offer_meta = _extract_offer_metadata(item.get("offers"))
+    price = offer_meta["price"]
+    currency = offer_meta["currency"]
+    raw_price = offer_meta["raw"]
+
+    # Some schemas put price directly on the item
+    if price is None:
+        price = _coerce_price_value(item.get("price"))
+        if price is None:
+            price = _coerce_price_value(item.get("priceSpecification"))
+
+    return {
+        "title": title.strip() if isinstance(title, str) else None,
+        "url": url.strip() if isinstance(url, str) else None,
+        "price": price,
+        "price_raw": raw_price or item.get("price"),
+        "currency": currency,
+        "image": image_url,
+        "description": description.strip() if isinstance(description, str) else None,
+        "raw": item,
+    }
+
+
+def _collect_json_ld_items(payload: Any, results: List[Dict[str, Any]], seen_urls: set):
+    """Recursively collect JSON-LD listings from arbitrary payloads."""
+
+    if payload is None:
+        return
+
+    if isinstance(payload, list):
+        for element in payload:
+            _collect_json_ld_items(element, results, seen_urls)
+        return
+
+    if not isinstance(payload, dict):
+        return
+
+    if "@graph" in payload and isinstance(payload["@graph"], list):
+        _collect_json_ld_items(payload["@graph"], results, seen_urls)
+
+    if "itemListElement" in payload and isinstance(payload["itemListElement"], list):
+        for element in payload["itemListElement"]:
+            item = element.get("item") if isinstance(element, dict) else element
+            if isinstance(item, dict):
+                normalized = _normalize_json_ld_item(item)
+                url = normalized.get("url")
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    results.append(normalized)
+
+    # Some schemas use "item" directly without itemListElement
+    if payload.get("@type") in {"Product", "Offer", "ListItem", "Article"} and (
+        payload.get("url") or payload.get("@id")
+    ):
+        normalized = _normalize_json_ld_item(payload)
+        url = normalized.get("url")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            results.append(normalized)
+
+    # Recurse into values to catch nested declarations
+    for value in payload.values():
+        if isinstance(value, (dict, list)):
+            _collect_json_ld_items(value, results, seen_urls)
+
+
+def extract_json_ld_items(html_text: str) -> List[Dict[str, Any]]:
+    """Extract listing-like items from any JSON-LD scripts embedded in HTML."""
+
+    if not html_text:
+        return []
+
+    results: List[Dict[str, Any]] = []
+    seen_urls: set = set()
+
+    for match in _JSON_LD_SCRIPT_RE.finditer(html_text):
+        script_content = match.group(1).strip()
+        if not script_content:
+            continue
+
+        # Remove HTML comment wrappers if present
+        if script_content.startswith("<!--"):
+            script_content = script_content[4:]
+        if script_content.endswith("-->"):
+            script_content = script_content[:-3]
+
+        try:
+            data = json.loads(script_content)
+        except json.JSONDecodeError:
+            # Some scripts may contain multiple JSON objects separated by newlines
+            # Attempt to load line-by-line as a fallback
+            fragments = []
+            for line in script_content.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    fragments.append(json.loads(line))
+                except json.JSONDecodeError:
+                    fragments = []
+                    break
+            if not fragments:
+                logger.debug("Failed to decode JSON-LD fragment")
+                continue
+            data = fragments
+
+        _collect_json_ld_items(data, results, seen_urls)
+
+    return results
 
 
 # ======================

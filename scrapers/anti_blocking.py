@@ -93,6 +93,8 @@ class SiteProfile:
         "verify you are a human",
         "blocked",
         "temporarily unavailable",
+        "service unavailable",
+        "zero size object",
         "robot check",
         "forbidden",
     )

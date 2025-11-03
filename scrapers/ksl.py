@@ -12,7 +12,7 @@ from scrapers.common import (
     load_seen_listings, validate_listing, load_settings, get_session,
     make_request_with_retry, validate_image_url, check_recursion_guard,
     set_recursion_guard, log_selector_failure, log_parse_attempt,
-    get_seen_listings_lock
+    get_seen_listings_lock, extract_json_ld_items
 )
 from scrapers import anti_blocking
 from scrapers.metrics import ScraperMetrics
@@ -116,95 +116,147 @@ def check_ksl(flag_name=SITE_NAME):
                 log_parse_attempt(SITE_NAME, 3, "listing article elements")
                 posts = tree.xpath('//article[contains(@class,"listing")]')
             
+            json_ld_items = []
             if not posts:
-                log_selector_failure(SITE_NAME, "xpath", "listing patterns", "posts")
-                snippet = (response.text[:2000] if getattr(response, "text", None) else "").lower()
-                block_keywords = (
-                    "are you a robot",
-                    "unusual activity",
-                    "blocked",
-                    "slow down",
-                )
-                if any(keyword in snippet for keyword in block_keywords):
-                    anti_blocking.record_block(SITE_NAME, "keyword:ksl-block", cooldown_hint=120)
+                log_parse_attempt(SITE_NAME, 4, "JSON-LD itemListElement fallback")
+                json_ld_items = extract_json_ld_items(response.text)
+                if not json_ld_items:
+                    log_selector_failure(SITE_NAME, "json-ld", "itemListElement", "posts")
+                    snippet = (response.text[:2000] if getattr(response, "text", None) else "").lower()
+                    block_keywords = (
+                        "are you a robot",
+                        "unusual activity",
+                        "blocked",
+                        "slow down",
+                    )
+                    if any(keyword in snippet for keyword in block_keywords):
+                        anti_blocking.record_block(SITE_NAME, "keyword:ksl-block", cooldown_hint=120)
 
-                logger.warning(f"KSL: No posts found with any selector pattern")
-                metrics.success = True  # Not an error, just no results
-                metrics.listings_found = 0
-                return []
+                    logger.warning("KSL: No posts found with HTML or JSON-LD selectors")
+                    metrics.success = True  # Not an error, just no results
+                    metrics.listings_found = 0
+                    return []
+                logger.debug(f"KSL JSON-LD fallback produced {len(json_ld_items)} entries")
+            else:
+                logger.debug(f"KSL HTML selectors returned {len(posts)} posts")
             
             # Pre-compile keywords for faster matching
             keywords_lower = [k.lower() for k in keywords]
             
             for post in posts:
                 try:
-                    # Extract link efficiently (single XPath with fallback)
-                    link_elems = (post.xpath(".//a[@class='listing-item-link']/@href") or 
-                                 post.xpath(".//a[contains(@class,'listing')]/@href") or 
-                                 post.xpath(".//a/@href"))
-                    
+                    link_elems = (
+                        post.xpath(".//a[@class='listing-item-link']/@href") or
+                        post.xpath(".//a[contains(@class,'listing')]/@href") or
+                        post.xpath(".//a/@href")
+                    )
+
                     if not link_elems:
                         continue
-                    
+
                     link = link_elems[0]
-                    
-                    # Make sure it's a full URL (fast path check)
                     if not link.startswith("http"):
-                        link = "https://classifieds.ksl.com" + link
-                    
-                    # Extract title efficiently (single XPath with fallback)
-                    title_elems = (post.xpath(".//h2/text()") or 
-                                  post.xpath(".//h3/text()") or 
-                                  post.xpath(".//div[contains(@class,'title')]/text()"))
-                    
+                        link = urllib.parse.urljoin(BASE_URL, link)
+
+                    title_elems = (
+                        post.xpath(".//h2/text()") or
+                        post.xpath(".//h3/text()") or
+                        post.xpath(".//div[contains(@class,'title')]/text()")
+                    )
+
                     if not title_elems:
                         continue
-                    
+
                     title = title_elems[0].strip()
-                    
-                    # Extract and parse price (consolidated)
-                    price_elems = (post.xpath(".//h3/text()") or 
-                                  post.xpath(".//span[contains(@class,'price')]/text()") or 
-                                  post.xpath(".//*[contains(text(),'$')]/text()"))
-                    
+
                     price_val = None
+                    price_elems = (
+                        post.xpath(".//h3/text()") or
+                        post.xpath(".//span[contains(@class,'price')]/text()") or
+                        post.xpath(".//*[contains(text(),'$')]/text()")
+                    )
                     if price_elems:
                         try:
                             price_val = int(price_elems[0].replace("$", "").replace(",", "").strip())
                         except (ValueError, AttributeError):
-                            pass
-                    
-                    # Early exit if price out of range
+                            price_val = None
+
                     if price_val and (price_val < min_price or price_val > max_price):
                         continue
-                    
-                    # Check keywords (use pre-lowercased)
+
                     title_lower = title.lower()
                     if not any(k in title_lower for k in keywords_lower):
                         continue
-                    
-                    # Check if new listing
+
                     if not is_new_listing(link, seen_listings, SITE_NAME):
                         continue
-                    
-                    # Update seen listings
+
                     normalized_link = normalize_url(link)
                     lock = get_seen_listings_lock(SITE_NAME)
                     with lock:
                         seen_listings[normalized_link] = datetime.now()
-                    
-                    # Extract image URL (consolidated)
+
                     img_elem = post.xpath(".//img/@src") or post.xpath(".//img/@data-src")
                     image_url = None
                     if img_elem:
                         image_url = img_elem[0]
-                        if image_url and not image_url.startswith("http"):
-                            image_url = "https://img.ksl.com" + image_url
-                    
+                        if image_url.startswith("//"):
+                            image_url = f"https:{image_url}"
+                        elif image_url and not image_url.startswith("http"):
+                            image_url = urllib.parse.urljoin(BASE_URL, image_url)
+
                     send_discord_message(title, link, price_val, image_url)
                     results.append({"title": title, "link": link, "price": price_val, "image": image_url})
                 except Exception as e:
                     logger.warning(f"Error parsing a KSL post: {e}")
+
+            if not posts and json_ld_items:
+                lock = get_seen_listings_lock(SITE_NAME)
+                for entry in json_ld_items:
+                    try:
+                        title = entry.get("title")
+                        link = entry.get("url")
+                        if link:
+                            link = urllib.parse.urljoin(BASE_URL, link)
+                        if not title or not link:
+                            continue
+
+                        price_val = entry.get("price")
+                        if price_val is not None:
+                            try:
+                                price_val = int(float(price_val))
+                            except (TypeError, ValueError):
+                                price_val = None
+
+                        description = entry.get("description")
+                        text_blob = title.lower()
+                        if isinstance(description, str):
+                            text_blob = f"{text_blob} {description.lower()}"
+
+                        if price_val and (price_val < min_price or price_val > max_price):
+                            continue
+
+                        if not any(k in text_blob for k in keywords_lower):
+                            continue
+
+                        if not is_new_listing(link, seen_listings, SITE_NAME):
+                            continue
+
+                        normalized_link = normalize_url(link)
+                        with lock:
+                            seen_listings[normalized_link] = datetime.now()
+
+                        image_url = entry.get("image")
+                        if isinstance(image_url, str):
+                            if image_url.startswith("//"):
+                                image_url = f"https:{image_url}"
+                            elif image_url.startswith("/"):
+                                image_url = urllib.parse.urljoin(BASE_URL, image_url)
+
+                        send_discord_message(title, link, price_val, image_url)
+                        results.append({"title": title, "link": link, "price": price_val, "image": image_url})
+                    except Exception as e:
+                        logger.warning(f"Error parsing KSL JSON-LD listing: {e}")
 
             if results:
                 save_seen_listings(seen_listings, SITE_NAME)
