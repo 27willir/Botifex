@@ -14,7 +14,7 @@ from scrapers.common import (
     load_seen_listings, validate_listing, load_settings, get_session,
     make_request_with_retry, validate_image_url, check_recursion_guard,
     set_recursion_guard, log_selector_failure, log_parse_attempt,
-    get_seen_listings_lock
+    get_seen_listings_lock, extract_json_ld_items
 )
 from scrapers.metrics import ScraperMetrics
 
@@ -184,87 +184,130 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
                 log_parse_attempt(SITE_NAME, 3, "generic search-result class")
                 posts = tree.xpath('//li[contains(@class, "search-result")]')
             
+            json_ld_items = []
             if not posts:
-                log_selector_failure(SITE_NAME, "xpath", "listing items", "posts")
-                logger.warning(f"Craigslist: No posts found with any selector pattern")
-                metrics.success = True  # Not an error, just no results
-                metrics.listings_found = 0
-                return []
-            
-            # Pre-compile title lower for keyword matching (outside loop)
+                log_parse_attempt(SITE_NAME, 4, "JSON-LD itemListElement fallback")
+                json_ld_items = extract_json_ld_items(response.text)
+                if not json_ld_items:
+                    log_selector_failure(SITE_NAME, "json-ld", "itemListElement", "posts")
+                    logger.warning("Craigslist: No posts found with HTML or JSON-LD selectors")
+                    metrics.success = True
+                    metrics.listings_found = 0
+                    return []
+                logger.debug(f"Craigslist JSON-LD fallback produced {len(json_ld_items)} entries")
+            else:
+                logger.debug(f"Craigslist HTML selectors returned {len(posts)} posts")
+
             keywords_lower = [k.lower() for k in keywords]
-            
-            for post in posts:
-                try:
-                    # Combined XPath query for link and title (single pass)
-                    # Try titlestring class first, then result-title, then any anchor
-                    link = None
-                    title = None
-                    
-                    # Method 1: titlestring class
-                    anchor = post.xpath(".//a[@class='titlestring']")
-                    if anchor:
-                        link = anchor[0].get('href')
-                        title = anchor[0].text_content().strip() if anchor[0].text_content() else None
-                    
-                    # Method 2: result-title class (fallback)
-                    if not link:
-                        anchor = post.xpath(".//a[contains(@class, 'result-title')]")
+            seen_lock = get_seen_listings_lock(SITE_NAME)
+
+            def handle_candidate(title, link, price_val, image_url=None, description=None):
+                if not title or not link:
+                    return
+
+                normalized_price = None
+                if price_val is not None:
+                    try:
+                        normalized_price = int(float(price_val))
+                    except (TypeError, ValueError):
+                        normalized_price = None
+
+                if normalized_price is not None:
+                    if normalized_price < min_price or normalized_price > max_price:
+                        return
+
+                text_blob = title.lower()
+                if description:
+                    text_blob = f"{text_blob} {description.lower()}"
+
+                if not any(k in text_blob for k in keywords_lower):
+                    return
+
+                if not is_new_listing(link, seen_listings, SITE_NAME):
+                    return
+
+                normalized_link = normalize_url(link)
+                with seen_lock:
+                    seen_listings[normalized_link] = datetime.now()
+
+                send_discord_message(title, link, normalized_price, image_url, user_id=user_id)
+                results.append({
+                    "title": title,
+                    "link": link,
+                    "price": normalized_price,
+                    "image": image_url
+                })
+
+            if posts:
+                for post in posts:
+                    try:
+                        link = None
+                        title = None
+
+                        anchor = post.xpath(".//a[@class='titlestring']")
                         if anchor:
                             link = anchor[0].get('href')
                             title = anchor[0].text_content().strip() if anchor[0].text_content() else None
-                    
-                    # Method 3: Any anchor with href (last resort)
-                    if not link:
-                        anchor = post.xpath(".//a[@href]")
-                        if anchor:
-                            link = anchor[0].get('href')
-                            title = anchor[0].text_content().strip() if anchor[0].text_content() else None
-                    
-                    if not link or not title:
-                        continue
-                    
-                    # Extract and parse price (consolidated)
-                    price_elem = post.xpath(".//span[contains(@class, 'price')]/text()")
-                    price_val = None
-                    if price_elem:
-                        try:
-                            price_val = int(price_elem[0].replace("$", "").replace(",", ""))
-                        except (ValueError, IndexError):
-                            pass
-                    
-                    # Early exit if price out of range
-                    if price_val and (price_val < min_price or price_val > max_price):
-                        continue
-                    
-                    # Check keywords (use pre-lowercased title)
-                    title_lower = title.lower()
-                    if not any(k in title_lower for k in keywords_lower):
-                        continue
-                    
-                    # Check if new listing
-                    if not is_new_listing(link, seen_listings, SITE_NAME):
-                        continue
-                    
-                    # Update seen listings
-                    normalized_link = normalize_url(link)
-                    lock = get_seen_listings_lock(SITE_NAME)
-                    with lock:
-                        seen_listings[normalized_link] = datetime.now()
-                    
-                    # Extract image URL
-                    image_url = None
-                    img_elem = post.xpath(".//img/@src")
-                    if img_elem:
-                        image_url = img_elem[0]
-                        # Make sure it's a full URL
-                        if image_url and not image_url.startswith("http"):
-                            image_url = "https://images.craigslist.org" + image_url
-                    
-                        send_discord_message(title, link, price_val, image_url, user_id=user_id)
-                        results.append({"title": title, "link": link, "price": price_val, "image": image_url})
-                except Exception as e:
-                    logger.warning(f"Error parsing a Craigslist post: {e}")
+
+                        if not link:
+                            anchor = post.xpath(".//a[contains(@class, 'result-title')]")
+                            if anchor:
+                                link = anchor[0].get('href')
+                                title = anchor[0].text_content().strip() if anchor[0].text_content() else None
+
+                        if not link:
+                            anchor = post.xpath(".//a[@href]")
+                            if anchor:
+                                link = anchor[0].get('href')
+                                title = anchor[0].text_content().strip() if anchor[0].text_content() else None
+
+                        if not link or not title:
+                            continue
+
+                        link = urllib.parse.urljoin(url, link)
+
+                        price_val = None
+                        price_elem = post.xpath(".//span[contains(@class, 'price')]/text()")
+                        if price_elem:
+                            price_text = price_elem[0]
+                            try:
+                                price_val = int(price_text.replace("$", "").replace(",", ""))
+                            except (ValueError, AttributeError):
+                                price_val = None
+
+                        image_url = None
+                        img_elem = post.xpath(".//img/@src")
+                        if img_elem:
+                            image_url = img_elem[0]
+                            if image_url.startswith('//'):
+                                image_url = f"https:{image_url}"
+                            elif image_url and not image_url.startswith('http'):
+                                image_url = "https://images.craigslist.org" + image_url
+
+                        handle_candidate(title, link, price_val, image_url)
+                    except Exception as e:
+                        logger.warning(f"Error parsing a Craigslist post: {e}")
+            else:
+                for entry in json_ld_items:
+                    try:
+                        title = entry.get("title")
+                        link = entry.get("url")
+                        if link:
+                            link = urllib.parse.urljoin(url, link)
+
+                        image_url = entry.get("image")
+                        if isinstance(image_url, str):
+                            if image_url.startswith('//'):
+                                image_url = f"https:{image_url}"
+                            elif image_url.startswith('/'):
+                                image_url = "https://images.craigslist.org" + image_url
+
+                        description = entry.get("description")
+                        price_val = entry.get("price")
+
+                        handle_candidate(title, link, price_val, image_url, description)
+                    except Exception as e:
+                        logger.warning(f"Error parsing Craigslist JSON-LD listing: {e}")
 
             if results:
                 save_seen_listings(seen_listings, SITE_NAME)
