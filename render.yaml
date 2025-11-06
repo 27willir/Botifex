@@ -33,7 +33,15 @@ services:
       - key: PERMANENT_SESSION_LIFETIME
         value: "3600"
       
-      # Database
+      # Database Configuration
+      # IMPORTANT: Use PostgreSQL for persistent storage (user data won't be lost on deployment)
+      # SQLite will lose all data on each deployment/restart
+      - key: DATABASE_URL
+        fromService:
+          type: postgresql
+          name: superbot-db
+          property: connectionString
+      # Fallback for SQLite (not recommended for production)
       - key: DB_FILE
         value: superbot.db
       
@@ -92,11 +100,11 @@ services:
       # - key: TWILIO_FROM_NUMBER
       #   value: +1234567890
 
-# Optional: Add PostgreSQL database for persistent storage
-# Uncomment below if you want to use PostgreSQL instead of SQLite
-# databases:
-#   - name: superbot-db
-#     plan: free  # Options: free, starter, standard, pro
-#     databaseName: superbot
-#     user: superbot
+# PostgreSQL Database - REQUIRED for persistent storage
+# Without this, user data will be LOST on each deployment/restart
+databases:
+  - name: superbot-db
+    plan: free  # Options: free ($0), starter ($7), standard ($25), pro ($85)
+    databaseName: superbot
+    user: superbot
 

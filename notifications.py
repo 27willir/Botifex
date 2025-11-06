@@ -1,6 +1,7 @@
 # notifications.py - Email and SMS notification system
 import smtplib
 import os
+import html
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from utils import logger
@@ -32,36 +33,59 @@ except ImportError:
 
 
 @log_errors()
-def send_email_notification(to_email, subject, message_body, listing_url=None):
+def send_email_notification(
+    to_email,
+    subject,
+    message_body,
+    listing_url=None,
+    *,
+    heading=None,
+    button_text=None,
+    footer_note=None,
+):
     """
-    Send email notification to user
-    
+    Send an email notification to a user.
+
     Args:
         to_email: Recipient email address
         subject: Email subject
         message_body: Email body (plain text)
-        listing_url: Optional listing URL to include
-    
+        listing_url: Optional URL to include as a call-to-action button
+        heading: Optional heading displayed in the HTML template
+        button_text: Optional text for the call-to-action button
+        footer_note: Optional footer note, defaults to notification preferences reminder
+
     Returns:
         bool: True if email sent successfully, False otherwise
     """
     if not SMTP_USERNAME or not SMTP_PASSWORD:
         logger.warning("Email credentials not configured. Skipping email notification.")
         return False
-    
+
     try:
-        # Create message
         msg = MIMEMultipart('alternative')
         msg['Subject'] = subject
         msg['From'] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
         msg['To'] = to_email
-        
-        # Create plain text version
+
+        action_url = listing_url
         text_content = message_body
-        if listing_url:
-            text_content += f"\n\nView listing: {listing_url}"
-        
-        # Create HTML version (more attractive)
+        if action_url:
+            text_content += f"\n\nOpen link: {action_url}"
+
+        safe_heading = html.escape(heading or ("🔔 New Listing Found!" if action_url else subject))
+        safe_message = html.escape(message_body).replace('\n', '<br>')
+
+        if button_text is None and action_url:
+            button_text = "View Listing"
+
+        button_html = ""
+        if action_url and button_text:
+            button_html = f'<a href="{action_url}" class="button">{html.escape(button_text)}</a>'
+
+        footer_note = footer_note or "You're receiving this because you enabled email notifications in Botifex."
+        footer_html = html.escape(footer_note)
+
         html_content = f"""
         <html>
             <head>
@@ -78,16 +102,16 @@ def send_email_notification(to_email, subject, message_body, listing_url=None):
             <body>
                 <div class="container">
                     <div class="header">
-                        <h1>🔔 New Listing Found!</h1>
+                        <h1>{safe_heading}</h1>
                     </div>
                     <div class="content">
                         <div class="listing-details">
-                            {message_body.replace(chr(10), '<br>')}
+                            {safe_message}
                         </div>
-                        {f'<a href="{listing_url}" class="button">View Listing</a>' if listing_url else ''}
+                        {button_html}
                     </div>
                     <div class="footer">
-                        <p>You're receiving this because you enabled email notifications in Botifex.</p>
+                        <p>{footer_html}</p>
                         <p>To manage your notification preferences, log in to your Botifex dashboard.</p>
                         <p style="margin-top: 10px; color: #888;">
                             Need help? Contact us: <a href="mailto:Botifex2025@gmail.com" style="color: #4CAF50;">Botifex2025@gmail.com</a> | (208) 681-6169
@@ -97,22 +121,20 @@ def send_email_notification(to_email, subject, message_body, listing_url=None):
             </body>
         </html>
         """
-        
-        # Attach both versions
+
         part1 = MIMEText(text_content, 'plain')
         part2 = MIMEText(html_content, 'html')
         msg.attach(part1)
         msg.attach(part2)
-        
-        # Send email
+
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.starttls()
             server.login(SMTP_USERNAME, SMTP_PASSWORD)
             server.send_message(msg)
-        
+
         logger.info(f"✅ Email notification sent to {to_email}")
         return True
-        
+
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"❌ Email authentication failed: {e}")
         return False
@@ -221,6 +243,38 @@ This listing was just posted and matches your saved preferences.
     return results
 
 
+@log_errors()
+def send_welcome_email(to_email, username, login_url=None):
+    """Send a welcome email to newly registered users."""
+    subject = "Welcome to Botifex!"
+    message_body = f"""
+Hi {username},
+
+Thanks for creating an account with Botifex. We're excited to have you on board!
+
+Here are your next steps:
+• Verify your email if you haven't already.
+• Log in to start configuring your alerts.
+
+If you have any questions, just reply to this email and our team will help you out.
+
+Happy searching!
+— The Botifex Team
+    """.strip()
+
+    button_text = "Go to Login" if login_url else None
+
+    return send_email_notification(
+        to_email=to_email,
+        subject=subject,
+        message_body=message_body,
+        listing_url=login_url,
+        heading="🎉 Welcome to Botifex",
+        button_text=button_text,
+        footer_note="You're receiving this because you created an account on Botifex.",
+    )
+
+
 def test_email_configuration():
     """
     Test if email configuration is properly set up
@@ -255,6 +309,7 @@ __all__ = [
     'send_email_notification',
     'send_sms_notification',
     'notify_new_listing',
+    'send_welcome_email',
     'test_email_configuration',
     'test_sms_configuration',
 ]

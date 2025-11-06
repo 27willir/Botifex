@@ -1,0 +1,257 @@
+{% extends "admin/_base_admin.html" %}
+
+{% block title %}Email Directory{% endblock %}
+{% block page_title %}Email Directory{% endblock %}
+{% block page_subtitle %}All registered addresses ready for announcements and newsletters{% endblock %}
+
+{% block content %}
+<style>
+    .email-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+    }
+
+    .email-stats .stat-card {
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid rgba(0, 191, 255, 0.25);
+        border-radius: 14px;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+    }
+
+    .stat-value {
+        font-size: 32px;
+        font-weight: 700;
+        color: #00d9ff;
+    }
+
+    .stat-label {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        color: rgba(255, 255, 255, 0.65);
+        margin-top: 8px;
+    }
+
+    .email-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 18px;
+    }
+
+    .email-toolbar input {
+        flex: 1 1 260px;
+        padding: 14px 18px;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(0, 191, 255, 0.3);
+        border-radius: 12px;
+        color: white;
+        font-size: 15px;
+        transition: all 0.3s ease;
+    }
+
+    .email-toolbar input:focus {
+        outline: none;
+        border-color: #00bfff;
+        box-shadow: 0 0 20px rgba(0, 191, 255, 0.3);
+    }
+
+    .email-toolbar .btn {
+        white-space: nowrap;
+    }
+
+    .email-status {
+        min-height: 20px;
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.7);
+        margin-bottom: 8px;
+    }
+
+    @media (max-width: 640px) {
+        .email-toolbar {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .email-toolbar .btn {
+            width: 100%;
+            text-align: center;
+        }
+    }
+</style>
+
+<div class="section">
+    <h2><i class="fas fa-chart-pie"></i> Email Stats</h2>
+    <div class="email-stats">
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.total }}</div>
+            <div class="stat-label">Total Emails</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.verified }}</div>
+            <div class="stat-label">Verified</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.subscribed }}</div>
+            <div class="stat-label">Email Opt-In</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.active }}</div>
+            <div class="stat-label">Active Accounts</div>
+        </div>
+    </div>
+</div>
+
+<div class="section">
+    <h2><i class="fas fa-envelope"></i> Directory</h2>
+    <div class="email-toolbar">
+        <input type="text" id="emailSearch" placeholder="🔍 Search by username or email...">
+        <button type="button" class="btn btn-primary" id="copyEmails"><i class="fas fa-copy"></i> Copy Visible</button>
+        <button type="button" class="btn btn-secondary" id="downloadEmails"><i class="fas fa-file-download"></i> Download CSV</button>
+    </div>
+    <div id="emailStatus" class="email-status" aria-live="polite"></div>
+
+    <table id="emailTable">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Username</th>
+                <th>Email</th>
+                <th>Verified</th>
+                <th>Opt-In</th>
+                <th>Status</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in emails %}
+            <tr data-email="{{ entry.email }}" data-username="{{ entry.username }}">
+                <td>{{ loop.index }}</td>
+                <td>{{ entry.username }}</td>
+                <td>{{ entry.email }}</td>
+                <td>
+                    <span class="badge badge-{% if entry.verified %}active{% else %}inactive{% endif %}">
+                        {% if entry.verified %}Verified{% else %}Pending{% endif %}
+                    </span>
+                </td>
+                <td>
+                    <span class="badge badge-{% if entry.email_notifications %}active{% else %}inactive{% endif %}">
+                        {% if entry.email_notifications %}Subscribed{% else %}Opted Out{% endif %}
+                    </span>
+                </td>
+                <td>
+                    <span class="badge badge-{% if entry.active %}active{% else %}inactive{% endif %}">
+                        {% if entry.active %}Active{% else %}Inactive{% endif %}
+                    </span>
+                </td>
+                <td>{{ entry.created_at[:10] if entry.created_at else 'N/A' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (() => {
+        const searchInput = document.getElementById('emailSearch');
+        const table = document.getElementById('emailTable');
+        const rows = Array.from(table.querySelectorAll('tbody tr'));
+        const status = document.getElementById('emailStatus');
+        const copyButton = document.getElementById('copyEmails');
+        const downloadButton = document.getElementById('downloadEmails');
+
+        function setStatus(message, isError = false) {
+            if (!status) return;
+            status.textContent = message || '';
+            status.style.color = isError ? '#ff6b6b' : 'rgba(255, 255, 255, 0.7)';
+        }
+
+        function getVisibleRows() {
+            return rows.filter(row => row.style.display !== 'none');
+        }
+
+        function filterRows() {
+            const filter = (searchInput.value || '').trim().toLowerCase();
+            rows.forEach(row => {
+                const username = row.dataset.username.toLowerCase();
+                const email = row.dataset.email.toLowerCase();
+                row.style.display = (username.includes(filter) || email.includes(filter)) ? '' : 'none';
+            });
+
+            const visibleCount = getVisibleRows().length;
+            if (filter) {
+                setStatus(`${visibleCount} email${visibleCount === 1 ? '' : 's'} match "${filter}".`);
+            } else {
+                setStatus('Showing all email addresses.');
+            }
+        }
+
+        async function copyVisibleEmails() {
+            const visibleRows = getVisibleRows();
+            if (!visibleRows.length) {
+                setStatus('No emails to copy.', true);
+                return;
+            }
+
+            const emails = visibleRows.map(row => row.dataset.email).join(', ');
+
+            try {
+                await navigator.clipboard.writeText(emails);
+                setStatus(`Copied ${visibleRows.length} email${visibleRows.length === 1 ? '' : 's'} to clipboard.`);
+            } catch (error) {
+                setStatus('Clipboard is not available in this browser.', true);
+            }
+        }
+
+        function downloadVisibleEmails() {
+            const visibleRows = getVisibleRows();
+            if (!visibleRows.length) {
+                setStatus('No emails to export.', true);
+                return;
+            }
+
+            const header = ['Username', 'Email', 'Verified', 'Opt In', 'Active', 'Created'];
+            const lines = visibleRows.map(row => {
+                const cells = Array.from(row.cells).map(cell => cell.textContent.trim());
+                return [cells[1], cells[2], cells[3], cells[4], cells[5], cells[6]];
+            });
+
+            const csvRows = [header, ...lines]
+                .map(cols => cols.map(val => `"${val.replace(/"/g, '""')}"`).join(','))
+                .join('\n');
+
+            const blob = new Blob([csvRows], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `botifex-emails-${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            setStatus(`Exported ${visibleRows.length} email${visibleRows.length === 1 ? '' : 's'} to CSV.`);
+        }
+
+        if (searchInput) {
+            searchInput.addEventListener('keyup', filterRows);
+        }
+
+        if (copyButton) {
+            copyButton.addEventListener('click', copyVisibleEmails);
+        }
+
+        if (downloadButton) {
+            downloadButton.addEventListener('click', downloadVisibleEmails);
+        }
+
+        filterRows();
+    })();
+</script>
+{% endblock %}
+

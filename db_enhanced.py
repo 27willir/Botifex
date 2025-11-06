@@ -2,13 +2,32 @@
 import sqlite3
 import threading
 import time
+import os
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from queue import Queue, Empty
 from error_handling import ErrorHandler, log_errors, DatabaseError
 from utils import logger
 
-DB_FILE = "superbot.db"
+# Database configuration - supports both SQLite and PostgreSQL
+DATABASE_URL = os.getenv('DATABASE_URL', '')
+DB_FILE = os.getenv('DB_FILE', 'superbot.db')
+
+# Detect database type
+USE_POSTGRES = False
+if DATABASE_URL and (DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql://')):
+    USE_POSTGRES = True
+    try:
+        import psycopg2
+        from psycopg2 import pool
+        from psycopg2.extras import RealDictCursor
+        logger.info("PostgreSQL detected - using PostgreSQL database")
+    except ImportError:
+        logger.warning("DATABASE_URL points to PostgreSQL but psycopg2 not installed. Falling back to SQLite.")
+        logger.warning("Install with: pip install psycopg2-binary")
+        USE_POSTGRES = False
+else:
+    logger.info(f"Using SQLite database: {DB_FILE}")
 
 # Connection pool configuration - optimized for production
 POOL_SIZE = 5  # Reduced pool size for better memory management
@@ -185,6 +204,58 @@ class DatabaseConnectionPool:
             logger.info("Closed all database connections")
 
 
+# PostgreSQL connection pool class
+class PostgreSQLConnectionPool:
+    """Thread-safe connection pool for PostgreSQL"""
+    
+    def __init__(self, database_url, pool_size=POOL_SIZE):
+        from psycopg2.pool import ThreadedConnectionPool
+        self.database_url = database_url
+        self.pool_size = pool_size
+        try:
+            self.pool = ThreadedConnectionPool(1, pool_size, database_url)
+            logger.info(f"Initialized PostgreSQL connection pool with {pool_size} max connections")
+        except Exception as e:
+            logger.error(f"Failed to create PostgreSQL connection pool: {e}")
+            raise DatabaseError(f"Failed to initialize PostgreSQL pool: {e}")
+    
+    @contextmanager
+    def get_connection(self):
+        """Get a connection from the pool (context manager)"""
+        conn = None
+        try:
+            conn = self.pool.getconn(timeout=CONNECTION_TIMEOUT)
+            if conn is None:
+                raise DatabaseError("Failed to get connection from PostgreSQL pool")
+            # Test connection
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+            yield conn
+        except Exception as e:
+            logger.error(f"PostgreSQL connection error: {e}")
+            raise DatabaseError(f"PostgreSQL connection failed: {e}")
+        finally:
+            if conn:
+                try:
+                    self.pool.putconn(conn)
+                except Exception as e:
+                    logger.error(f"Error returning connection to pool: {e}")
+                    try:
+                        conn.close()
+                    except:
+                        pass
+    
+    def close_all(self):
+        """Close all connections in the pool"""
+        if hasattr(self, 'pool') and self.pool:
+            try:
+                self.pool.closeall()
+                logger.info("Closed all PostgreSQL connections")
+            except Exception as e:
+                logger.error(f"Error closing PostgreSQL pool: {e}")
+
+
 # Global connection pool
 _connection_pool = None
 
@@ -193,7 +264,21 @@ def get_pool():
     """Get or create the global connection pool"""
     global _connection_pool
     if _connection_pool is None:
-        _connection_pool = DatabaseConnectionPool(DB_FILE)
+        if USE_POSTGRES:
+            # PostgreSQL support - create PostgreSQL pool
+            try:
+                from psycopg2.pool import ThreadedConnectionPool
+                _connection_pool = PostgreSQLConnectionPool(DATABASE_URL)
+                logger.info("✅ Using PostgreSQL - user data will persist across deployments")
+            except Exception as e:
+                logger.error(f"Failed to create PostgreSQL pool: {e}")
+                logger.warning("⚠️  Falling back to SQLite - user data will NOT persist on deployments")
+                logger.warning("⚠️  See docs/deployment/DATABASE_PERSISTENCE_SETUP.md for setup instructions")
+                _connection_pool = DatabaseConnectionPool(DB_FILE)
+        else:
+            logger.warning("⚠️  Using SQLite - user data will NOT persist on deployments")
+            logger.warning("⚠️  Set DATABASE_URL to use PostgreSQL for persistent storage")
+            _connection_pool = DatabaseConnectionPool(DB_FILE)
     return _connection_pool
 
 def maintain_database():

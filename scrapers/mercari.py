@@ -1,6 +1,9 @@
 """Mercari scraper with shared anti-blocking defenses."""
 
 import sys
+import threading
+import random
+import json
 import time
 from datetime import datetime
 import urllib.parse
@@ -33,54 +36,166 @@ from scrapers import anti_blocking
 
 SITE_NAME = "mercari"
 BASE_URL = "https://www.mercari.com"
-SEARCH_ENDPOINT = f"{BASE_URL}/search"
+SEARCH_PATH = "/search"
 
 seen_listings = {}
+
+
+# ======================
+# RUNNING FLAG
+# ======================
 running_flags = {SITE_NAME: True}
 _seen_listings_lock = get_seen_listings_lock(SITE_NAME)
 
 
-def _build_search_url(keywords, min_price, max_price, location_coords, radius):
-    params = {
-        "keyword": " ".join(keywords),
-        "price_min": min_price,
-        "price_max": max_price,
-        "sort": "created_time",
-        "order": "desc",
-        "status": "on_sale",
-    }
+# ======================
+# HELPER FUNCTIONS
+# ======================
+def _parse_price_value(value):
+    """Convert price fragments into integer dollars."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, dict):
+        # Common Mercari offer payloads
+        for key in ("price", "amount", "value", "lowPrice"):
+            nested = value.get(key)
+            parsed = _parse_price_value(nested)
+            if parsed is not None:
+                return parsed
+        return None
+    if isinstance(value, list):
+        for entry in value:
+            parsed = _parse_price_value(entry)
+            if parsed is not None:
+                return parsed
+        return None
 
-    if location_coords:
-        lat, lon = location_coords
-        distance_km = max(1, int(round(miles_to_km(radius))))
-        params["latitude"] = lat
-        params["longitude"] = lon
-        params["distance"] = distance_km
-
-    return f"{SEARCH_ENDPOINT}?{urllib.parse.urlencode(params)}"
-
-
-def _send_listing(title, link, price=None, image_url=None, user_id=None):
-    try:
-        is_valid, error = validate_listing(title, link, price)
-        if not is_valid:
-            logger.warning(f"⚠️ Skipping invalid listing: {error}")
-            return
-
-        if image_url and not validate_image_url(image_url):
-            logger.debug(f"Invalid/placeholder image URL for Mercari listing, dropping image: {image_url}")
-            image_url = None
-
-        save_listing(title, price, link, image_url, SITE_NAME, user_id=user_id)
-        prefix = f"{SITE_NAME.title()} for {user_id}" if user_id else SITE_NAME.title()
-        logger.info(f"📢 New {prefix}: {title} | ${price} | {link}")
-    except Exception as exc:
-        logger.error(f"⚠️ Failed to save Mercari listing {link}: {exc}")
+    value_str = str(value)
+    digits = "".join(ch for ch in value_str if ch.isdigit())
+    return int(digits) if digits else None
 
 
-def _extract_image_url(item):
+def _coerce_json_listing(candidate):
+    """Normalize a JSON candidate into listing dict."""
+    if not isinstance(candidate, dict):
+        return None
+
+    title = candidate.get("title") or candidate.get("name") or candidate.get("headline")
+
+    link = (
+        candidate.get("url")
+        or candidate.get("href")
+        or candidate.get("link")
+        or candidate.get("permalink")
+    )
+    if not link and candidate.get("slug"):
+        slug = candidate["slug"].strip("/")
+        link = f"{BASE_URL}/item/{slug}/"
+
+    price_val = _parse_price_value(
+        candidate.get("price")
+        or candidate.get("priceAmount")
+        or candidate.get("offers")
+    )
+
+    image = candidate.get("image") or candidate.get("images") or candidate.get("thumbnail")
+    if isinstance(image, list):
+        image = image[0]
+
+    if isinstance(image, dict):
+        image = image.get("url") or image.get("src")
+
+    if title and link:
+        return {
+            "title": title,
+            "link": link,
+            "price": price_val,
+            "image": image,
+        }
+    return None
+
+
+def _extract_listings_from_json(payload):
+    """Recursively scan JSON payloads for listing dictionaries."""
+    listings = []
+    seen_links = set()
+
+    def _walk(node):
+        if isinstance(node, dict):
+            listing = _coerce_json_listing(node)
+            if listing:
+                normalized_link = listing["link"]
+                if normalized_link not in seen_links:
+                    listings.append(listing)
+                    seen_links.add(normalized_link)
+            for value in node.values():
+                _walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                _walk(value)
+
+    _walk(payload)
+    return listings
+
+
+def _parse_json_results(soup):
+    """Gather listings from structured JSON embedded in the page."""
+    listings = []
+
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        try:
+            data = json.loads(script.string)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        listings.extend(_extract_listings_from_json(data))
+
+    next_data = soup.find("script", id="__NEXT_DATA__")
+    if next_data and next_data.string:
+        try:
+            data = json.loads(next_data.string)
+            listings.extend(_extract_listings_from_json(data))
+        except (TypeError, json.JSONDecodeError):
+            pass
+
+    return listings
+
+
+def _coerce_html_listing(node):
+    """Normalize BeautifulSoup nodes into listing dictionaries."""
+    if node is None:
+        return None
+
+    link_elem = node if node.name == "a" else node.find("a", href=True)
+    if not link_elem:
+        return None
+
+    link = link_elem.get("href")
+    if not link:
+        return None
+    link = urllib.parse.urljoin(BASE_URL, link)
+
+    title = (
+        link_elem.get("aria-label")
+        or link_elem.get("title")
+        or link_elem.get_text(" ", strip=True)
+    )
+    if not title:
+        title_elem = node.find(["p", "span", "h2", "h3"], string=True)
+        title = title_elem.get_text(" ", strip=True) if title_elem else None
+
+    price_elem = None
+    for candidate in node.find_all(["span", "div", "p"], string=True):
+        text = candidate.get_text(" ", strip=True)
+        if "$" in text:
+            price_elem = candidate
+            break
+
+    price_val = _parse_price_value(price_elem.get_text()) if price_elem else None
+
+    img_elem = node.find("img")
     image_url = None
-    img_elem = item.find("img")
     if img_elem:
         image_url = (
             img_elem.get("src")
@@ -93,7 +208,55 @@ def _extract_image_url(item):
             elif image_url.startswith("/"):
                 image_url = urllib.parse.urljoin(BASE_URL, image_url)
 
-    return image_url
+    if title and link:
+        return {
+            "title": title,
+            "link": link,
+            "price": price_val,
+            "image": image_url,
+        }
+    return None
+
+
+def _parse_html_results(soup):
+    """Gather listing dictionaries using multiple HTML selector strategies."""
+    selectors = [
+        ("data-testid item tiles", soup.select('[data-testid="ItemTile"], [data-testid="item-tile"]')),
+        ("modern anchor cards", soup.select('a[href*="/item/"]')),
+        ("legacy item-box divs", soup.find_all("div", class_="item-box")),
+    ]
+
+    listings = []
+    for index, (label, nodes) in enumerate(selectors, start=1):
+        if not nodes:
+            continue
+        log_parse_attempt(SITE_NAME, index, label)
+        for node in nodes:
+            listing = _coerce_html_listing(node)
+            if listing:
+                listings.append(listing)
+        if listings:
+            break
+
+    return listings
+
+
+def send_discord_message(title, link, price=None, image_url=None, user_id=None):
+    """Save listing to database and emit notification logs."""
+    try:
+        is_valid, error = validate_listing(title, link, price)
+        if not is_valid:
+            logger.warning(f"⚠️ Skipping invalid Mercari listing: {error}")
+            return
+
+        if image_url and not validate_image_url(image_url):
+            logger.debug(f"Mercari listing image filtered as placeholder: {image_url}")
+            image_url = None
+
+        save_listing(title, price, link, image_url, SITE_NAME, user_id=user_id)
+        logger.info(f"📢 New Mercari for {user_id}: {title} | ${price} | {link}")
+    except Exception as exc:
+        logger.error(f"⚠️ Failed to save Mercari listing for {link}: {exc}")
 
 
 def check_mercari(flag_name=SITE_NAME, user_id=None):
@@ -106,59 +269,80 @@ def check_mercari(flag_name=SITE_NAME, user_id=None):
     radius = settings.get("radius", 50)
 
     results = []
-    keywords_lower = [k.lower() for k in keywords]
 
     with ScraperMetrics(SITE_NAME) as metrics:
         try:
             location_coords = get_location_coords(location)
             if location_coords:
-                logger.debug(f"Mercari: searching {location} within {radius} miles")
+                logger.debug(f"Mercari: Searching {location} within {radius} miles")
             else:
-                logger.debug(f"Mercari: location '{location}' not resolved, using global search")
+                logger.warning(f"Mercari: Could not geocode location '{location}', defaulting to keyword search")
 
-            search_url = _build_search_url(keywords, min_price, max_price, location_coords, radius)
-            session = get_session(SITE_NAME, BASE_URL)
+            base_url = f"{BASE_URL}{SEARCH_PATH}"
+            query = " ".join(keywords)
+
+            params = {
+                "keyword": query,
+                "price_min": min_price,
+                "price_max": max_price,
+                "sort": "created_time",
+                "order": "desc",
+                "status": "on_sale",
+                "limit": 80,
+                "page": 1,
+                "_": random.randint(100000, 999999),
+            }
+
+            if location_coords:
+                lat, lon = location_coords
+                params["latitude"] = lat
+                params["longitude"] = lon
+                params["distance"] = int(miles_to_km(radius))
+
+            full_url = base_url + "?" + urllib.parse.urlencode(params)
+
+            # Get persistent session with initialization
+            session = get_session(SITE_NAME, initialize_url=BASE_URL)
+            
+            # Add extra delay before Mercari requests to avoid detection
+            time.sleep(random.uniform(1.5, 3.0))
+            
             response = make_request_with_retry(
-                search_url,
+                full_url,
                 SITE_NAME,
-                max_retries=5,
                 session=session,
-                headers={"Referer": BASE_URL},
+                referer=BASE_URL,
+                origin=BASE_URL,
+                session_initialize_url=BASE_URL,
+                max_retries=5,  # More retries for Mercari
             )
 
             if not response:
-                metrics.error = "Failed to fetch search results"
+                metrics.error = "Failed to fetch page after retries"
+                logger.warning("Mercari request exhausted retries without success")
+                # Reset session after failure to get fresh cookies
+                from scrapers.common import reset_session
+                reset_session(SITE_NAME, initialize_url=BASE_URL)
                 return []
-
+            
             soup = BeautifulSoup(response.text, "html.parser")
 
-            selector_attempts = [
-                ("item-box cards", lambda doc: doc.find_all("div", class_="item-box")),
-                (
-                    "div[class*=item]",
-                    lambda doc: doc.find_all(
-                        "div",
-                        attrs={"class": lambda cls: cls and "item" in cls.lower()},
-                    ),
-                ),
-                (
-                    "div[class*=listing]",
-                    lambda doc: doc.find_all(
-                        "div",
-                        attrs={"class": lambda cls: cls and "listing" in cls.lower()},
-                    ),
-                ),
-            ]
+            listings_by_link = {}
 
-            items = []
-            for idx, (description, extractor) in enumerate(selector_attempts, start=1):
-                log_parse_attempt(SITE_NAME, idx, description)
-                items = extractor(soup)
-                if items:
-                    break
+            json_candidates = _parse_json_results(soup)
+            for candidate in json_candidates:
+                if not candidate.get("link"):
+                    continue
+                listings_by_link.setdefault(candidate["link"], candidate)
 
-            if not items:
-                log_selector_failure(SITE_NAME, "css", "Mercari listing containers", "posts")
+            html_candidates = _parse_html_results(soup)
+            for candidate in html_candidates:
+                if not candidate.get("link"):
+                    continue
+                listings_by_link.setdefault(candidate["link"], candidate)
+
+            if not listings_by_link:
+                log_selector_failure(SITE_NAME, "html/json", "search results", "posts")
                 text_snippet = soup.get_text(separator=" ").lower()[:2000]
                 block_keywords = (
                     "please verify",
@@ -169,75 +353,60 @@ def check_mercari(flag_name=SITE_NAME, user_id=None):
                 )
                 if any(keyword in text_snippet for keyword in block_keywords):
                     anti_blocking.record_block(SITE_NAME, "keyword:mercari-block", cooldown_hint=150)
+                logger.warning("Mercari: No items found with HTML or JSON selectors")
                 metrics.success = True
                 metrics.listings_found = 0
-                logger.info("Mercari: no listings returned by current selectors")
                 return []
 
-            for item in items:
-                try:
-                    title_elem = (
-                        item.find("h3", class_="item-name")
-                        or item.find("a", class_="item-name")
-                        or item.find("h3")
-                        or item.find("a", href=True)
-                    )
-                    if not title_elem:
-                        continue
+            keywords_lower = [k.lower() for k in keywords]
+            processed_links = set()
+            lock = get_seen_listings_lock(SITE_NAME)
 
-                    title = title_elem.get_text(strip=True)
-                    if not title:
-                        continue
+            for candidate in listings_by_link.values():
+                link = candidate.get("link")
+                title = (candidate.get("title") or "").strip()
+                price_val = _parse_price_value(candidate.get("price"))
+                image_url = candidate.get("image")
 
-                    link_elem = item.find("a", href=True)
-                    if not link_elem:
-                        continue
+                if not link or not title:
+                    continue
 
-                    link = urllib.parse.urljoin(BASE_URL, link_elem.get("href"))
-                    if not link:
-                        continue
+                link = urllib.parse.urljoin(BASE_URL, link)
+                normalized_link = normalize_url(link)
+                if not normalized_link or normalized_link in processed_links:
+                    continue
 
-                    price_val = None
-                    price_elem = item.find("div", class_="item-price") or item.find("span", class_="price")
-                    if price_elem:
-                        price_text = price_elem.get_text(strip=True)
-                        try:
-                            cleaned = (
-                                price_text.replace("$", "")
-                                .replace("¥", "")
-                                .replace(",", "")
-                                .strip()
-                            )
-                            if cleaned:
-                                price_val = int(float(cleaned))
-                        except (ValueError, TypeError):
-                            logger.debug(f"Mercari: unable to parse price '{price_text}'")
+                processed_links.add(normalized_link)
 
-                    if price_val and (price_val < min_price or price_val > max_price):
-                        continue
+                if price_val and (price_val < min_price or price_val > max_price):
+                    continue
 
-                    title_lower = title.lower()
-                    if keywords_lower and not any(k in title_lower for k in keywords_lower):
-                        continue
+                title_lower = title.lower()
+                if keywords_lower and not any(keyword in title_lower for keyword in keywords_lower):
+                    continue
 
-                    if not is_new_listing(link, seen_listings, SITE_NAME):
-                        continue
+                if not is_new_listing(link, seen_listings, SITE_NAME):
+                    continue
 
-                    normalized_link = normalize_url(link)
-                    with _seen_listings_lock:
-                        seen_listings[normalized_link] = datetime.now()
+                with lock:
+                    seen_listings[normalized_link] = datetime.now()
 
-                    image_url = _extract_image_url(item)
+                if image_url:
+                    if image_url.startswith("//"):
+                        image_url = f"https:{image_url}"
+                    elif image_url.startswith("/"):
+                        image_url = urllib.parse.urljoin(BASE_URL, image_url)
+                    if not validate_image_url(image_url):
+                        logger.debug(f"Mercari image rejected as placeholder: {image_url}")
+                        image_url = None
 
-                    _send_listing(title, link, price_val, image_url, user_id=user_id)
-                    results.append({
-                        "title": title,
-                        "link": link,
-                        "price": price_val,
-                        "image": image_url,
-                    })
-                except Exception as exc:
-                    logger.warning(f"Mercari: error parsing listing: {exc}")
+                send_discord_message(title, link, price_val, image_url, user_id=user_id)
+                results.append({
+                    "title": title,
+                    "link": link,
+                    "price": price_val,
+                    "image": image_url,
+                })
 
             if results:
                 save_seen_listings(seen_listings, SITE_NAME)
@@ -257,11 +426,12 @@ def check_mercari(flag_name=SITE_NAME, user_id=None):
             return []
 
 
+# ======================
+# CONTINUOUS RUNNER
+# ======================
 def run_mercari_scraper(flag_name=SITE_NAME, user_id=None):
-    """Run the Mercari scraper continuously until stopped."""
-
+    """Run Mercari scraper continuously until stopped."""
     global seen_listings
-
     if check_recursion_guard(SITE_NAME):
         return
 
@@ -287,7 +457,7 @@ def run_mercari_scraper(flag_name=SITE_NAME, user_id=None):
                 except Exception as exc:
                     try:
                         logger.error(f"Error in Mercari scraper iteration: {exc}")
-                    except Exception:  # pragma: no cover - fallback logging
+                    except Exception:
                         print(f"ERROR: Error in Mercari scraper iteration: {exc}", file=sys.stderr, flush=True)
                     continue
 
@@ -306,6 +476,7 @@ def run_mercari_scraper(flag_name=SITE_NAME, user_id=None):
                 print(f"ERROR: Fatal error in Mercari scraper: {exc}", file=sys.stderr, flush=True)
         finally:
             logger.info("Mercari scraper stopped")
+
     finally:
         set_recursion_guard(SITE_NAME, False)
 

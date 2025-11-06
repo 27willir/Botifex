@@ -4,6 +4,8 @@ import socket
 from functools import lru_cache
 from datetime import datetime
 import urllib.parse
+import json
+import re
 from lxml import html
 from utils import debug_scraper_output, logger
 from db import save_listing
@@ -90,6 +92,70 @@ running_flags = {SITE_NAME: True}
 # ======================
 # HELPER FUNCTIONS
 # ======================
+def _parse_price_text(price_text):
+    if not price_text:
+        return None
+    try:
+        cleaned = str(price_text).replace("$", "").replace(",", "").strip()
+        if not cleaned:
+            return None
+        cleaned = cleaned.split()[0]
+        if "-" in cleaned:
+            cleaned = cleaned.split("-")[0]
+        return int(float(cleaned))
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_json_listings(tree):
+    listings = []
+    scripts = tree.xpath('//script[@type="application/ld+json"]/text()')
+    for script in scripts:
+        script = script.strip()
+        if not script:
+            continue
+        try:
+            data = json.loads(script)
+        except json.JSONDecodeError:
+            continue
+
+        blocks = data if isinstance(data, list) else [data]
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            elements = block.get("itemListElement")
+            if not isinstance(elements, list):
+                continue
+            for element in elements:
+                entry = element.get("item") if isinstance(element, dict) else element
+                if not isinstance(entry, dict):
+                    continue
+                title = entry.get("name") or entry.get("title")
+                link = entry.get("url") or entry.get("@id")
+                offers = entry.get("offers")
+                price_val = None
+                if isinstance(offers, dict):
+                    price_val = _parse_price_text(offers.get("price"))
+                elif isinstance(offers, list):
+                    for offer in offers:
+                        price_val = _parse_price_text(offer.get("price"))
+                        if price_val is not None:
+                            break
+
+                image_url = entry.get("image")
+                if isinstance(image_url, list):
+                    image_url = image_url[0]
+
+                listings.append({
+                    "title": title,
+                    "link": link,
+                    "price": price_val,
+                    "image": image_url,
+                })
+
+    return listings
+
+
 def send_discord_message(title, link, price=None, image_url=None, user_id=None):
     """Save listing to database and send notification."""
     try:
@@ -158,23 +224,41 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
                 location_coords = (43.6150, -116.2023)
             
             # Build URL
-            url = f"https://{resolved_location}.craigslist.org/search/sss"
+            base_domain = f"https://{resolved_location}.craigslist.org"
+            url = f"{base_domain}/search/sss"
             params = {"query": " ".join(keywords), "min_price": min_price, "max_price": max_price}
             full_url = url + "?" + urllib.parse.urlencode(params)
 
             # Get persistent session
-            session = get_session(SITE_NAME, f"https://{resolved_location}.craigslist.org")
+            session = get_session(SITE_NAME, base_domain)
             
             # Make request with automatic retry and rate limit detection
-            response = make_request_with_retry(full_url, SITE_NAME, session=session)
+            response = make_request_with_retry(
+                full_url,
+                SITE_NAME,
+                session=session,
+                referer=base_domain,
+                origin=base_domain,
+                session_initialize_url=base_domain,
+            )
             
             if not response:
                 metrics.error = "Failed to fetch page after retries"
+                logger.warning("Craigslist request exhausted retries without success")
+                return []
+            
+            # Check for bot detection or blocking in response
+            response_text_lower = response.text.lower()
+            if any(keyword in response_text_lower for keyword in ['are you a robot', 'unusual activity', 'blocked', 'access denied', 'captcha']):
+                logger.warning("Craigslist: Possible bot detection or blocking detected in response")
+                from scrapers import anti_blocking
+                anti_blocking.record_block(SITE_NAME, "keyword:craigslist-block", cooldown_hint=120)
+                metrics.error = "Bot detection detected"
                 return []
             
             tree = html.fromstring(response.text)
             
-            # Try multiple XPath patterns for robustness
+            # Try multiple XPath patterns for robustness - expanded list
             log_parse_attempt(SITE_NAME, 1, "cl-static-search-result class")
             posts = tree.xpath('//li[@class="cl-static-search-result"]')
             if not posts:
@@ -183,12 +267,45 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
             if not posts:
                 log_parse_attempt(SITE_NAME, 3, "generic search-result class")
                 posts = tree.xpath('//li[contains(@class, "search-result")]')
-            
+            if not posts:
+                log_parse_attempt(SITE_NAME, 4, "ol.results li elements")
+                posts = tree.xpath('//ol[contains(@class, "results")]//li')
+            if not posts:
+                log_parse_attempt(SITE_NAME, 5, "div.cl-search-result")
+                posts = tree.xpath('//div[contains(@class, "cl-search-result")]')
+            if not posts:
+                log_parse_attempt(SITE_NAME, 6, "any li with data-pid")
+                posts = tree.xpath('//li[@data-pid]')
+            if not posts:
+                log_parse_attempt(SITE_NAME, 7, "links with href containing /post/")
+                # Try to extract from links directly
+                link_elements = tree.xpath('//a[contains(@href, "/post/") or contains(@href, "/d/")]')
+                if link_elements:
+                    # Create pseudo-post elements from parent containers
+                    posts = []
+                    seen_links = set()
+                    for link_elem in link_elements:
+                        href = link_elem.get('href', '')
+                        if href and href not in seen_links:
+                            seen_links.add(href)
+                            # Get the parent container
+                            parent = link_elem.getparent()
+                            if parent is not None:
+                                posts.append(parent)
+
             json_ld_items = []
             if not posts:
-                log_parse_attempt(SITE_NAME, 4, "JSON-LD itemListElement fallback")
+                log_parse_attempt(SITE_NAME, 8, "JSON-LD itemListElement fallback")
                 json_ld_items = extract_json_ld_items(response.text)
                 if not json_ld_items:
+                    # Log HTML snippet for debugging (first 2000 chars)
+                    html_snippet = response.text[:2000].replace('\n', ' ').replace('\r', ' ')
+                    logger.debug(f"Craigslist HTML snippet (first 2000 chars): {html_snippet}")
+                    # Check for common class names in HTML
+                    found_classes = set()
+                    for match in re.findall(r'class=["\']([^"\']+)["\']', response.text[:5000]):
+                        found_classes.update(match.split())
+                    logger.debug(f"Craigslist found class names: {sorted(found_classes)[:20]}")
                     log_selector_failure(SITE_NAME, "json-ld", "itemListElement", "posts")
                     logger.warning("Craigslist: No posts found with HTML or JSON-LD selectors")
                     metrics.success = True
@@ -200,6 +317,7 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
 
             keywords_lower = [k.lower() for k in keywords]
             seen_lock = get_seen_listings_lock(SITE_NAME)
+            processed_links = set()
 
             def handle_candidate(title, link, price_val, image_url=None, description=None):
                 if not title or not link:
@@ -227,6 +345,10 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
                     return
 
                 normalized_link = normalize_url(link)
+                if normalized_link in processed_links:
+                    return
+                processed_links.add(normalized_link)
+
                 with seen_lock:
                     seen_listings[normalized_link] = datetime.now()
 
@@ -244,36 +366,34 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
                         link = None
                         title = None
 
+                        # Try multiple anchor patterns
                         anchor = post.xpath(".//a[@class='titlestring']")
+                        if not anchor:
+                            anchor = post.xpath(".//a[contains(@class, 'result-title')]")
+                        if not anchor:
+                            anchor = post.xpath(".//a[contains(@class, 'title')]")
+                        if not anchor:
+                            anchor = post.xpath(".//a[contains(@href, '/post/') or contains(@href, '/d/')]")
+                        if not anchor:
+                            anchor = post.xpath(".//a[@href]")
+                        
                         if anchor:
                             link = anchor[0].get('href')
-                            title = anchor[0].text_content().strip() if anchor[0].text_content() else None
-
-                        if not link:
-                            anchor = post.xpath(".//a[contains(@class, 'result-title')]")
-                            if anchor:
-                                link = anchor[0].get('href')
-                                title = anchor[0].text_content().strip() if anchor[0].text_content() else None
-
-                        if not link:
-                            anchor = post.xpath(".//a[@href]")
-                            if anchor:
-                                link = anchor[0].get('href')
-                                title = anchor[0].text_content().strip() if anchor[0].text_content() else None
+                            # Try multiple title extraction methods
+                            title = anchor[0].get('title') or anchor[0].text_content().strip() if anchor[0].text_content() else None
+                            if not title:
+                                # Try finding title in nearby elements
+                                title_elem = post.xpath(".//span[contains(@class, 'title')] | .//h2 | .//h3 | .//div[contains(@class, 'title')]")
+                                if title_elem:
+                                    title = title_elem[0].text_content().strip() if title_elem[0].text_content() else None
 
                         if not link or not title:
                             continue
 
-                        link = urllib.parse.urljoin(url, link)
+                        link = urllib.parse.urljoin(base_domain, link)
 
-                        price_val = None
                         price_elem = post.xpath(".//span[contains(@class, 'price')]/text()")
-                        if price_elem:
-                            price_text = price_elem[0]
-                            try:
-                                price_val = int(price_text.replace("$", "").replace(",", ""))
-                            except (ValueError, AttributeError):
-                                price_val = None
+                        price_val = _parse_price_text(price_elem[0]) if price_elem else None
 
                         image_url = None
                         img_elem = post.xpath(".//img/@src")
@@ -293,7 +413,7 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
                         title = entry.get("title")
                         link = entry.get("url")
                         if link:
-                            link = urllib.parse.urljoin(url, link)
+                            link = urllib.parse.urljoin(base_domain, link)
 
                         image_url = entry.get("image")
                         if isinstance(image_url, str):

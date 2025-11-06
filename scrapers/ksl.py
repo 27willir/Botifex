@@ -94,14 +94,31 @@ def check_ksl(flag_name=SITE_NAME):
             
             full_url = base_url + "?" + urllib.parse.urlencode(params)
 
-            # Get persistent session
-            session = get_session(SITE_NAME, BASE_URL)
+            # Get persistent session with initialization
+            session = get_session(SITE_NAME, initialize_url=BASE_URL)
+            
+            # Add extra delay before KSL requests to avoid detection
+            import time
+            import random
+            time.sleep(random.uniform(1.0, 2.5))
             
             # Make request with automatic retry and rate limit detection
-            response = make_request_with_retry(full_url, SITE_NAME, session=session)
+            response = make_request_with_retry(
+                full_url,
+                SITE_NAME,
+                session=session,
+                referer=BASE_URL,
+                origin=BASE_URL,
+                session_initialize_url=BASE_URL,
+                max_retries=5,  # More retries for KSL
+            )
             
             if not response:
                 metrics.error = "Failed to fetch page after retries"
+                logger.warning("KSL request exhausted retries without success")
+                # Reset session after failure to get fresh cookies
+                from scrapers.common import reset_session
+                reset_session(SITE_NAME, initialize_url=BASE_URL)
                 return []
             
             tree = html.fromstring(response.text)

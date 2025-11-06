@@ -51,6 +51,12 @@ The feature integrates seamlessly with the existing `scrapers/metrics.py` module
 - **Auto-Refresh**: Automatically refreshes every 30 seconds
 - **Real-time Updates**: Always shows current scraper status
 
+### 5. WebDriver & Anti-Bot Diagnostics *(2025-11 update)*
+
+- **Chrome Readiness Snapshot**: `/api/scraper-health` and `/admin/api/scraper-health` now embed a `webdriver` payload detailing detected Chrome/Chromium binaries, chromedriver availability, and the active environment overrides. Failing checks are surfaced as `status: "warning"` so operators can preemptively fix missing binaries.
+- **Rate-Limit Resilience**: Shared request helper consolidates session resets, randomized fingerprints, and exponential backoff for 403/429 responses. Mercari and KSL scrapers automatically rotate cookies and fingerprints after bot-detection events.
+- **Selector Fallbacks**: Craigslist and eBay scrapers parse JSON-LD search payloads whenever legacy HTML selectors fail, greatly reducing “no posts/items found” false-positives after UI updates.
+
 ## 📊 Metrics Tracked
 
 ### Performance Metrics

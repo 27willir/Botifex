@@ -1,5 +1,5 @@
 # utils.py
-import os, json, logging, sys
+import os, json, logging, sys, shutil, platform
 import ipaddress
 from typing import Optional
 from pathlib import Path
@@ -127,6 +127,67 @@ def safe_json_write(path, data):
     except Exception as e:
         logger.exception("safe_json_write failed for %s: %s", path, e)
 
+
+def _iter_chrome_binary_candidates():
+    """Yield potential Chrome/Chromium binary locations in priority order."""
+    env_keys = [
+        "BOTIFEX_CHROME_BINARY",
+        "CHROME_BIN",
+        "GOOGLE_CHROME_BIN",
+        "CHROME_BINARY",
+    ]
+
+    for key in env_keys:
+        candidate = os.environ.get(key)
+        if candidate:
+            yield candidate
+
+    chrome_paths = [
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+        "/snap/bin/chromium",
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    ]
+
+    # Include per-user Windows installs
+    if platform.system().lower() == "windows":
+        local_app = os.environ.get("LOCALAPPDATA")
+        if local_app:
+            chrome_paths.extend([
+                str(Path(local_app) / "Google" / "Chrome" / "Application" / "chrome.exe"),
+            ])
+
+    which_candidates = [
+        shutil.which("google-chrome"),
+        shutil.which("chrome"),
+        shutil.which("chromium"),
+        shutil.which("chromium-browser"),
+    ]
+
+    for candidate in which_candidates:
+        if candidate:
+            yield candidate
+
+    for path in chrome_paths:
+        yield path
+
+
+def _detect_chrome_binary(log=True):
+    """Find a Chrome/Chromium binary on the system, if available."""
+    for candidate in _iter_chrome_binary_candidates():
+        if not candidate:
+            continue
+        resolved = Path(candidate)
+        if resolved.exists():
+            if log:
+                logger.info(f"Found Chrome binary at: {resolved}")
+            return str(resolved)
+    return None
+
+
 def make_chrome_driver(headless=True):
     """Create a Chrome WebDriver with proper configuration for various environments."""
     opts = webdriver.ChromeOptions()
@@ -152,46 +213,56 @@ def make_chrome_driver(headless=True):
     opts.add_argument("--disable-infobars")
     opts.add_argument("--disable-notifications")
     
-    # Try to find Chrome/Chromium binary in common locations
-    chrome_paths = [
-        "/usr/bin/google-chrome",
-        "/usr/bin/chromium-browser",
-        "/usr/bin/chromium",
-        "/snap/bin/chromium",
-        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-        os.environ.get("CHROME_BIN"),  # Environment variable (Render/Heroku)
-    ]
-    
-    # Try to detect Chrome binary location
-    chrome_binary = None
-    for path in chrome_paths:
-        if path and Path(path).exists():
-            chrome_binary = path
-            logger.info(f"Found Chrome binary at: {path}")
-            break
-    
+    chrome_binary = _detect_chrome_binary()
     if chrome_binary:
         opts.binary_location = chrome_binary
     else:
-        logger.warning("Chrome binary not found in common locations, relying on default detection")
+        logger.warning(
+            "Chrome binary not found automatically. Set BOTIFEX_CHROME_BINARY or CHROME_BIN to override."
+        )
     
     try:
         # Try to install and use ChromeDriver
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=opts)
-        logger.info("✅ Successfully created Chrome WebDriver")
+        if chrome_binary:
+            logger.info(f"✅ Successfully created Chrome WebDriver (binary: {chrome_binary})")
+        else:
+            logger.info("✅ Successfully created Chrome WebDriver")
         return driver
     except Exception as e:
         # If ChromeDriverManager fails, try without service (system chromedriver)
         logger.warning(f"ChromeDriverManager failed ({e}), trying system chromedriver...")
         try:
             driver = webdriver.Chrome(options=opts)
-            logger.info("✅ Successfully created Chrome WebDriver using system chromedriver")
+            if chrome_binary:
+                logger.info(f"✅ Successfully created Chrome WebDriver using system chromedriver (binary: {chrome_binary})")
+            else:
+                logger.info("✅ Successfully created Chrome WebDriver using system chromedriver")
             return driver
         except Exception as e2:
             logger.error(f"Failed to create Chrome WebDriver: {e2}")
             raise
+
+
+def get_chrome_diagnostics():
+    """Return diagnostic information about Chrome/Chromedriver availability."""
+    binary = _detect_chrome_binary(log=False)
+    chromedriver_path = shutil.which("chromedriver")
+
+    env_overrides = {
+        key: os.environ.get(key)
+        for key in ("BOTIFEX_CHROME_BINARY", "CHROME_BIN", "GOOGLE_CHROME_BIN", "CHROME_BINARY")
+        if os.environ.get(key)
+    }
+
+    return {
+        "binary_found": bool(binary),
+        "binary_path": binary,
+        "chromedriver_found": bool(chromedriver_path),
+        "chromedriver_path": chromedriver_path,
+        "env_overrides": env_overrides,
+    }
 
 def build_craigslist_url(location: str, query: str = "", category: str = "sss") -> str:
     """

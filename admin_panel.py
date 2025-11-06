@@ -4,7 +4,7 @@ from flask_login import login_required, current_user
 from functools import wraps
 from datetime import datetime, timedelta
 import db_enhanced
-from utils import logger
+from utils import logger, get_chrome_diagnostics
 from rate_limiter import reset_user_rate_limits
 from cache_manager import get_cache, cache_user_data
 from security_middleware import get_security_stats
@@ -135,6 +135,39 @@ def users():
     except Exception as e:
         logger.error(f"Error loading users page: {e}")
         flash("Error loading users", "error")
+        return redirect(url_for("admin.dashboard"))
+
+
+@admin_bp.route('/emails')
+@login_required
+@admin_required
+def email_directory():
+    """Email directory for newsletters and announcements."""
+    try:
+        raw_rows = db_enhanced.get_all_user_emails()
+        emails = [
+            {
+                'username': row[0],
+                'email': row[1],
+                'verified': bool(row[2]),
+                'email_notifications': bool(row[3]),
+                'active': bool(row[4]),
+                'created_at': row[5],
+            }
+            for row in raw_rows
+        ]
+
+        stats = {
+            'total': len(emails),
+            'verified': sum(1 for entry in emails if entry['verified']),
+            'subscribed': sum(1 for entry in emails if entry['email_notifications']),
+            'active': sum(1 for entry in emails if entry['active']),
+        }
+
+        return render_template('admin/emails.html', emails=emails, stats=stats)
+    except Exception as e:
+        logger.error(f"Error loading email directory: {e}")
+        flash("Error loading email directory", "error")
         return redirect(url_for("admin.dashboard"))
 
 
@@ -666,6 +699,12 @@ def api_scraper_health():
                     'error': str(e)
                 }
         
+        webdriver_diag = get_chrome_diagnostics()
+        webdriver_diag['status'] = (
+            'ok' if webdriver_diag.get('binary_found') and webdriver_diag.get('chromedriver_found') else 'warning'
+        )
+        health_data['webdriver'] = webdriver_diag
+
         return jsonify(health_data)
     
     except Exception as e:

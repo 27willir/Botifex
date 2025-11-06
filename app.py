@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_wtf.csrf import CSRFProtect
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-from flask_session import Session
+from flask_session import Session  # type: ignore[import]
 from pathlib import Path
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -20,7 +20,7 @@ import db_enhanced
 from security import SecurityConfig
 from error_handling import ErrorHandler, log_errors, safe_execute, DatabaseError
 from error_recovery import start_error_recovery, stop_error_recovery, handle_error, get_system_status
-from utils import logger
+from utils import logger, get_chrome_diagnostics
 # Import new modules
 from rate_limiter import rate_limit, add_rate_limit_headers
 from cache_manager import cache_get, cache_set, cache_clear, cache_user_data, get_cache
@@ -37,6 +37,7 @@ from email_verification import (
     generate_verification_token, generate_password_reset_token,
     send_verification_email, send_password_reset_email, is_email_configured
 )
+from notifications import send_welcome_email
 import json
 import os
 from dotenv import load_dotenv
@@ -943,6 +944,12 @@ def register():
                     # Get base URL from request
                     base_url = request.url_root.rstrip('/')
                     send_verification_email(email, username, token, base_url)
+                    try:
+                        login_url = f"{base_url}/login"
+                        if not send_welcome_email(email, username, login_url=login_url):
+                            logger.warning(f"Welcome email not sent to {username}")
+                    except Exception as welcome_error:
+                        logger.warning(f"Failed to send welcome email to {username}: {welcome_error}")
                     
                     flash("Registration successful! Please check your email to verify your account.", "success")
                 except Exception as e:
@@ -968,6 +975,200 @@ def terms_of_service():
 def privacy_policy():
     """Display Privacy Policy page"""
     return render_template("privacy.html")
+
+@app.route("/updates")
+@log_errors()
+def updates_page():
+    """Display website updates/changelog page"""
+    import re
+    from markupsafe import Markup
+    
+    updates = []
+    changelog_path = Path(__file__).parent / "CHANGELOG.md"
+    
+    try:
+        if changelog_path.exists():
+            with open(changelog_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Parse changelog entries
+            # Split by --- separator first, then look for version headers
+            sections = re.split(r'\n---\n', content)
+            
+            for section in sections:
+                # Look for version header: ## [Version] - Date
+                version_match = re.search(r'## \[([^\]]+)\]\s*-\s*([^\n]+)', section)
+                if not version_match:
+                    continue
+                
+                version = version_match.group(1).strip()
+                date = version_match.group(2).strip()
+                
+                # Get content after the header
+                section_content = section[version_match.end():].strip()
+                
+                # Skip the header/intro section
+                if "All notable changes" in section_content or not section_content:
+                    continue
+                
+                # Parse subsections (Fixed, Added, Changed, etc.)
+                formatted_content = ""
+                primary_badge = None
+                
+                # Split by ### headers
+                subsections = re.split(r'\n### ', section_content)
+                
+                # Handle content before first subsection
+                if subsections and not subsections[0].strip().startswith('###'):
+                    first_content = subsections[0].strip()
+                    if first_content:
+                        formatted_content += f"<p>{first_content}</p>"
+                    subsections = subsections[1:] if len(subsections) > 1 else []
+                
+                for subsection in subsections:
+                    if not subsection.strip():
+                        continue
+                    
+                    # Get subsection title (may include - Description)
+                    lines = subsection.split('\n', 1)
+                    subsection_header = lines[0].strip() if lines else ""
+                    subsection_body = lines[1] if len(lines) > 1 else ""
+                    
+                    # Extract subsection title (before - if present)
+                    subsection_title = subsection_header.split(' - ')[0].strip()
+                    
+                    # Determine badge color based on subsection type
+                    badge = None
+                    icon = ""
+                    if subsection_title.lower() in ['fixed', 'fix']:
+                        badge = 'fixed'
+                        icon = 'wrench'
+                        subsection_title_html = f'<h3><i class="fas fa-wrench"></i> Fixed</h3>'
+                        if not primary_badge:
+                            primary_badge = 'fixed'
+                    elif subsection_title.lower() in ['added', 'add']:
+                        badge = 'added'
+                        icon = 'plus-circle'
+                        subsection_title_html = f'<h3><i class="fas fa-plus-circle"></i> Added</h3>'
+                        if not primary_badge:
+                            primary_badge = 'added'
+                    elif subsection_title.lower() in ['changed', 'change']:
+                        badge = 'changed'
+                        icon = 'edit'
+                        subsection_title_html = f'<h3><i class="fas fa-edit"></i> Changed</h3>'
+                        if not primary_badge:
+                            primary_badge = 'changed'
+                    elif subsection_title.lower() in ['removed', 'remove']:
+                        badge = 'removed'
+                        icon = 'trash'
+                        subsection_title_html = f'<h3><i class="fas fa-trash"></i> Removed</h3>'
+                        if not primary_badge:
+                            primary_badge = 'removed'
+                    elif subsection_title.lower() in ['enhanced', 'enhance']:
+                        badge = 'enhanced'
+                        icon = 'star'
+                        subsection_title_html = f'<h3><i class="fas fa-star"></i> Enhanced</h3>'
+                        if not primary_badge:
+                            primary_badge = 'enhanced'
+                    else:
+                        subsection_title_html = f'<h3>{subsection_title}</h3>'
+                    
+                    formatted_content += subsection_title_html
+                    
+                    # Parse list items and format them
+                    if subsection_body:
+                        # Convert markdown lists to HTML
+                        lines_list = subsection_body.split('\n')
+                        in_list = False
+                        list_type = None  # 'ul' or 'ol'
+                        list_html = ""
+                        
+                        for line in lines_list:
+                            line = line.strip()
+                            if not line:
+                                if in_list:
+                                    list_html += f"</{list_type}>"
+                                    in_list = False
+                                    list_type = None
+                                continue
+                            
+                            # Check if it's a bullet list item
+                            if line.startswith('- '):
+                                if in_list and list_type != 'ul':
+                                    # Close previous list if different type
+                                    list_html += f"</{list_type}>"
+                                    in_list = False
+                                    list_type = None
+                                
+                                if not in_list:
+                                    list_html += "<ul>"
+                                    in_list = True
+                                    list_type = 'ul'
+                                
+                                # Remove the dash and format
+                                item_text = line[2:].strip()
+                                # Bold text between **
+                                item_text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', item_text)
+                                # Code blocks
+                                item_text = re.sub(r'`([^`]+)`', r'<code>\1</code>', item_text)
+                                list_html += f"<li>{item_text}</li>"
+                            elif re.match(r'^\d+\.', line):
+                                # Numbered list
+                                if in_list and list_type != 'ol':
+                                    # Close previous list if different type
+                                    list_html += f"</{list_type}>"
+                                    in_list = False
+                                    list_type = None
+                                
+                                if not in_list:
+                                    list_html += "<ol>"
+                                    in_list = True
+                                    list_type = 'ol'
+                                
+                                # Remove number and format
+                                item_text = re.sub(r'^\d+\.\s*', '', line).strip()
+                                item_text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', item_text)
+                                item_text = re.sub(r'`([^`]+)`', r'<code>\1</code>', item_text)
+                                list_html += f"<li>{item_text}</li>"
+                            else:
+                                if in_list:
+                                    list_html += f"</{list_type}>"
+                                    in_list = False
+                                    list_type = None
+                                # Regular paragraph
+                                line = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
+                                line = re.sub(r'`([^`]+)`', r'<code>\1</code>', line)
+                                formatted_content += f"<p>{line}</p>"
+                        
+                        if in_list:
+                            list_html += f"</{list_type}>"
+                        
+                        formatted_content += list_html
+                
+                # Create update entry
+                update = {
+                    'title': version,
+                    'date': date,
+                    'content': Markup(formatted_content),
+                    'badge': primary_badge
+                }
+                updates.append(update)
+        
+    except Exception as e:
+        logger.error(f"Error parsing changelog: {e}")
+        updates = []
+    
+    # Get user tier for template
+    user_tier = 'free'
+    if current_user.is_authenticated:
+        try:
+            subscription = SubscriptionManager.get_user_subscription(current_user.id)
+            if subscription:
+                user_tier = subscription.tier.lower()
+        except:
+            pass
+    
+    return render_template("updates.html", updates=updates, user_tier=user_tier)
 
 @app.route("/verify-email")
 @rate_limit('api', max_requests=10)
@@ -1615,6 +1816,11 @@ def api_scraper_health():
     try:
         user_id = current_user.id
         health = get_scraper_health(user_id)
+        webdriver_diag = get_chrome_diagnostics()
+        webdriver_diag["status"] = (
+            "ok" if webdriver_diag.get("binary_found") and webdriver_diag.get("chromedriver_found") else "warning"
+        )
+        health["webdriver"] = webdriver_diag
         return jsonify(health)
     except Exception as e:
         logger.error(f"Error getting scraper health: {e}")

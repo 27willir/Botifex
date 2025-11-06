@@ -453,6 +453,10 @@
                     <i class="fas fa-users"></i>
                     <span>Users</span>
                 </a>
+                <a href="{{ url_for('admin.email_directory') }}" class="nav-link {% if request.endpoint == 'admin.email_directory' %}active{% endif %}">
+                    <i class="fas fa-envelope-open-text"></i>
+                    <span>Email Directory</span>
+                </a>
                 <a href="{{ url_for('admin.activity') }}" class="nav-link {% if request.endpoint == 'admin.activity' %}active{% endif %}">
                     <i class="fas fa-history"></i>
                     <span>Activity</span>

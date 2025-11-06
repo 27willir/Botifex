@@ -36,3 +36,6 @@ flasgger==0.9.7.1
 gunicorn==21.2.0
 eventlet==0.35.2
 gevent==24.2.1
+
+# PostgreSQL support (optional - for production deployments)
+psycopg2-binary==2.9.9

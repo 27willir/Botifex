@@ -70,27 +70,40 @@ def get_realistic_headers(referer=None, origin=None, site_name=None, extra_heade
 # ======================
 # SESSION MANAGEMENT
 # ======================
-def get_session(site_name, initialize_url=None):
+def get_session(site_name, initialize_url=None, force_new=False):
     """
     Get or create a persistent session for a scraper site.
     
     Args:
         site_name: Name of the scraper site (e.g., 'craigslist', 'ebay')
         initialize_url: Optional URL to visit to initialize the session
+        force_new: Force creation of a fresh session even if one is cached
         
     Returns:
         requests.Session object
     """
     with _session_lock:
+        if force_new and site_name in _session_cache:
+            try:
+                _session_cache[site_name].close()
+            except Exception:
+                pass
+            _session_cache.pop(site_name, None)
+
         if site_name not in _session_cache:
             session = requests.Session()
+            session.headers.update({
+                "Connection": "keep-alive",
+                "Pragma": "no-cache",
+                "Cache-Control": "no-cache"
+            })
             _session_cache[site_name] = session
             
             # Initialize session by visiting homepage if provided
             if initialize_url:
                 try:
                     headers = get_realistic_headers(site_name=site_name)
-                    logger.debug(f"Initializing {site_name} session by visiting homepage...")
+                    logger.debug(f"Initializing {site_name} session by visiting homepage ({initialize_url})...")
                     response = session.get(initialize_url, headers=headers, timeout=15)
                     if response.status_code == 200:
                         logger.debug(f"{site_name} session initialized successfully")
@@ -114,6 +127,12 @@ def clear_session(site_name):
                 pass
             del _session_cache[site_name]
             logger.debug(f"Cleared session for {site_name}")
+
+
+def reset_session(site_name, initialize_url=None):
+    """Force creation of a new session and return it."""
+    clear_session(site_name)
+    return get_session(site_name, initialize_url=initialize_url, force_new=True)
 
 
 def initialize_session(site_name, base_url):
@@ -179,13 +198,39 @@ def check_rate_limit(response, site_name):
     return False, 0
 
 
-def make_request_with_retry(url, site_name, max_retries=3, session=None, **kwargs):
+def make_request_with_retry(
+    url,
+    site_name,
+    max_retries=3,
+    session=None,
+    referer=None,
+    origin=None,
+    session_initialize_url=None,
+    rotate_headers=True,
+    extra_headers=None,
+    **kwargs,
+):
     """
     Make HTTP request with automatic retry, rate limit detection, and adaptive throttling.
+    
+    Args:
+        url: URL to request
+        site_name: Name of scraper site for logging
+        max_retries: Maximum number of retry attempts
+        session: Optional requests.Session object
+        referer: Optional Referer header value
+        origin: Optional Origin header value
+        session_initialize_url: URL to use when recreating sessions after a block
+        rotate_headers: Whether to regenerate browser headers on each attempt
+        extra_headers: Additional headers to merge into the generated set
+        **kwargs: Additional arguments to pass to requests.get()
+        
+    Returns:
+        requests.Response object or None if all retries failed
     """
-
     requester = session if session else requests
     base_kwargs = dict(kwargs)
+    session_to_use = session
 
     if "timeout" not in base_kwargs:
         base_kwargs["timeout"] = 30
@@ -201,7 +246,13 @@ def make_request_with_retry(url, site_name, max_retries=3, session=None, **kwarg
         if incoming_headers:
             request_kwargs["headers"] = anti_blocking.enrich_headers(site_name, dict(incoming_headers))
         else:
-            request_kwargs["headers"] = get_realistic_headers(site_name=site_name)
+            # Merge extra_headers if provided
+            base_headers = dict(extra_headers) if extra_headers else {}
+            if referer:
+                base_headers["Referer"] = referer
+            if origin:
+                base_headers["Origin"] = origin
+            request_kwargs["headers"] = get_realistic_headers(site_name=site_name, referer=referer, origin=origin, extra_headers=extra_headers)
 
         try:
             anti_blocking.record_request_start(site_name)
@@ -212,8 +263,21 @@ def make_request_with_retry(url, site_name, max_retries=3, session=None, **kwarg
             if is_rate_limited:
                 anti_blocking.record_block(site_name, f"status:{response.status_code}", retry_after)
                 if attempt < max_retries - 1:
-                    if session:
-                        session.cookies.clear()
+                    if session_to_use:
+                        try:
+                            session_to_use.cookies.clear()
+                        except Exception:
+                            pass
+                    
+                    status_code = getattr(response, "status_code", None)
+                    if status_code == 403:
+                        logger.info(f"{site_name}: refreshing session after 403 response")
+                        session_to_use = reset_session(site_name, initialize_url=session_initialize_url)
+                        requester = session_to_use if session_to_use else requests
+                    elif session_to_use is None and session is not None:
+                        session_to_use = get_session(site_name, initialize_url=session_initialize_url)
+                        requester = session_to_use
+                    
                     delay = max(retry_after, anti_blocking.suggest_retry_delay(site_name, attempt + 1))
                     logger.info(f"{site_name}: rate limited ({response.status_code}). Retrying in {delay:.1f}s...")
                     time.sleep(delay)
@@ -226,8 +290,11 @@ def make_request_with_retry(url, site_name, max_retries=3, session=None, **kwarg
                 anti_blocking.record_block(site_name, soft_block_signal)
                 logger.warning(f"{site_name}: potential block detected ({soft_block_signal}) on attempt {attempt + 1}/{max_retries}")
                 if attempt < max_retries - 1:
-                    if session:
-                        session.cookies.clear()
+                    if session_to_use:
+                        try:
+                            session_to_use.cookies.clear()
+                        except Exception:
+                            pass
                     delay = anti_blocking.suggest_retry_delay(site_name, attempt + 1)
                     time.sleep(delay)
                     continue
@@ -242,8 +309,21 @@ def make_request_with_retry(url, site_name, max_retries=3, session=None, **kwarg
             anti_blocking.record_failure(site_name)
             logger.warning(f"{site_name} request failed (attempt {attempt + 1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
-                if session:
-                    session.cookies.clear()
+                if session_to_use:
+                    try:
+                        session_to_use.cookies.clear()
+                    except Exception:
+                        pass
+                    # Optionally rotate the session after repeated failures
+                    if attempt >= 1:
+                        try:
+                            session_to_use = reset_session(site_name, initialize_url=session_initialize_url)
+                            requester = session_to_use if session_to_use else requests
+                        except Exception as reset_error:
+                            logger.debug(f"{site_name}: session reset failed during retry: {reset_error}")
+                elif session is not None:
+                    session_to_use = get_session(site_name, initialize_url=session_initialize_url)
+                    requester = session_to_use
                 delay = anti_blocking.suggest_retry_delay(site_name, attempt + 1)
                 logger.info(f"Retrying in {delay:.1f} seconds...")
                 time.sleep(delay)
