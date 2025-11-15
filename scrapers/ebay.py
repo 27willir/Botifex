@@ -53,13 +53,36 @@ def _parse_price_value(value):
     if not value_str:
         return None
 
-    if "to" in value_str:
-        value_str = value_str.split("to", 1)[0]
-    if "-" in value_str:
-        value_str = value_str.split("-", 1)[0]
+    normalized = value_str.strip().lower()
+    if "to" in normalized:
+        normalized = normalized.split("to", 1)[0]
+    if "-" in normalized:
+        parts = [p.strip() for p in normalized.split("-", 1)]
+        # Preserve leading negative sign if the first segment is an actual negative number
+        normalized = parts[0] if not normalized.startswith("-") else f"-{parts[1]}" if len(parts) > 1 else normalized
 
-    cleaned = "".join(ch for ch in value_str if ch.isdigit())
-    return int(cleaned) if cleaned else None
+    if "," in normalized:
+        if "." in normalized or normalized.count(",") > 1:
+            normalized = normalized.replace(",", "")
+        else:
+            right_part_tokens = normalized.split(",", 1)[1].split()
+            right_part = right_part_tokens[0] if right_part_tokens else ""
+            if right_part.isdigit() and 1 <= len(right_part) <= 2:
+                normalized = normalized.replace(",", ".", 1)
+            else:
+                normalized = normalized.replace(",", "")
+
+    match = re.search(r"-?\d+(?:\.\d+)?", normalized)
+    if not match:
+        return None
+
+    try:
+        price = float(match.group())
+    except ValueError:
+        return None
+
+    # eBay prices are in currency units; return rounded integer dollars
+    return int(round(price))
 
 
 def _parse_json_listings(soup):

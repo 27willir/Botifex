@@ -2,7 +2,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
 from functools import wraps
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import db_enhanced
 from utils import logger, get_chrome_diagnostics
 from rate_limiter import reset_user_rate_limits
@@ -19,6 +19,114 @@ except ImportError:
     get_recent_runs = None
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
+
+_KNOWN_TIMESTAMP_FORMATS = (
+    "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S.%f",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d"
+)
+
+
+def _format_timestamp(value, mode='datetime_minutes'):
+    """Normalize datetime-like values into formatted strings for templates."""
+    if not value:
+        return None
+
+    def _format_datetime(dt: datetime) -> str:
+        if mode == 'date':
+            return dt.date().isoformat()
+        if mode == 'datetime':
+            return dt.isoformat(sep=' ', timespec='seconds')
+        if mode == 'datetime_minutes':
+            return dt.replace(second=0, microsecond=0).isoformat(sep=' ', timespec='minutes')
+        return dt.isoformat(sep=' ', timespec='seconds')
+
+    if isinstance(value, datetime):
+        return _format_datetime(value)
+
+    if isinstance(value, date):
+        if mode == 'date':
+            return value.isoformat()
+        return _format_datetime(datetime.combine(value, datetime.min.time()))
+
+    if isinstance(value, str):
+        value_str = value.strip()
+        for fmt in _KNOWN_TIMESTAMP_FORMATS:
+            try:
+                parsed = datetime.strptime(value_str, fmt)
+            except ValueError:
+                continue
+            return _format_datetime(parsed)
+
+        if mode == 'date':
+            return value_str[:10]
+        if mode == 'datetime_minutes':
+            without_microseconds = value_str.split('.', 1)[0]
+            return without_microseconds[:16] if len(without_microseconds) >= 16 else without_microseconds
+        if mode == 'datetime':
+            return value_str.split('.', 1)[0]
+        return value_str
+
+    try:
+        numeric_value = float(value)
+        return _format_datetime(datetime.fromtimestamp(numeric_value))
+    except (TypeError, ValueError, OSError):
+        return str(value)
+
+
+def _normalize_user_row(row):
+    """Return a tuple suitable for template rendering with formatted timestamps."""
+    row_list = list(row)
+    if len(row_list) > 6:
+        row_list[6] = _format_timestamp(row_list[6], mode='date')
+    if len(row_list) > 7:
+        row_list[7] = _format_timestamp(row_list[7], mode='datetime_minutes')
+    return tuple(row_list)
+
+
+def _normalize_activity_records(records, timestamp_index, mode='datetime_minutes'):
+    """Normalize activity records ensuring timestamp indexes are formatted."""
+    normalized = []
+    for record in records or []:
+        record_list = list(record)
+        if len(record_list) > timestamp_index:
+            record_list[timestamp_index] = _format_timestamp(record_list[timestamp_index], mode=mode)
+        normalized.append(tuple(record_list))
+    return normalized
+
+
+def _format_subscription_record(record):
+    """Normalize subscription dictionary values for safe template rendering."""
+    if not record:
+        return {}
+    formatted = dict(record)
+    formatted['current_period_end'] = _format_timestamp(record.get('current_period_end'), mode='datetime_minutes')
+    formatted['created_at'] = _format_timestamp(record.get('created_at'), mode='datetime_minutes')
+    return formatted
+
+
+def _format_scraper_metrics(metrics):
+    """Normalize scraper metrics dictionaries, especially last_run timestamps."""
+    if not metrics:
+        return {}
+
+    formatted = dict(metrics)
+    last_run = formatted.get('last_run')
+    if last_run:
+        formatted_last_run = dict(last_run)
+        formatted_last_run['timestamp'] = _format_timestamp(last_run.get('timestamp'), mode='datetime_minutes')
+        formatted_last_run['start_time'] = _format_timestamp(last_run.get('start_time'), mode='datetime_minutes')
+        formatted_last_run['end_time'] = _format_timestamp(last_run.get('end_time'), mode='datetime_minutes')
+        formatted['last_run'] = formatted_last_run
+        formatted['last_run_display'] = formatted_last_run.get('timestamp')
+    else:
+        formatted['last_run'] = None
+        formatted['last_run_display'] = None
+
+    return formatted
 
 # Debug route to check user role
 @admin_bp.route('/check-role')
@@ -97,13 +205,15 @@ def dashboard():
         listing_count = db_enhanced.get_listing_count()
         
         # Get recent activity
-        recent_activity = db_enhanced.get_recent_activity(limit=50)
+        recent_activity_raw = db_enhanced.get_recent_activity(limit=50)
+        recent_activity = _normalize_activity_records(recent_activity_raw, timestamp_index=4)
         
         # Get cache stats
         cache_stats = get_cache().get_stats()
         
         # Get user list
-        users = db_enhanced.get_all_users()
+        users_raw = db_enhanced.get_all_users()
+        users = [_normalize_user_row(u) for u in users_raw]
         
         stats = {
             'total_users': user_count,
@@ -130,7 +240,8 @@ def dashboard():
 def users():
     """User management page"""
     try:
-        all_users = db_enhanced.get_all_users()
+        all_users_raw = db_enhanced.get_all_users()
+        all_users = [_normalize_user_row(u) for u in all_users_raw]
         return render_template('admin/users.html', users=all_users)
     except Exception as e:
         logger.error(f"Error loading users page: {e}")
@@ -152,7 +263,7 @@ def email_directory():
                 'verified': bool(row[2]),
                 'email_notifications': bool(row[3]),
                 'active': bool(row[4]),
-                'created_at': row[5],
+                'created_at': _format_timestamp(row[5], mode='date'),
             }
             for row in raw_rows
         ]
@@ -183,7 +294,8 @@ def user_detail(username):
             return redirect(url_for("admin.users"))
         
         # Get user activity
-        activity = db_enhanced.get_user_activity(username, limit=100)
+        activity_raw = db_enhanced.get_user_activity(username, limit=100)
+        activity = _normalize_activity_records(activity_raw, timestamp_index=3)
         
         # Get user settings
         settings = db_enhanced.get_settings(username)
@@ -196,8 +308,8 @@ def user_detail(username):
             'email': user[1],
             'role': user[4],
             'active': user[5],
-            'created_at': user[6],
-            'last_login': user[7],
+            'created_at': _format_timestamp(user[6], mode='datetime_minutes'),
+            'last_login': _format_timestamp(user[7], mode='datetime_minutes'),
             'login_count': user[8],
             'listing_count': listing_count,
         }
@@ -310,7 +422,8 @@ def activity():
         days = request.args.get('days', 7, type=int)
         limit = request.args.get('limit', 200, type=int)
         
-        recent_activity = db_enhanced.get_recent_activity(limit=limit)
+        recent_activity_raw = db_enhanced.get_recent_activity(limit=limit)
+        recent_activity = _normalize_activity_records(recent_activity_raw, timestamp_index=4)
         
         return render_template('admin/activity.html', 
                              activity=recent_activity,
@@ -541,7 +654,8 @@ def subscriptions():
         stats = db_enhanced.get_subscription_stats()
         
         # Get all subscriptions
-        all_subscriptions = db_enhanced.get_all_subscriptions()
+        raw_subscriptions = db_enhanced.get_all_subscriptions()
+        all_subscriptions = [_format_subscription_record(sub) for sub in raw_subscriptions]
         
         # Calculate MRR (Monthly Recurring Revenue)
         mrr = (stats['standard_count'] * 19.99) + (stats['pro_count'] * 49.99)
@@ -644,20 +758,23 @@ def scrapers_health():
         
         for scraper_name in scrapers:
             try:
-                metrics = get_metrics_summary(scraper_name, hours=24)
+                metrics_raw = get_metrics_summary(scraper_name, hours=24)
+                metrics = _format_scraper_metrics(metrics_raw)
                 status = get_performance_status(scraper_name)
                 
                 scraper_data.append({
                     'name': scraper_name,
                     'status': status,
-                    'metrics': metrics
+                    'metrics': metrics,
+                    'last_run_display': metrics.get('last_run_display')
                 })
             except Exception as e:
                 logger.error(f"Error getting metrics for {scraper_name}: {e}")
                 scraper_data.append({
                     'name': scraper_name,
                     'status': 'unknown',
-                    'metrics': None
+                    'metrics': None,
+                    'last_run_display': None
                 })
         
         return render_template('admin/scrapers.html', scrapers=scraper_data)
@@ -682,7 +799,8 @@ def api_scraper_health():
         
         for scraper_name in scrapers:
             try:
-                metrics = get_metrics_summary(scraper_name, hours=24)
+                metrics_raw = get_metrics_summary(scraper_name, hours=24)
+                metrics = _format_scraper_metrics(metrics_raw)
                 status = get_performance_status(scraper_name)
                 
                 health_data[scraper_name] = {
@@ -691,7 +809,8 @@ def api_scraper_health():
                     'success_rate': metrics['success_rate'] if metrics else 0,
                     'total_listings': metrics['total_listings'] if metrics else 0,
                     'avg_duration': metrics['avg_duration'] if metrics else 0,
-                    'last_run': metrics['last_run'] if metrics and 'last_run' in metrics else None
+                    'last_run': metrics.get('last_run') if metrics else None,
+                    'last_run_display': metrics.get('last_run_display') if metrics else None
                 }
             except Exception as e:
                 logger.error(f"Error getting health for {scraper_name}: {e}")
@@ -723,8 +842,10 @@ def api_scraper_details(scraper_name):
             return jsonify({'error': 'Metrics module not available'}), 500
         
         # Get metrics for different time periods
-        metrics_24h = get_metrics_summary(scraper_name, hours=24)
-        metrics_1h = get_metrics_summary(scraper_name, hours=1)
+        metrics_24h_raw = get_metrics_summary(scraper_name, hours=24)
+        metrics_1h_raw = get_metrics_summary(scraper_name, hours=1)
+        metrics_24h = _format_scraper_metrics(metrics_24h_raw)
+        metrics_1h = _format_scraper_metrics(metrics_1h_raw)
         recent_runs = get_recent_runs(scraper_name, limit=20)
         status = get_performance_status(scraper_name)
         

@@ -105,11 +105,11 @@
         </div>
         <div class="info-item">
             <label>Created</label>
-            <div class="value">{{ user.created_at[:16] if user.created_at else 'N/A' }}</div>
+            <div class="value">{{ user.created_at if user.created_at else 'N/A' }}</div>
         </div>
         <div class="info-item">
             <label>Last Login</label>
-            <div class="value">{{ user.last_login[:16] if user.last_login else 'Never' }}</div>
+            <div class="value">{{ user.last_login if user.last_login else 'Never' }}</div>
         </div>
         <div class="info-item">
             <label>Login Count</label>
@@ -198,7 +198,7 @@
                 <td><strong>{{ act[0] }}</strong></td>
                 <td>{{ act[1] if act[1] else '-' }}</td>
                 <td><code>{{ act[2] if act[2] else '-' }}</code></td>
-                <td>{{ act[3][:16] if act[3] else '-' }}</td>
+                <td>{{ act[3] if act[3] else '-' }}</td>
             </tr>
             {% endfor %}
         </tbody>

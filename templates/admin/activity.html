@@ -24,7 +24,7 @@
                 <td><strong>{{ act[1] }}</strong></td>
                 <td>{{ act[2] if act[2] else '-' }}</td>
                 <td>{{ act[3] if act[3] else '-' }}</td>
-                <td>{{ act[4][:19] if act[4] else '-' }}</td>
+                <td>{{ act[4] if act[4] else '-' }}</td>
             </tr>
             {% endfor %}
         </tbody>

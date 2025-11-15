@@ -964,8 +964,10 @@ def register():
         if success:
             # Record ToS agreement
             try:
-                db_enhanced.record_tos_agreement(username)
-                logger.info(f"ToS agreement recorded for user: {username}")
+                if db_enhanced.record_tos_agreement(username):
+                    logger.info(f"ToS agreement recorded for user: {username}")
+                else:
+                    logger.warning(f"Failed to record ToS agreement for {username}: record_tos_agreement returned False")
             except Exception as e:
                 logger.warning(f"Failed to record ToS agreement for {username}: {e}")
             
@@ -1196,10 +1198,10 @@ def updates_page():
     user_tier = 'free'
     if current_user.is_authenticated:
         try:
-            subscription = SubscriptionManager.get_user_subscription(current_user.id)
-            if subscription:
-                user_tier = subscription.tier.lower()
-        except:
+            subscription = db_enhanced.get_user_subscription(current_user.id)
+            if subscription and subscription.get('tier'):
+                user_tier = subscription.get('tier', 'free').lower()
+        except Exception:
             pass
     
     return render_template("updates.html", updates=updates, user_tier=user_tier)

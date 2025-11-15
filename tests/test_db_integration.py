@@ -54,7 +54,9 @@ def test_database_integration():
     save_listing("Test Listing", 5000, "https://example.com/test", "https://example.com/image.jpg", "test")
     listings = get_listings(10)
     assert len(listings) > 0, "No listings found"
-    assert listings[0][0] == "Test Listing", "Listing title mismatch"
+    latest = listings[0]
+    assert latest[1] == "Test Listing", "Listing title mismatch"
+    assert latest[3] == "https://example.com/test", "Listing link mismatch"
     print("✅ Listings working")
     
     print("\n🎉 All database integration tests passed!")

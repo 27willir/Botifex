@@ -311,11 +311,9 @@
             </div>
         </div>
         
-        {% if scraper.metrics.last_run %}
         <div style="margin-top: 8px; font-size: 11px; color: rgba(255, 255, 255, 0.5);">
-            Last run: {{ scraper.metrics.last_run.timestamp[:19] if scraper.metrics.last_run.timestamp else 'Never' }}
+            Last run: {{ scraper.last_run_display if scraper.last_run_display else 'Never' }}
         </div>
-        {% endif %}
         
         {% else %}
         <div class="no-data">

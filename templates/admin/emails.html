@@ -148,7 +148,7 @@
                         {% if entry.active %}Active{% else %}Inactive{% endif %}
                     </span>
                 </td>
-                <td>{{ entry.created_at[:10] if entry.created_at else 'N/A' }}</td>
+                <td>{{ entry.created_at if entry.created_at else 'N/A' }}</td>
             </tr>
             {% endfor %}
         </tbody>

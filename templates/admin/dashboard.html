@@ -116,8 +116,8 @@
                 <td>{{ user[1] }}</td>
                 <td><span class="badge badge-{{ user[4] }}">{{ user[4] }}</span></td>
                 <td><span class="badge badge-{% if user[5] %}active{% else %}inactive{% endif %}">{% if user[5] %}Active{% else %}Inactive{% endif %}</span></td>
-                <td>{{ user[6][:10] if user[6] else 'N/A' }}</td>
-                <td>{{ user[7][:16] if user[7] else 'Never' }}</td>
+                <td>{{ user[6] if user[6] else 'N/A' }}</td>
+                <td>{{ user[7] if user[7] else 'Never' }}</td>
                 <td>{{ user[8] }}</td>
             </tr>
             {% endfor %}
@@ -144,7 +144,7 @@
                 <td><strong>{{ activity[1] }}</strong></td>
                 <td>{{ activity[2] if activity[2] else '-' }}</td>
                 <td>{{ activity[3] if activity[3] else '-' }}</td>
-                <td>{{ activity[4][:16] if activity[4] else '-' }}</td>
+                <td>{{ activity[4] if activity[4] else '-' }}</td>
             </tr>
             {% endfor %}
         </tbody>

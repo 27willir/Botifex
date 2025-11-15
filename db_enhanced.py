@@ -1076,6 +1076,39 @@ def create_user_db(username, email, password_hash, role='user'):
     try:
         with get_pool().get_connection() as conn:
             c = conn.cursor()
+
+            # Make user creation idempotent for identical records
+            c.execute(
+                """
+                SELECT username, email, active
+                FROM users
+                WHERE username = ? OR email = ?
+                """,
+                (username, email),
+            )
+            existing = c.fetchone()
+            if existing:
+                existing_username, existing_email, existing_active = existing
+                if existing_username == username and existing_email == email:
+                    c.execute(
+                        """
+                        UPDATE users
+                        SET password = ?, active = 1
+                        WHERE username = ?
+                        """,
+                        (password_hash, username),
+                    )
+                    conn.commit()
+                    logger.info(f"Refreshed existing user account: {username} (idempotent create)")
+                    return True
+
+                logger.warning(
+                    "User creation conflict: username '%s' or email '%s' already in use.",
+                    username,
+                    email,
+                )
+                return False
+
             c.execute("""
                 INSERT INTO users (username, email, password, role, verified, created_at) 
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -1160,9 +1193,9 @@ def record_tos_agreement(username):
             c = conn.cursor()
             c.execute("""
                 UPDATE users 
-                SET tos_agreed = 1, tos_agreed_at = ? 
+                SET tos_agreed = ?, tos_agreed_at = ? 
                 WHERE username = ?
-            """, (datetime.now(), username))
+            """, (True, datetime.now(), username))
             conn.commit()
             logger.info(f"ToS agreement recorded for user: {username}")
             return True
@@ -1727,10 +1760,11 @@ def save_listing(title, price, link, image_url=None, source=None, user_id=None):
         try:
             # Use a transaction to ensure atomicity
             # First, try to insert the listing
+            now = datetime.now()
             c.execute("""
                 INSERT OR IGNORE INTO listings (title, price, link, image_url, source, created_at, user_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (title, price, link, image_url, source, datetime.now(), user_id))
+            """, (title, price, link, image_url, source, now, user_id))
             
             # Check if we got a new row (lastrowid > 0 means successful insert)
             listing_id = c.lastrowid
@@ -1738,11 +1772,19 @@ def save_listing(title, price, link, image_url=None, source=None, user_id=None):
                 # New listing was successfully inserted
                 is_new_listing = True
             else:
-                # Insert was ignored (duplicate), get the existing listing ID
+                # Insert was ignored (duplicate), update existing record with latest data
                 c.execute("SELECT id FROM listings WHERE link = ?", (link,))
                 existing = c.fetchone()
                 if existing:
                     listing_id = existing[0]
+                    c.execute(
+                        """
+                        UPDATE listings
+                        SET title = ?, price = ?, image_url = ?, source = ?, created_at = ?, user_id = COALESCE(?, user_id)
+                        WHERE id = ?
+                        """,
+                        (title, price, image_url, source, now, user_id, listing_id),
+                    )
                 else:
                     # This shouldn't happen, but handle it gracefully
                     logger.warning(f"Failed to insert listing and couldn't find existing: {link}")
