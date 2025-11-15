@@ -1078,14 +1078,19 @@ def create_user_db(username, email, password_hash, role='user'):
             c = conn.cursor()
             c.execute("""
                 INSERT INTO users (username, email, password, role, verified, created_at) 
-                VALUES (?, ?, ?, ?, 0, ?)
-            """, (username, email, password_hash, role, datetime.now()))
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (username, email, password_hash, role, False, datetime.now()))
             conn.commit()
             logger.info(f"Created new user: {username} with role: {role} (unverified)")
             return True
     except sqlite3.IntegrityError as e:
         logger.warning(f"User creation failed (integrity error): {e}")
         return False
+    except Exception as e:
+        if USE_POSTGRES and getattr(e, "pgcode", None) == "23505":
+            logger.warning(f"User creation failed (duplicate) for {username}: {e}")
+            return False
+        raise
 
 
 @log_errors()
@@ -1436,25 +1441,30 @@ def _log_user_activity_sync(username, action, details=None, ip_address=None, use
     """Synchronous version - used by background worker only"""
     with get_pool().get_connection() as conn:
         c = conn.cursor()
+        timestamp = datetime.now()
         # Check if user exists before logging activity
         c.execute("SELECT username FROM users WHERE username = ?", (username,))
         user_exists = c.fetchone()
         
         if not user_exists and action in ['login_failed', 'login_attempt']:
-            # For failed login attempts, we can log even for non-existent users
-            # by temporarily disabling foreign key constraints
-            c.execute("PRAGMA foreign_keys=OFF")
-            c.execute("""
-                INSERT INTO user_activity (username, action, details, ip_address, user_agent, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (username, action, details, ip_address, user_agent, datetime.now()))
-            c.execute("PRAGMA foreign_keys=ON")
+            reason = f"{action}:nonexistent_user:{username}"
+            try:
+                log_security_event(
+                    ip_address or "unknown",
+                    "/login",
+                    user_agent or "unknown",
+                    reason,
+                    timestamp=timestamp
+                )
+            except Exception as security_error:
+                logger.warning(f"Failed to log security event for {username}: {security_error}")
+            return
         elif user_exists:
             # Normal logging for existing users
             c.execute("""
                 INSERT INTO user_activity (username, action, details, ip_address, user_agent, timestamp)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (username, action, details, ip_address, user_agent, datetime.now()))
+            """, (username, action, details, ip_address, user_agent, timestamp))
         else:
             # Skip logging for non-existent users on other actions
             logger.warning(f"Skipping activity log for non-existent user: {username}")
@@ -1528,81 +1538,138 @@ def check_rate_limit(username, endpoint, max_requests=60, window_minutes=1):
     """
     import time
     import random
-    
     max_retries = 5
     base_delay = 0.1  # Base delay in seconds
+
+    def _normalize_timestamp(value):
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+                try:
+                    return datetime.strptime(value, fmt)
+                except ValueError:
+                    continue
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                logger.warning(f"Unable to parse timestamp '{value}' for rate limiting")
+        return datetime.now()
     
     for attempt in range(max_retries):
         try:
             with get_pool().get_connection() as conn:
-                # Use immediate transaction mode to avoid locking
-                conn.execute("BEGIN IMMEDIATE")
-                c = conn.cursor()
-                
                 now = datetime.now()
-                
-                # Use UPSERT (INSERT OR REPLACE) to handle race conditions
-                # First, try to get existing record
-                c.execute("""
-                    SELECT request_count, window_start 
-                    FROM rate_limits 
-                    WHERE username = ? AND endpoint = ?
-                """, (username, endpoint))
-                
-                result = c.fetchone()
-                
-                if result:
-                    request_count, window_start = result
-                    window_start = datetime.fromisoformat(window_start)
-                    
-                    # Check if we're still in the same window
-                    time_diff = (now - window_start).total_seconds() / 60
-                    
-                    if time_diff < window_minutes:
-                        # Still in same window
-                        if request_count >= max_requests:
-                            conn.rollback()
-                            logger.warning(f"Rate limit exceeded for {username} on {endpoint}")
-                            return False, 0
-                        
-                        # Increment count atomically
-                        c.execute("""
-                            UPDATE rate_limits 
-                            SET request_count = request_count + 1 
-                            WHERE username = ? AND endpoint = ?
-                        """, (username, endpoint))
-                        conn.commit()
-                        return True, max_requests - request_count - 1
-                    else:
-                        # New window - reset
-                        c.execute("""
-                            UPDATE rate_limits 
-                            SET request_count = 1, window_start = ? 
-                            WHERE username = ? AND endpoint = ?
-                        """, (now, username, endpoint))
-                        conn.commit()
-                        return True, max_requests - 1
-                else:
-                    # First request - use INSERT OR IGNORE to handle race conditions
-                    try:
-                        c.execute("""
-                            INSERT INTO rate_limits (username, endpoint, request_count, window_start) 
-                            VALUES (?, ?, 1, ?)
-                        """, (username, endpoint, now))
-                        conn.commit()
-                        return True, max_requests - 1
-                    except sqlite3.IntegrityError:
-                        # Race condition - another thread inserted the record
-                        # Rollback and retry
-                        conn.rollback()
-                        if attempt < max_retries - 1:
-                            time.sleep(base_delay * (2 ** attempt) + random.uniform(0, 0.1))
-                            continue
+                if USE_POSTGRES:
+                    c = conn.cursor()
+                    c.execute("""
+                        SELECT request_count, window_start 
+                        FROM rate_limits 
+                        WHERE username = ? AND endpoint = ?
+                        FOR UPDATE
+                    """, (username, endpoint))
+                    result = c.fetchone()
+
+                    if result:
+                        request_count, window_start = result
+                        window_start = _normalize_timestamp(window_start)
+
+                        time_diff = (now - window_start).total_seconds() / 60
+
+                        if time_diff < window_minutes:
+                            if request_count >= max_requests:
+                                conn.rollback()
+                                logger.warning(f"Rate limit exceeded for {username} on {endpoint}")
+                                return False, 0
+
+                            c.execute("""
+                                UPDATE rate_limits 
+                                SET request_count = request_count + 1 
+                                WHERE username = ? AND endpoint = ?
+                            """, (username, endpoint))
+                            conn.commit()
+                            return True, max_requests - request_count - 1
                         else:
-                            # Last attempt - just return allowed
-                            logger.warning(f"Rate limit check failed after {max_retries} attempts for {username}")
+                            c.execute("""
+                                UPDATE rate_limits 
+                                SET request_count = 1, window_start = ? 
+                                WHERE username = ? AND endpoint = ?
+                            """, (now, username, endpoint))
+                            conn.commit()
                             return True, max_requests - 1
+                    else:
+                        try:
+                            c.execute("""
+                                INSERT INTO rate_limits (username, endpoint, request_count, window_start) 
+                                VALUES (?, ?, 1, ?)
+                            """, (username, endpoint, now))
+                            conn.commit()
+                            return True, max_requests - 1
+                        except Exception as insert_error:
+                            conn.rollback()
+                            if getattr(insert_error, "pgcode", None) == "23505" and attempt < max_retries - 1:
+                                delay = base_delay * (2 ** attempt) + random.uniform(0, 0.1)
+                                logger.warning(f"Rate limit insert race condition for {username} on {endpoint}, retrying in {delay:.2f}s")
+                                time.sleep(delay)
+                                continue
+                            raise insert_error
+                else:
+                    # SQLite path - use immediate transaction mode to avoid locking
+                    conn.execute("BEGIN IMMEDIATE")
+                    c = conn.cursor()
+
+                    c.execute("""
+                        SELECT request_count, window_start 
+                        FROM rate_limits 
+                        WHERE username = ? AND endpoint = ?
+                    """, (username, endpoint))
+                    
+                    result = c.fetchone()
+                    
+                    if result:
+                        request_count, window_start = result
+                        window_start = _normalize_timestamp(window_start)
                         
+                        time_diff = (now - window_start).total_seconds() / 60
+                        
+                        if time_diff < window_minutes:
+                            if request_count >= max_requests:
+                                conn.rollback()
+                                logger.warning(f"Rate limit exceeded for {username} on {endpoint}")
+                                return False, 0
+                            
+                            c.execute("""
+                                UPDATE rate_limits 
+                                SET request_count = request_count + 1 
+                                WHERE username = ? AND endpoint = ?
+                            """, (username, endpoint))
+                            conn.commit()
+                            return True, max_requests - request_count - 1
+                        else:
+                            c.execute("""
+                                UPDATE rate_limits 
+                                SET request_count = 1, window_start = ? 
+                                WHERE username = ? AND endpoint = ?
+                            """, (now, username, endpoint))
+                            conn.commit()
+                            return True, max_requests - 1
+                    else:
+                        try:
+                            c.execute("""
+                                INSERT INTO rate_limits (username, endpoint, request_count, window_start) 
+                                VALUES (?, ?, 1, ?)
+                            """, (username, endpoint, now))
+                            conn.commit()
+                            return True, max_requests - 1
+                        except sqlite3.IntegrityError:
+                            conn.rollback()
+                            if attempt < max_retries - 1:
+                                time.sleep(base_delay * (2 ** attempt) + random.uniform(0, 0.1))
+                                continue
+                            else:
+                                logger.warning(f"Rate limit check failed after {max_retries} attempts for {username}")
+                                return True, max_requests - 1
+
         except sqlite3.OperationalError as e:
             if "database is locked" in str(e).lower():
                 if attempt < max_retries - 1:
