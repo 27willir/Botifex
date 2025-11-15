@@ -31,9 +31,10 @@ else:
     logger.info(f"Using SQLite database: {DB_FILE}")
 
 def _prepare_sql(statement):
-    """Translate SQLite-specific DDL to PostgreSQL-compatible SQL when needed."""
+    """Translate SQLite-specific SQL to PostgreSQL-compatible SQL when needed."""
     if not USE_POSTGRES or not isinstance(statement, str):
         return statement
+
     replacements = [
         ("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY"),
         ("DATETIME", "TIMESTAMP"),
@@ -45,9 +46,11 @@ def _prepare_sql(statement):
         ("BOOLEAN DEFAULT \"1\"", "BOOLEAN DEFAULT TRUE"),
         ("REAL", "DOUBLE PRECISION"),
     ]
+
     converted = statement
     for old, new in replacements:
         converted = converted.replace(old, new)
+
     stripped = converted.lstrip()
     if stripped.upper().startswith("ALTER TABLE"):
         converted = re.sub(
@@ -56,6 +59,15 @@ def _prepare_sql(statement):
             converted,
             flags=re.IGNORECASE
         )
+
+    if "?" in converted:
+        # Replace SQLite-style positional placeholders with psycopg2 ones.
+        parts = re.split(r"('(?:''|[^'])*'|\"(?:\"\"|[^\"])*\")", converted)
+        for idx, part in enumerate(parts):
+            if idx % 2 == 0:  # outside quoted strings
+                parts[idx] = part.replace("?", "%s")
+        converted = "".join(parts)
+
     return converted
 
 def _should_ignore_duplicate_error(error):
@@ -358,6 +370,7 @@ class PostgreSQLConnectionPool:
             timeout = CONNECTION_TIMEOUT
 
         conn = None
+        proxy = None
         start_time = time.time()
 
         while True:
@@ -370,8 +383,10 @@ class PostgreSQLConnectionPool:
                 if hasattr(conn, "autocommit") and not conn.autocommit:
                     conn.autocommit = True
 
+                proxy = _PostgresConnectionWrapper(conn)
+
                 # Test connection viability
-                cursor = conn.cursor()
+                cursor = proxy.cursor()
                 try:
                     cursor.execute("SELECT 1")
                     cursor.fetchone()
@@ -405,12 +420,13 @@ class PostgreSQLConnectionPool:
                 logger.error(f"PostgreSQL connection error: {e}")
                 raise DatabaseError(f"PostgreSQL connection failed: {e}")
 
-        proxy = _PostgresConnectionWrapper(conn)
+        if proxy is None:
+            proxy = _PostgresConnectionWrapper(conn)
 
         try:
             yield proxy
         finally:
-            raw_conn = proxy._connection if 'proxy' in locals() and proxy else conn
+            raw_conn = proxy._connection if proxy else conn
             if raw_conn:
                 try:
                     self.pool.putconn(raw_conn)
@@ -464,12 +480,19 @@ def maintain_database():
     try:
         with get_pool().get_connection() as conn:
             c = conn.cursor()
-            # Analyze database for better query planning
-            c.execute("ANALYZE")
-            # Clean up any pending transactions
-            c.execute("PRAGMA optimize")
-            # Check database integrity
-            c.execute("PRAGMA integrity_check")
+            if USE_POSTGRES:
+                c.execute("ANALYZE")
+            else:
+                # Analyze database for better query planning
+                c.execute("ANALYZE")
+                # Clean up any pending transactions
+                c.execute("PRAGMA optimize")
+                # Check database integrity
+                c.execute("PRAGMA integrity_check")
+            try:
+                conn.commit()
+            except Exception:
+                pass
             logger.info("Database maintenance completed")
     except Exception as e:
         logger.error(f"Database maintenance failed: {e}")
