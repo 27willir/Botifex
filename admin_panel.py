@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import db_enhanced
 from utils import logger, get_chrome_diagnostics
 from rate_limiter import reset_user_rate_limits
-from cache_manager import get_cache, cache_user_data
+from cache_manager import get_cache, cache_user_data, cache_set
 from security_middleware import get_security_stats
 
 # Import scraper metrics
@@ -596,6 +596,7 @@ def update_user_subscription(username):
             tier=tier,
             status=status
         )
+        cache_set(f"settings:{username}", None, ttl=0)
         
         # Log the event
         db_enhanced.log_subscription_event(

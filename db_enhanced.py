@@ -1,5 +1,6 @@
 # db_enhanced.py - Enhanced database module for handling 1000+ users
 import sqlite3
+import re
 import threading
 import time
 import os
@@ -28,6 +29,86 @@ if DATABASE_URL and (DATABASE_URL.startswith('postgres://') or DATABASE_URL.star
         USE_POSTGRES = False
 else:
     logger.info(f"Using SQLite database: {DB_FILE}")
+
+def _prepare_sql(statement):
+    """Translate SQLite-specific DDL to PostgreSQL-compatible SQL when needed."""
+    if not USE_POSTGRES or not isinstance(statement, str):
+        return statement
+    replacements = [
+        ("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY"),
+        ("DATETIME", "TIMESTAMP"),
+        ("BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE"),
+        ("BOOLEAN DEFAULT 1", "BOOLEAN DEFAULT TRUE"),
+        ("BOOLEAN DEFAULT '0'", "BOOLEAN DEFAULT FALSE"),
+        ("BOOLEAN DEFAULT '1'", "BOOLEAN DEFAULT TRUE"),
+        ("BOOLEAN DEFAULT \"0\"", "BOOLEAN DEFAULT FALSE"),
+        ("BOOLEAN DEFAULT \"1\"", "BOOLEAN DEFAULT TRUE"),
+        ("REAL", "DOUBLE PRECISION"),
+    ]
+    converted = statement
+    for old, new in replacements:
+        converted = converted.replace(old, new)
+    stripped = converted.lstrip()
+    if stripped.upper().startswith("ALTER TABLE"):
+        converted = re.sub(
+            r"ADD COLUMN(?!\s+IF\s+NOT\s+EXISTS)",
+            "ADD COLUMN IF NOT EXISTS",
+            converted,
+            flags=re.IGNORECASE
+        )
+    return converted
+
+def _should_ignore_duplicate_error(error):
+    """Return True when duplicate column/index errors can be safely ignored."""
+    message = str(error).lower()
+    if "already exists" in message or "duplicate column" in message:
+        return True
+    if USE_POSTGRES:
+        pgcode = getattr(error, "pgcode", None)
+        if pgcode in {"42701", "42P07"}:  # duplicate_column, duplicate_table
+            return True
+    return False
+
+def _ignore_duplicate_schema_error(conn, error):
+    """
+    Normalize duplicate schema errors across SQLite/PostgreSQL.
+    Returns True when the error can be ignored safely.
+    """
+    if _should_ignore_duplicate_error(error):
+        if USE_POSTGRES:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return True
+    return False
+
+class _PostgresCursorWrapper:
+    """Cursor proxy that normalizes SQLite DDL to PostgreSQL syntax."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def execute(self, statement, *args, **kwargs):
+        statement = _prepare_sql(statement)
+        return self._cursor.execute(statement, *args, **kwargs)
+
+    def executemany(self, statement, seq_of_params):
+        statement = _prepare_sql(statement)
+        return self._cursor.executemany(statement, seq_of_params)
+
+    def __getattr__(self, item):
+        return getattr(self._cursor, item)
+
+    def __iter__(self):
+        return iter(self._cursor)
+
+    def __enter__(self):
+        self._cursor.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return self._cursor.__exit__(exc_type, exc_val, exc_tb)
 
 # Connection pool configuration - optimized for production
 POOL_SIZE = 5  # Reduced pool size for better memory management
@@ -210,8 +291,11 @@ class PostgreSQLConnectionPool:
     
     def __init__(self, database_url, pool_size=POOL_SIZE):
         from psycopg2.pool import ThreadedConnectionPool
+        import threading
         self.database_url = database_url
         self.pool_size = pool_size
+        self.lock = threading.Lock()
+        self.all_connections = []
         try:
             self.pool = ThreadedConnectionPool(1, pool_size, database_url)
             logger.info(f"Initialized PostgreSQL connection pool with {pool_size} max connections")
@@ -224,7 +308,7 @@ class PostgreSQLConnectionPool:
         """Get a connection from the pool (context manager)"""
         conn = None
         try:
-            conn = self.pool.getconn(timeout=CONNECTION_TIMEOUT)
+            conn = self.pool.getconn()
             if conn is None:
                 raise DatabaseError("Failed to get connection from PostgreSQL pool")
             # Test connection
@@ -314,6 +398,9 @@ def cleanup_old_connections():
     """Clean up old or problematic connections from the pool"""
     try:
         pool = get_pool()
+        if USE_POSTGRES and isinstance(pool, PostgreSQLConnectionPool):
+            logger.info("Skipping SQLite-style connection cleanup for PostgreSQL pool")
+            return
         with pool.lock:
             # Test all connections and remove bad ones
             good_connections = []
@@ -345,7 +432,10 @@ def reset_connection_pool():
             _connection_pool = None
         
         # Create a new pool
-        _connection_pool = DatabaseConnectionPool(DB_FILE)
+        if USE_POSTGRES:
+            _connection_pool = PostgreSQLConnectionPool(DATABASE_URL)
+        else:
+            _connection_pool = DatabaseConnectionPool(DB_FILE)
         logger.info("Connection pool reset successfully")
     except Exception as e:
         logger.error(f"Connection pool reset failed: {e}")
@@ -416,6 +506,63 @@ def init_db():
     try:
         with get_pool().get_connection() as conn:
             c = conn.cursor()
+            if USE_POSTGRES:
+                c = _PostgresCursorWrapper(c)
+            
+            # Users table with enhanced fields
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    password TEXT NOT NULL,
+                    role TEXT DEFAULT 'user',
+                    verified BOOLEAN DEFAULT 0,
+                    active BOOLEAN DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_login DATETIME,
+                    login_count INTEGER DEFAULT 0,
+                    phone_number TEXT,
+                    email_notifications BOOLEAN DEFAULT 1,
+                    sms_notifications BOOLEAN DEFAULT 0
+                )
+            """)
+            
+            # Add notification columns if they don't exist (for existing databases)
+            try:
+                c.execute("ALTER TABLE users ADD COLUMN phone_number TEXT")
+                logger.info("Added phone_number column to users table")
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
+            
+            try:
+                c.execute("ALTER TABLE users ADD COLUMN tos_agreed BOOLEAN DEFAULT 0")
+                logger.info("Added tos_agreed column to users table")
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
+            
+            try:
+                c.execute("ALTER TABLE users ADD COLUMN tos_agreed_at DATETIME")
+                logger.info("Added tos_agreed_at column to users table")
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
+            
+            try:
+                c.execute("ALTER TABLE users ADD COLUMN email_notifications BOOLEAN DEFAULT 1")
+                logger.info("Added email_notifications column to users table")
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
+            
+            try:
+                c.execute("ALTER TABLE users ADD COLUMN sms_notifications BOOLEAN DEFAULT 0")
+                logger.info("Added sms_notifications column to users table")
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
             
             # Listings table
             c.execute("""
@@ -444,56 +591,6 @@ def init_db():
                     FOREIGN KEY (username) REFERENCES users (username) ON DELETE CASCADE
                 )
             """)
-            
-            # Users table with enhanced fields
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT UNIQUE NOT NULL,
-                    email TEXT UNIQUE NOT NULL,
-                    password TEXT NOT NULL,
-                    role TEXT DEFAULT 'user',
-                    verified BOOLEAN DEFAULT 0,
-                    active BOOLEAN DEFAULT 1,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    last_login DATETIME,
-                    login_count INTEGER DEFAULT 0,
-                    phone_number TEXT,
-                    email_notifications BOOLEAN DEFAULT 1,
-                    sms_notifications BOOLEAN DEFAULT 0
-                )
-            """)
-            
-            # Add notification columns if they don't exist (for existing databases)
-            try:
-                c.execute("ALTER TABLE users ADD COLUMN phone_number TEXT")
-                logger.info("Added phone_number column to users table")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-            
-            try:
-                c.execute("ALTER TABLE users ADD COLUMN tos_agreed BOOLEAN DEFAULT 0")
-                logger.info("Added tos_agreed column to users table")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-            
-            try:
-                c.execute("ALTER TABLE users ADD COLUMN tos_agreed_at DATETIME")
-                logger.info("Added tos_agreed_at column to users table")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-            
-            try:
-                c.execute("ALTER TABLE users ADD COLUMN email_notifications BOOLEAN DEFAULT 1")
-                logger.info("Added email_notifications column to users table")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-            
-            try:
-                c.execute("ALTER TABLE users ADD COLUMN sms_notifications BOOLEAN DEFAULT 0")
-                logger.info("Added sms_notifications column to users table")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
             
             # User activity logging table
             c.execute("""
@@ -580,26 +677,30 @@ def init_db():
             try:
                 c.execute("ALTER TABLE seller_listings ADD COLUMN sold_at DATETIME")
                 logger.info("Added sold_at column to seller_listings table")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
             
             try:
                 c.execute("ALTER TABLE seller_listings ADD COLUMN sold_on_marketplace TEXT")
                 logger.info("Added sold_on_marketplace column to seller_listings table")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
             
             try:
                 c.execute("ALTER TABLE seller_listings ADD COLUMN actual_sale_price INTEGER")
                 logger.info("Added actual_sale_price column to seller_listings table")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
             
             try:
                 c.execute("ALTER TABLE seller_listings ADD COLUMN original_cost INTEGER")
                 logger.info("Added original_cost column to seller_listings table")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
             
             c.execute("""
                 CREATE TABLE IF NOT EXISTS keyword_trends (
@@ -985,6 +1086,19 @@ def get_all_users():
 
 
 @log_errors()
+def get_all_user_emails():
+    """Get summary email info for all users (admin directory)"""
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT username, email, verified, email_notifications, active, created_at
+            FROM users
+            ORDER BY created_at DESC
+        """)
+        return c.fetchall()
+
+
+@log_errors()
 def get_user_count():
     """Get total number of users"""
     with get_pool().get_connection() as conn:
@@ -1130,6 +1244,22 @@ def get_settings(username=None):
         else:
             c.execute("SELECT key, value FROM settings WHERE username IS NULL")
         settings = dict(c.fetchall())
+
+        # Automatically align refresh interval with subscription tier
+        try:
+            from subscriptions import SubscriptionManager  # Imported lazily to avoid circular deps
+
+            tier = 'free'
+            if username:
+                subscription = get_user_subscription(username)
+                tier = subscription.get('tier', 'free')
+
+            interval_seconds = max(1, SubscriptionManager.get_refresh_interval(tier))
+            settings['interval'] = str(interval_seconds)
+        except Exception as e:
+            logger.warning(f"Failed to apply subscription interval for {username or 'global'} settings: {e}")
+            settings.setdefault('interval', '60')
+
         return settings
 
 
@@ -1138,6 +1268,25 @@ def update_setting(key, value, username=None):
     """Update setting for a specific user, or global setting if username is None"""
     with get_pool().get_connection() as conn:
         c = conn.cursor()
+
+        # Force refresh interval to align with subscription tier
+        if key == 'interval':
+            try:
+                from subscriptions import SubscriptionManager  # Lazy import to avoid circular deps
+
+                tier = 'free'
+                if username:
+                    subscription = get_user_subscription(username)
+                    tier = subscription.get('tier', 'free')
+
+                interval_seconds = max(1, SubscriptionManager.get_refresh_interval(tier))
+                value = str(interval_seconds)
+            except Exception as e:
+                logger.warning(f"Failed to enforce subscription interval for {username or 'global'}: {e}")
+                value = str(value)
+        else:
+            value = str(value)
+
         c.execute("""
             INSERT OR REPLACE INTO settings (username, key, value, updated_at) 
             VALUES (?, ?, ?, ?)

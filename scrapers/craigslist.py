@@ -1,6 +1,7 @@
 import sys
 import threading
 import socket
+import time
 from functools import lru_cache
 from datetime import datetime
 import urllib.parse
@@ -81,6 +82,13 @@ def resolve_craigslist_location(location):
 
     fallback_used = resolved != normalized_key
     return resolved, fallback_used
+
+def _user_key(user_id):
+    """Generate a filesystem-safe key for tracking per-user state."""
+    if not user_id:
+        return "global"
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', str(user_id))
+
 
 seen_listings = {}
 
@@ -179,7 +187,7 @@ def send_discord_message(title, link, price=None, image_url=None, user_id=None):
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_craigslist(flag_name=SITE_NAME, user_id=None):
+def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None):
     settings = load_settings(username=user_id)
     keywords = settings["keywords"]
     min_price = settings["min_price"]
@@ -189,6 +197,9 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
     radius = settings.get("radius", 50)
 
     results = []
+    user_key = _user_key(user_id)
+    if user_seen is None:
+        user_seen = seen_listings.setdefault(user_key, {})
     
     # Use metrics tracking
     with ScraperMetrics(SITE_NAME) as metrics:
@@ -230,7 +241,7 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
             full_url = url + "?" + urllib.parse.urlencode(params)
 
             # Get persistent session
-            session = get_session(SITE_NAME, base_domain)
+            session = get_session(SITE_NAME, base_domain, username=user_id)
             
             # Make request with automatic retry and rate limit detection
             response = make_request_with_retry(
@@ -240,6 +251,7 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
                 referer=base_domain,
                 origin=base_domain,
                 session_initialize_url=base_domain,
+                username=user_id,
             )
             
             if not response:
@@ -341,7 +353,7 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
                 if not any(k in text_blob for k in keywords_lower):
                     return
 
-                if not is_new_listing(link, seen_listings, SITE_NAME):
+                if not is_new_listing(link, user_seen, SITE_NAME):
                     return
 
                 normalized_link = normalize_url(link)
@@ -350,7 +362,7 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
                 processed_links.add(normalized_link)
 
                 with seen_lock:
-                    seen_listings[normalized_link] = datetime.now()
+                    user_seen[normalized_link] = datetime.now()
 
                 send_discord_message(title, link, normalized_price, image_url, user_id=user_id)
                 results.append({
@@ -430,7 +442,7 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
                         logger.warning(f"Error parsing Craigslist JSON-LD listing: {e}")
 
             if results:
-                save_seen_listings(seen_listings, SITE_NAME)
+                save_seen_listings(user_seen, SITE_NAME, username=user_id)
                 metrics.success = True
                 metrics.listings_found = len(results)
             else:
@@ -451,8 +463,6 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None):
 # ======================
 def run_craigslist_scraper(flag_name=SITE_NAME, user_id=None):
     """Run scraper continuously until stopped via running_flags."""
-    global seen_listings
-    
     # Check for recursion
     if check_recursion_guard(SITE_NAME):
         return
@@ -461,13 +471,15 @@ def run_craigslist_scraper(flag_name=SITE_NAME, user_id=None):
     
     try:
         logger.info(f"Starting Craigslist scraper for user {user_id}")
-        seen_listings = load_seen_listings(SITE_NAME)
+        user_key = _user_key(user_id)
+        user_seen = load_seen_listings(SITE_NAME, username=user_id)
+        seen_listings[user_key] = user_seen
         
         try:
             while running_flags.get(flag_name, True):
                 try:
                     logger.debug(f"Running Craigslist scraper check for user {user_id}")
-                    results = check_craigslist(flag_name, user_id=user_id)
+                    results = check_craigslist(flag_name, user_id=user_id, user_seen=user_seen)
                     if results:
                         logger.info(f"Craigslist scraper found {len(results)} new listings for user {user_id}")
                     else:
@@ -486,7 +498,7 @@ def run_craigslist_scraper(flag_name=SITE_NAME, user_id=None):
                     # Continue running but log the error
                     continue
                 
-                settings = load_settings()
+                settings = load_settings(username=user_id)
                 # Delay dynamically based on interval
                 human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
                 

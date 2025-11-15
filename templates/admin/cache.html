@@ -95,12 +95,14 @@
     <h2><i class="fas fa-tools"></i> Cache Actions</h2>
     <div class="action-buttons">
         <form method="POST" action="{{ url_for('admin.cleanup_cache') }}" style="display: inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-primary">
                 <i class="fas fa-broom"></i> Cleanup Expired Entries
             </button>
         </form>
         
         <form method="POST" action="{{ url_for('admin.clear_cache') }}" style="display: inline;" onsubmit="return confirm('Are you sure you want to clear ALL cache? This cannot be undone.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-danger">
                 <i class="fas fa-trash-alt"></i> Clear All Cache
             </button>

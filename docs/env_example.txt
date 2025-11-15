@@ -50,6 +50,12 @@ SMTP_USERNAME=your-email@gmail.com
 SMTP_PASSWORD=your-app-password-here
 SMTP_FROM_EMAIL=your-email@gmail.com
 SMTP_FROM_NAME=Super-Bot Alerts
+# Optional email flags
+# SMTP_USE_TLS=True
+# SMTP_USE_SSL=False
+# SMTP_REQUIRE_AUTH=True
+# SMTP_TIMEOUT=30
+# SMTP_ALLOW_PASSWORD_SPACES=False
 
 # SMS Configuration (Twilio - optional)
 # Get your credentials from: https://www.twilio.com/console

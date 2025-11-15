@@ -583,8 +583,10 @@
         Max Price:<br>
         <input type="number" name="max_price" value="{{ settings.get('max_price',30000) }}"><br>
 
-        Check Interval (seconds):<br>
-        <input type="number" name="interval" value="{{ settings.get('interval',60) }}"><br>
+        Check Interval:<br>
+        <p style="margin: 6px 0 16px; color: rgba(255, 255, 255, 0.7);">
+            {{ min_refresh_interval }} minute{% if min_refresh_interval != 1 %}s{% endif %} (automatically managed by your {{ user_tier|capitalize }} plan)
+        </p>
 
         <input type="submit" value="Update Settings">
         <button type="button" onclick="saveCurrentSearch()" style="margin-left: 10px; background: linear-gradient(135deg, #28a745, #20c997); border: none; padding: 10px 20px; border-radius: 8px; color: white; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.3s;">

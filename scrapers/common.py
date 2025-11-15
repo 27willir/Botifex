@@ -11,12 +11,61 @@ import urllib.parse
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 import requests
+from bs4 import BeautifulSoup, FeatureNotFound
+from error_handling import ScraperError
 from utils import logger
 from functools import lru_cache
 
+try:
+    from bs4.builder import ParserRejectedMarkup
+except ImportError:  # pragma: no cover - fallback for older BeautifulSoup versions
+    class ParserRejectedMarkup(Exception):
+        """Fallback ParserRejectedMarkup when BeautifulSoup doesn't expose it."""
+        pass
+
 from scrapers import anti_blocking
+
+
+def _sanitize_username(username: Optional[str]) -> str:
+    """
+    Convert a username into a filesystem and cache safe token.
+
+    Args:
+        username: Raw username or None
+
+    Returns:
+        Sanitized string suitable for filenames and cache keys
+    """
+    if not username:
+        return "global"
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", str(username))
+
+
+def _session_cache_key(site_name: str, username: Optional[str]) -> str:
+    """Build a stable session cache key scoped by site and user."""
+    return f"{site_name}:{_sanitize_username(username)}"
+
+
+def _build_seen_filename(
+    site_name: str, username: Optional[str] = None, filename: Optional[str] = None
+) -> str:
+    """
+    Construct a per-user seen listings filename.
+
+    Args:
+        site_name: Scraper site identifier
+        username: Optional username for multi-tenant separation
+        filename: Optional explicit filename override
+    """
+    if filename:
+        return filename
+
+    user_token = _sanitize_username(username)
+    if user_token == "global":
+        return f"{site_name}_seen.json"
+    return f"{site_name}_{user_token}_seen.json"
 
 
 # Thread locks for seen listings (one per scraper)
@@ -68,9 +117,123 @@ def get_realistic_headers(referer=None, origin=None, site_name=None, extra_heade
 
 
 # ======================
+# HTML PARSING
+# ======================
+def parse_html_with_fallback(
+    markup: Union[str, bytes, bytearray],
+    *,
+    parser_order: Optional[Sequence[str]] = None,
+    encodings: Optional[Sequence[Optional[str]]] = None,
+    raw_bytes: Optional[bytes] = None,
+    soup_builder: Callable[[str, str], Any] = BeautifulSoup,
+    site_name: Optional[str] = None,
+) -> Any:
+    """
+    Parse HTML content with graceful fallbacks for parser and encoding errors.
+
+    Args:
+        markup: The HTML markup to parse, as str or bytes.
+        parser_order: Parsers to try in order. Defaults to ('html.parser', 'lxml').
+        encodings: Optional list of encodings to try when decoding bytes.
+        raw_bytes: Optional raw bytes for re-decoding attempts.
+        soup_builder: Callable used to create the soup object (defaults to BeautifulSoup).
+        site_name: Optional site name for logging context.
+
+    Returns:
+        Parsed soup-like object returned by soup_builder.
+
+    Raises:
+        ScraperError: If all parsing attempts fail.
+    """
+    if markup is None:
+        raise ScraperError("No markup supplied for parsing")
+
+    parser_sequence: Tuple[str, ...] = tuple(parser_order or ("html.parser", "lxml"))
+    if not parser_sequence:
+        raise ScraperError("No HTML parsers configured for fallback parsing")
+
+    attempts: List[str] = []
+
+    def _try_parse(text: str, parser_name: str, source: str):
+        try:
+            return soup_builder(text, parser_name)
+        except (ParserRejectedMarkup, FeatureNotFound, ValueError) as exc:
+            attempts.append(f"{parser_name} [{source}]: {exc}")
+        except Exception as exc:  # pragma: no cover - unexpected parser errors
+            attempts.append(f"{parser_name} [{source}]: {exc}")
+        return None
+
+    text_variants: List[Tuple[str, str]] = []
+
+    if isinstance(markup, (bytes, bytearray)):
+        markup_bytes = bytes(markup)
+        if raw_bytes is None:
+            raw_bytes = markup_bytes
+        try:
+            decoded_text = markup_bytes.decode("utf-8")
+            text_variants.append((decoded_text, "bytes:utf-8"))
+        except UnicodeDecodeError:
+            text_variants.append((markup_bytes.decode("utf-8", errors="replace"), "bytes:utf-8-replace"))
+    else:
+        text_variants.append((str(markup), "initial"))
+        if raw_bytes is None:
+            try:
+                raw_bytes = str(markup).encode("utf-8")
+            except Exception:
+                raw_bytes = None
+
+    for text, source in text_variants:
+        for parser_name in parser_sequence:
+            soup = _try_parse(text, parser_name, source)
+            if soup is not None:
+                if attempts:
+                    preview = ", ".join(attempts[:3])
+                    context = site_name or "scraper"
+                    logger.debug(f"{context}: HTML parsed using {parser_name} ({source}) after fallbacks: {preview}")
+                return soup
+
+    if raw_bytes:
+        encoding_candidates: List[str] = []
+        if encodings:
+            encoding_candidates.extend(encodings)
+        # Default encodings to try as fallbacks
+        encoding_candidates.extend(["utf-8", "latin-1"])
+
+        seen_encodings = set()
+        for encoding in encoding_candidates:
+            if not encoding:
+                continue
+            normalized = encoding.lower()
+            if normalized in seen_encodings:
+                continue
+            seen_encodings.add(normalized)
+
+            try:
+                decoded_text = raw_bytes.decode(encoding, errors="replace")
+            except Exception as exc:
+                attempts.append(f"decode[{encoding}]: {exc}")
+                continue
+
+            source = f"decoded:{encoding}"
+            for parser_name in parser_sequence:
+                soup = _try_parse(decoded_text, parser_name, source)
+                if soup is not None:
+                    if attempts:
+                        preview = ", ".join(attempts[:3])
+                        context = site_name or "scraper"
+                        logger.debug(f"{context}: HTML parsed using {parser_name} ({source}) after fallbacks: {preview}")
+                    return soup
+
+    error_detail = "; ".join(attempts) if attempts else "no parser attempts recorded"
+    context = site_name or "scraper"
+    logger.debug(f"{context}: HTML parsing failed after fallbacks: {error_detail}")
+    raise ScraperError(f"Failed to parse HTML with available parsers: {error_detail}")
+
+
+# ======================
 # SESSION MANAGEMENT
 # ======================
-def get_session(site_name, initialize_url=None, force_new=False):
+def get_session(site_name, initialize_url=None, force_new=False, username=None):
     """
     Get or create a persistent session for a scraper site.
     
@@ -78,26 +241,28 @@ def get_session(site_name, initialize_url=None, force_new=False):
         site_name: Name of the scraper site (e.g., 'craigslist', 'ebay')
         initialize_url: Optional URL to visit to initialize the session
         force_new: Force creation of a fresh session even if one is cached
+        username: Optional username for per-user session separation
         
     Returns:
         requests.Session object
     """
+    cache_key = _session_cache_key(site_name, username)
     with _session_lock:
-        if force_new and site_name in _session_cache:
+        if force_new and cache_key in _session_cache:
             try:
-                _session_cache[site_name].close()
+                _session_cache[cache_key].close()
             except Exception:
                 pass
-            _session_cache.pop(site_name, None)
+            _session_cache.pop(cache_key, None)
 
-        if site_name not in _session_cache:
+        if cache_key not in _session_cache:
             session = requests.Session()
             session.headers.update({
                 "Connection": "keep-alive",
                 "Pragma": "no-cache",
                 "Cache-Control": "no-cache"
             })
-            _session_cache[site_name] = session
+            _session_cache[cache_key] = session
             
             # Initialize session by visiting homepage if provided
             if initialize_url:
@@ -114,36 +279,46 @@ def get_session(site_name, initialize_url=None, force_new=False):
                 except Exception as e:
                     logger.warning(f"Failed to initialize {site_name} session: {e}")
         
-        return _session_cache[site_name]
+        return _session_cache[cache_key]
 
 
-def clear_session(site_name):
+def clear_session(site_name, username=None):
     """Clear/reset the session for a scraper site."""
     with _session_lock:
-        if site_name in _session_cache:
+        cache_key = _session_cache_key(site_name, username)
+        if cache_key in _session_cache:
             try:
-                _session_cache[site_name].close()
+                _session_cache[cache_key].close()
             except:
                 pass
-            del _session_cache[site_name]
-            logger.debug(f"Cleared session for {site_name}")
+            del _session_cache[cache_key]
+            if username:
+                logger.debug(f"Cleared session for {site_name} (user={username})")
+            else:
+                logger.debug(f"Cleared session for {site_name}")
 
 
-def reset_session(site_name, initialize_url=None):
+def reset_session(site_name, initialize_url=None, username=None):
     """Force creation of a new session and return it."""
-    clear_session(site_name)
-    return get_session(site_name, initialize_url=initialize_url, force_new=True)
+    clear_session(site_name, username=username)
+    return get_session(
+        site_name,
+        initialize_url=initialize_url,
+        force_new=True,
+        username=username,
+    )
 
 
-def initialize_session(site_name, base_url):
+def initialize_session(site_name, base_url, username=None):
     """
     Initialize a session by visiting the homepage to get cookies.
     
     Args:
         site_name: Name of the scraper site
         base_url: Base URL to visit for initialization
+        username: Optional username for per-user session separation
     """
-    session = get_session(site_name)
+    session = get_session(site_name, username=username)
     try:
         headers = get_realistic_headers(site_name=site_name)
         logger.debug(f"Initializing {site_name} session by visiting homepage...")
@@ -208,6 +383,7 @@ def make_request_with_retry(
     session_initialize_url=None,
     rotate_headers=True,
     extra_headers=None,
+    username=None,
     **kwargs,
 ):
     """
@@ -223,6 +399,7 @@ def make_request_with_retry(
         session_initialize_url: URL to use when recreating sessions after a block
         rotate_headers: Whether to regenerate browser headers on each attempt
         extra_headers: Additional headers to merge into the generated set
+        username: Optional username for per-user session isolation
         **kwargs: Additional arguments to pass to requests.get()
         
     Returns:
@@ -272,10 +449,18 @@ def make_request_with_retry(
                     status_code = getattr(response, "status_code", None)
                     if status_code == 403:
                         logger.info(f"{site_name}: refreshing session after 403 response")
-                        session_to_use = reset_session(site_name, initialize_url=session_initialize_url)
+                        session_to_use = reset_session(
+                            site_name,
+                            initialize_url=session_initialize_url,
+                            username=username,
+                        )
                         requester = session_to_use if session_to_use else requests
                     elif session_to_use is None and session is not None:
-                        session_to_use = get_session(site_name, initialize_url=session_initialize_url)
+                        session_to_use = get_session(
+                            site_name,
+                            initialize_url=session_initialize_url,
+                            username=username,
+                        )
                         requester = session_to_use
                     
                     delay = max(retry_after, anti_blocking.suggest_retry_delay(site_name, attempt + 1))
@@ -317,12 +502,20 @@ def make_request_with_retry(
                     # Optionally rotate the session after repeated failures
                     if attempt >= 1:
                         try:
-                            session_to_use = reset_session(site_name, initialize_url=session_initialize_url)
+                            session_to_use = reset_session(
+                                site_name,
+                                initialize_url=session_initialize_url,
+                                username=username,
+                            )
                             requester = session_to_use if session_to_use else requests
                         except Exception as reset_error:
                             logger.debug(f"{site_name}: session reset failed during retry: {reset_error}")
                 elif session is not None:
-                    session_to_use = get_session(site_name, initialize_url=session_initialize_url)
+                    session_to_use = get_session(
+                        site_name,
+                        initialize_url=session_initialize_url,
+                        username=username,
+                    )
                     requester = session_to_use
                 delay = anti_blocking.suggest_retry_delay(site_name, attempt + 1)
                 logger.info(f"Retrying in {delay:.1f} seconds...")
@@ -504,17 +697,17 @@ def is_new_listing(link, seen_listings, site_name):
     return time_diff > 86400  # 24 hours
 
 
-def save_seen_listings(seen_listings, site_name, filename=None):
+def save_seen_listings(seen_listings, site_name, filename=None, username=None):
     """
     Save seen listings with timestamps to JSON.
     
     Args:
         seen_listings: Dictionary of seen listings
         site_name: Name of the scraper site
-        filename: Optional custom filename (defaults to {site_name}_seen.json)
+        filename: Optional explicit filename override
+        username: Optional username for per-user isolation
     """
-    if filename is None:
-        filename = f"{site_name}_seen.json"
+    filename = _build_seen_filename(site_name, username=username, filename=filename)
     
     try:
         lock = get_seen_listings_lock(site_name)
@@ -530,19 +723,19 @@ def save_seen_listings(seen_listings, site_name, filename=None):
         logger.error(f"Error saving seen listings for {site_name}: {e}")
 
 
-def load_seen_listings(site_name, filename=None):
+def load_seen_listings(site_name, filename=None, username=None):
     """
     Load seen listings from JSON file.
     
     Args:
         site_name: Name of the scraper site
         filename: Optional custom filename (defaults to {site_name}_seen.json)
+        username: Optional username for per-user isolation
         
     Returns:
         Dictionary of seen listings
     """
-    if filename is None:
-        filename = f"{site_name}_seen.json"
+    filename = _build_seen_filename(site_name, username=username, filename=filename)
     
     try:
         text = Path(filename).read_text(encoding="utf-8")

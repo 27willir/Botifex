@@ -513,6 +513,46 @@
         let charts = {};
         let currentData = {};
 
+        function parseDateValue(value) {
+            if (!value) return null;
+            if (value instanceof Date && !Number.isNaN(value.getTime())) {
+                return value;
+            }
+            if (typeof value === 'string') {
+                const trimmed = value.trim();
+                if (!trimmed) {
+                    return null;
+                }
+
+                let normalized = trimmed.replace(' ', 'T');
+                if (!normalized.includes('T')) {
+                    normalized = `${normalized}T00:00:00`;
+                }
+                if (!/(?:[zZ]|[+\-]\d{2}:?\d{2})$/.test(normalized)) {
+                    normalized = `${normalized}Z`;
+                }
+
+                const isoDate = new Date(normalized);
+                if (!Number.isNaN(isoDate.getTime())) {
+                    return isoDate;
+                }
+
+                const parts = trimmed.replace('T', ' ').split(/[- :]/).map(part => Number(part));
+                if (parts.length >= 3) {
+                    const [year, month, day, hour = 0, minute = 0, second = 0] = parts;
+                    if (![year, month, day].some(Number.isNaN)) {
+                        return new Date(Date.UTC(year, (month || 1) - 1, day || 1, hour || 0, minute || 0, second || 0));
+                    }
+                }
+            }
+            return null;
+        }
+
+        function formatDateLabel(value) {
+            const date = parseDateValue(value);
+            return date ? date.toLocaleDateString() : (value ?? '');
+        }
+
         // Initialize the dashboard
         document.addEventListener('DOMContentLoaded', function() {
             // Check if Chart.js is loaded
@@ -688,9 +728,9 @@
                     return;
                 }
                 
-                const labels = data.map(item => new Date(item[0]).toLocaleDateString()).reverse();
-                const avgPrices = data.map(item => item[2]).reverse();
-                const counts = data.map(item => item[1]).reverse();
+                const labels = data.map(item => formatDateLabel(item[0])).reverse();
+                const avgPrices = data.map(item => Number(item[2]) || 0).reverse();
+                const counts = data.map(item => Number(item[1]) || 0).reverse();
 
                 charts.priceChart = new Chart(ctx, {
                 type: 'line',
@@ -1009,8 +1049,8 @@
                 return;
             }
             
-            const labels = data.map(item => new Date(item[0]).toLocaleDateString()).reverse();
-            const counts = data.map(item => item[1]).reverse();
+            const labels = data.map(item => formatDateLabel(item[0])).reverse();
+            const counts = data.map(item => Number(item[1]) || 0).reverse();
 
             charts.dailyChart = new Chart(ctx, {
                 type: 'bar',

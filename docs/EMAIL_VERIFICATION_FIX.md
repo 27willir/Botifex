@@ -91,6 +91,10 @@ SMTP_FROM_NAME=Super-Bot
 4. Select "Mail" and your device
 5. Copy the 16-character password
 6. Use this as `SMTP_PASSWORD` (no spaces)
+7. (Optional) Adjust advanced flags:
+   - `SMTP_USE_TLS` / `SMTP_USE_SSL` for your provider
+   - `SMTP_REQUIRE_AUTH` for local/test SMTP servers
+   - `SMTP_TIMEOUT` (seconds) if your provider needs longer connections
 
 ### Render Deployment
 

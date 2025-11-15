@@ -314,8 +314,10 @@
                 Max Price:<br>
                 <input type="number" name="max_price" value="{{ settings.get('max_price',30000) }}" min="0"><br>
                 
-                Check Interval (minutes):<br>
-                <input type="number" name="interval" value="{{ settings.get('interval',60) }}" min="10" max="1440"><br>
+                Check Interval:<br>
+                <p style="margin: 6px 0 16px; color: rgba(255, 255, 255, 0.7);">
+                    {{ min_refresh_interval }} minute{% if min_refresh_interval != 1 %}s{% endif %} (automatically managed by your {{ user_tier|capitalize }} plan)
+                </p>
                 
                 <input type="submit" value="Save Settings">
             </form>

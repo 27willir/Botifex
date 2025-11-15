@@ -6,7 +6,6 @@ Non-interactive test to verify email system is working
 
 import os
 import sys
-import smtplib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -18,6 +17,13 @@ from email_verification import (
     SMTP_PORT,
     SMTP_USERNAME,
     SMTP_PASSWORD,
+)
+from email_utils import (
+    EmailConfigurationError,
+    SMTP_REQUIRE_AUTH,
+    SMTP_USE_SSL,
+    SMTP_USE_TLS,
+    smtp_connection,
 )
 
 load_dotenv()
@@ -32,6 +38,9 @@ print(f"   SMTP_HOST: {SMTP_HOST}")
 print(f"   SMTP_PORT: {SMTP_PORT}")
 print(f"   SMTP_USERNAME: {SMTP_USERNAME[:4]}***{SMTP_USERNAME[-4:] if len(SMTP_USERNAME) > 8 else '***'}")
 print(f"   SMTP_PASSWORD: {'***' if SMTP_PASSWORD else 'NOT SET'}")
+print(f"   SMTP_USE_TLS: {'ON' if SMTP_USE_TLS else 'OFF'}")
+print(f"   SMTP_USE_SSL: {'ON' if SMTP_USE_SSL else 'OFF'}")
+print(f"   SMTP_REQUIRE_AUTH: {'ON' if SMTP_REQUIRE_AUTH else 'OFF'}")
 print(f"   Configured: {'✅ YES' if is_email_configured() else '❌ NO'}\n")
 
 # Test SMTP connection
@@ -41,10 +50,8 @@ if not is_email_configured():
     sys.exit(1)
 
 try:
-    server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10)
-    server.starttls()
-    server.login(SMTP_USERNAME, SMTP_PASSWORD)
-    server.quit()
+    with smtp_connection():
+        pass
     print("   ✅ Connection successful\n")
     
     print("="*70)
@@ -58,6 +65,12 @@ try:
     print("\n")
     sys.exit(0)
     
+except EmailConfigurationError as e:
+    print(f"   ❌ Configuration error: {e}\n")
+    print("="*70)
+    print("  ⚠️  EMAIL SYSTEM NEEDS ATTENTION")
+    print("="*70 + "\n")
+    sys.exit(1)
 except Exception as e:
     print(f"   ❌ Connection failed: {e}\n")
     print("="*70)

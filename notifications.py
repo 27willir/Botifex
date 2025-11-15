@@ -1,22 +1,23 @@
 # notifications.py - Email and SMS notification system
-import smtplib
-import os
 import html
-from email.mime.text import MIMEText
+import os
+import smtplib
 from email.mime.multipart import MIMEMultipart
-from utils import logger
-from error_handling import log_errors
+from email.mime.text import MIMEText
+
 from dotenv import load_dotenv
 
-load_dotenv()
+from email_utils import (
+    EmailConfigurationError,
+    SMTP_FROM_EMAIL,
+    SMTP_FROM_NAME,
+    is_email_configured,
+    smtp_connection,
+)
+from error_handling import log_errors
+from utils import logger
 
-# Email configuration from environment variables
-SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
-SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
-SMTP_USERNAME = os.getenv('SMTP_USERNAME', '')
-SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
-SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL', SMTP_USERNAME)
-SMTP_FROM_NAME = os.getenv('SMTP_FROM_NAME', 'Super-Bot Alerts')
+load_dotenv()
 
 # SMS configuration (Twilio)
 TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID', '')
@@ -58,7 +59,7 @@ def send_email_notification(
     Returns:
         bool: True if email sent successfully, False otherwise
     """
-    if not SMTP_USERNAME or not SMTP_PASSWORD:
+    if not is_email_configured():
         logger.warning("Email credentials not configured. Skipping email notification.")
         return False
 
@@ -81,7 +82,11 @@ def send_email_notification(
 
         button_html = ""
         if action_url and button_text:
-            button_html = f'<a href="{action_url}" class="button">{html.escape(button_text)}</a>'
+            button_html = (
+                f'<a href="{html.escape(action_url, quote=True)}" class="button">'
+                f'{html.escape(button_text)}'
+                "</a>"
+            )
 
         footer_note = footer_note or "You're receiving this because you enabled email notifications in Botifex."
         footer_html = html.escape(footer_note)
@@ -127,9 +132,7 @@ def send_email_notification(
         msg.attach(part1)
         msg.attach(part2)
 
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+        with smtp_connection() as server:
             server.send_message(msg)
 
         logger.info(f"✅ Email notification sent to {to_email}")
@@ -138,7 +141,7 @@ def send_email_notification(
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"❌ Email authentication failed: {e}")
         return False
-    except smtplib.SMTPException as e:
+    except (smtplib.SMTPException, EmailConfigurationError) as e:
         logger.error(f"❌ SMTP error sending email to {to_email}: {e}")
         return False
     except Exception as e:
@@ -282,10 +285,19 @@ def test_email_configuration():
     Returns:
         tuple: (bool, str) - (is_configured, message)
     """
-    if not SMTP_USERNAME or not SMTP_PASSWORD:
-        return False, "Email credentials not configured. Please set SMTP_USERNAME and SMTP_PASSWORD in .env file."
-    
-    return True, "Email configuration looks good!"
+    if not is_email_configured():
+        return False, "Email credentials not configured. Please set SMTP_* variables in the environment."
+
+    try:
+        with smtp_connection():
+            pass
+        return True, "Email configuration looks good!"
+    except EmailConfigurationError as exc:
+        return False, f"Email configuration error: {exc}"
+    except smtplib.SMTPAuthenticationError as exc:
+        return False, f"Email authentication failed: {exc}"
+    except smtplib.SMTPException as exc:
+        return False, f"SMTP connection failed: {exc}"
 
 
 def test_sms_configuration():

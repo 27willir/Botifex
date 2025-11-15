@@ -9,6 +9,19 @@ import sys
 import sqlite3
 from pathlib import Path
 
+
+def _to_bool(value):
+    """Convert SQLite truthy values to Python booleans for PostgreSQL."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "t", "yes", "y"}
+    return bool(value)
+
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -59,12 +72,26 @@ def migrate_users_only():
         sqlite_cur.execute("SELECT username, email, password, verified, role, active, created_at, last_login, login_count, email_notifications, sms_notifications FROM users")
         users = sqlite_cur.fetchall()
         
+        migrated_users = 0
         if not users:
             print("   No users found to migrate")
         else:
             print(f"   Found {len(users)} users to migrate")
-            migrated = 0
             for user in users:
+                username, email, password, verified, role, active, created_at, last_login, login_count, email_notifications, sms_notifications = user
+                payload = (
+                    username,
+                    email,
+                    password,
+                    _to_bool(verified),
+                    role or 'user',
+                    _to_bool(active),
+                    created_at,
+                    last_login,
+                    login_count or 0,
+                    _to_bool(email_notifications),
+                    _to_bool(sms_notifications),
+                )
                 try:
                     pg_cur.execute("""
                         INSERT INTO users (username, email, password, verified, role, active, created_at, last_login, login_count, email_notifications, sms_notifications)
@@ -79,16 +106,18 @@ def migrate_users_only():
                             login_count = EXCLUDED.login_count,
                             email_notifications = EXCLUDED.email_notifications,
                             sms_notifications = EXCLUDED.sms_notifications
-                    """, user)
-                    migrated += 1
+                    """, payload)
+                    pg_conn.commit()
+                    migrated_users += 1
                 except Exception as e:
-                    print(f"   ⚠️  Error migrating user {user[0]}: {e}")
+                    pg_conn.rollback()
+                    print(f"   ⚠️  Error migrating user {username}: {e}")
             
-            print(f"   ✅ Migrated {migrated} users")
+            print(f"   ✅ Migrated {migrated_users} users")
         
         # Migrate settings
         print("\n⚙️  Migrating user settings...")
-        sqlite_cur.execute("SELECT username, keywords, min_price, max_price, location, radius, sources, check_interval, email_notifications, sms_notifications FROM settings")
+        sqlite_cur.execute("SELECT username, key, value, updated_at FROM settings")
         settings = sqlite_cur.fetchall()
         
         if settings:
@@ -96,20 +125,15 @@ def migrate_users_only():
             for setting in settings:
                 try:
                     pg_cur.execute("""
-                        INSERT INTO settings (username, keywords, min_price, max_price, location, radius, sources, check_interval, email_notifications, sms_notifications)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (username) DO UPDATE SET
-                            keywords = EXCLUDED.keywords,
-                            min_price = EXCLUDED.min_price,
-                            max_price = EXCLUDED.max_price,
-                            location = EXCLUDED.location,
-                            radius = EXCLUDED.radius,
-                            sources = EXCLUDED.sources,
-                            check_interval = EXCLUDED.check_interval,
-                            email_notifications = EXCLUDED.email_notifications,
-                            sms_notifications = EXCLUDED.sms_notifications
+                        INSERT INTO settings (username, key, value, updated_at)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (username, key) DO UPDATE SET
+                            value = EXCLUDED.value,
+                            updated_at = EXCLUDED.updated_at
                     """, setting)
+                    pg_conn.commit()
                 except Exception as e:
+                    pg_conn.rollback()
                     print(f"   ⚠️  Error migrating settings for {setting[0]}: {e}")
             print(f"   ✅ Migrated {len(settings)} settings")
         
@@ -134,8 +158,21 @@ def migrate_users_only():
                             current_period_end = EXCLUDED.current_period_end,
                             cancel_at_period_end = EXCLUDED.cancel_at_period_end,
                             updated_at = EXCLUDED.updated_at
-                    """, sub)
+                    """, (
+                        sub[0],
+                        sub[1],
+                        sub[2],
+                        sub[3],
+                        sub[4],
+                        sub[5],
+                        sub[6],
+                        _to_bool(sub[7]),
+                        sub[8],
+                        sub[9],
+                    ))
+                    pg_conn.commit()
                 except Exception as e:
+                    pg_conn.rollback()
                     print(f"   ⚠️  Error migrating subscription for {sub[0]}: {e}")
             print(f"   ✅ Migrated {len(subscriptions)} subscriptions")
         
@@ -144,7 +181,7 @@ def migrate_users_only():
         
         print("\n" + "=" * 80)
         print("✅ Migration completed successfully!")
-        print(f"   Users migrated: {migrated}")
+        print(f"   Users migrated: {migrated_users}")
         print("   Your user logins and data are now in PostgreSQL")
         print("   Data will persist across deployments!")
         return True

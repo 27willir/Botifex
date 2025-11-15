@@ -126,6 +126,7 @@
     <h2><i class="fas fa-tools"></i> Admin Actions</h2>
     <div class="actions-section">
         <form method="POST" action="{{ url_for('admin.update_user_role', username=user.username) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <select name="role" class="select-role">
                 <option value="user" {% if user.role == 'user' %}selected{% endif %}>User</option>
                 <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin</option>
@@ -136,6 +137,7 @@
         </form>
         
         <form method="POST" action="{{ url_for('admin.reset_rate_limit', username=user.username) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-secondary">
                 <i class="fas fa-redo"></i> Reset Rate Limits
             </button>
@@ -143,6 +145,7 @@
         
         {% if user.active %}
         <form method="POST" action="{{ url_for('admin.deactivate_user', username=user.username) }}" onsubmit="return confirm('Are you sure you want to deactivate this user?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-danger">
                 <i class="fas fa-user-slash"></i> Deactivate User
             </button>

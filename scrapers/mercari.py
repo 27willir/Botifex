@@ -7,6 +7,7 @@ import json
 import time
 from datetime import datetime
 import urllib.parse
+import re
 
 from bs4 import BeautifulSoup
 
@@ -37,6 +38,14 @@ from scrapers import anti_blocking
 SITE_NAME = "mercari"
 BASE_URL = "https://www.mercari.com"
 SEARCH_PATH = "/search"
+
+
+def _user_key(user_id):
+    """Generate a filesystem-safe key for tracking per-user state."""
+    if not user_id:
+        return "global"
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', str(user_id))
+
 
 seen_listings = {}
 
@@ -259,7 +268,7 @@ def send_discord_message(title, link, price=None, image_url=None, user_id=None):
         logger.error(f"⚠️ Failed to save Mercari listing for {link}: {exc}")
 
 
-def check_mercari(flag_name=SITE_NAME, user_id=None):
+def check_mercari(flag_name=SITE_NAME, user_id=None, user_seen=None):
     settings = load_settings(username=user_id)
     keywords = settings["keywords"]
     min_price = settings["min_price"]
@@ -269,6 +278,9 @@ def check_mercari(flag_name=SITE_NAME, user_id=None):
     radius = settings.get("radius", 50)
 
     results = []
+    user_key = _user_key(user_id)
+    if user_seen is None:
+        user_seen = seen_listings.setdefault(user_key, {})
 
     with ScraperMetrics(SITE_NAME) as metrics:
         try:
@@ -302,7 +314,7 @@ def check_mercari(flag_name=SITE_NAME, user_id=None):
             full_url = base_url + "?" + urllib.parse.urlencode(params)
 
             # Get persistent session with initialization
-            session = get_session(SITE_NAME, initialize_url=BASE_URL)
+            session = get_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
             
             # Add extra delay before Mercari requests to avoid detection
             time.sleep(random.uniform(1.5, 3.0))
@@ -314,6 +326,7 @@ def check_mercari(flag_name=SITE_NAME, user_id=None):
                 referer=BASE_URL,
                 origin=BASE_URL,
                 session_initialize_url=BASE_URL,
+                username=user_id,
                 max_retries=5,  # More retries for Mercari
             )
 
@@ -322,7 +335,7 @@ def check_mercari(flag_name=SITE_NAME, user_id=None):
                 logger.warning("Mercari request exhausted retries without success")
                 # Reset session after failure to get fresh cookies
                 from scrapers.common import reset_session
-                reset_session(SITE_NAME, initialize_url=BASE_URL)
+                reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
                 return []
             
             soup = BeautifulSoup(response.text, "html.parser")
@@ -385,11 +398,11 @@ def check_mercari(flag_name=SITE_NAME, user_id=None):
                 if keywords_lower and not any(keyword in title_lower for keyword in keywords_lower):
                     continue
 
-                if not is_new_listing(link, seen_listings, SITE_NAME):
+                if not is_new_listing(link, user_seen, SITE_NAME):
                     continue
 
                 with lock:
-                    seen_listings[normalized_link] = datetime.now()
+                    user_seen[normalized_link] = datetime.now()
 
                 if image_url:
                     if image_url.startswith("//"):
@@ -409,7 +422,7 @@ def check_mercari(flag_name=SITE_NAME, user_id=None):
                 })
 
             if results:
-                save_seen_listings(seen_listings, SITE_NAME)
+                save_seen_listings(user_seen, SITE_NAME, username=user_id)
                 metrics.success = True
                 metrics.listings_found = len(results)
             else:
@@ -431,7 +444,6 @@ def check_mercari(flag_name=SITE_NAME, user_id=None):
 # ======================
 def run_mercari_scraper(flag_name=SITE_NAME, user_id=None):
     """Run Mercari scraper continuously until stopped."""
-    global seen_listings
     if check_recursion_guard(SITE_NAME):
         return
 
@@ -439,13 +451,15 @@ def run_mercari_scraper(flag_name=SITE_NAME, user_id=None):
 
     try:
         logger.info(f"Starting Mercari scraper for user {user_id}")
-        seen_listings = load_seen_listings(SITE_NAME)
+        user_key = _user_key(user_id)
+        user_seen = load_seen_listings(SITE_NAME, username=user_id)
+        seen_listings[user_key] = user_seen
 
         try:
             while running_flags.get(flag_name, True):
                 try:
                     logger.debug(f"Running Mercari scraper check for user {user_id}")
-                    results = check_mercari(flag_name, user_id=user_id)
+                    results = check_mercari(flag_name, user_id=user_id, user_seen=user_seen)
                     if results:
                         logger.info(f"Mercari scraper found {len(results)} new listings for user {user_id}")
                     else:

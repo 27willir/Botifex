@@ -1,5 +1,7 @@
 import sys
 import threading
+import time
+import re
 from datetime import datetime
 import urllib.parse
 from lxml import html
@@ -23,6 +25,14 @@ from scrapers.metrics import ScraperMetrics
 SITE_NAME = "ksl"
 BASE_URL = "https://classifieds.ksl.com"
 
+
+def _user_key(user_id):
+    """Generate a filesystem-safe key for tracking per-user state."""
+    if not user_id:
+        return "global"
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', str(user_id))
+
+
 seen_listings = {}
 
 # ======================
@@ -33,7 +43,7 @@ running_flags = {SITE_NAME: True}
 # ======================
 # HELPER FUNCTIONS
 # ======================
-def send_discord_message(title, link, price=None, image_url=None):
+def send_discord_message(title, link, price=None, image_url=None, user_id=None):
     """Save listing to database and send notification."""
     try:
         # Validate data before saving
@@ -48,7 +58,7 @@ def send_discord_message(title, link, price=None, image_url=None):
             image_url = None
         
         # Save to database
-        save_listing(title, price, link, image_url, SITE_NAME)
+        save_listing(title, price, link, image_url, SITE_NAME, user_id=user_id)
         logger.info(f"📢 New KSL: {title} | ${price} | {link}")
     except Exception as e:
         logger.error(f"⚠️ Failed to save listing for {link}: {e}")
@@ -56,8 +66,8 @@ def send_discord_message(title, link, price=None, image_url=None):
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_ksl(flag_name=SITE_NAME):
-    settings = load_settings()
+def check_ksl(flag_name=SITE_NAME, user_id=None, user_seen=None):
+    settings = load_settings(username=user_id)
     keywords = settings["keywords"]
     min_price = settings["min_price"]
     max_price = settings["max_price"]
@@ -66,6 +76,9 @@ def check_ksl(flag_name=SITE_NAME):
     radius = settings.get("radius", 50)
 
     results = []
+    user_key = _user_key(user_id)
+    if user_seen is None:
+        user_seen = seen_listings.setdefault(user_key, {})
     
     # Use metrics tracking
     with ScraperMetrics(SITE_NAME) as metrics:
@@ -95,7 +108,7 @@ def check_ksl(flag_name=SITE_NAME):
             full_url = base_url + "?" + urllib.parse.urlencode(params)
 
             # Get persistent session with initialization
-            session = get_session(SITE_NAME, initialize_url=BASE_URL)
+            session = get_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
             
             # Add extra delay before KSL requests to avoid detection
             import time
@@ -110,6 +123,7 @@ def check_ksl(flag_name=SITE_NAME):
                 referer=BASE_URL,
                 origin=BASE_URL,
                 session_initialize_url=BASE_URL,
+                username=user_id,
                 max_retries=5,  # More retries for KSL
             )
             
@@ -118,7 +132,7 @@ def check_ksl(flag_name=SITE_NAME):
                 logger.warning("KSL request exhausted retries without success")
                 # Reset session after failure to get fresh cookies
                 from scrapers.common import reset_session
-                reset_session(SITE_NAME, initialize_url=BASE_URL)
+                reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
                 return []
             
             tree = html.fromstring(response.text)
@@ -205,13 +219,13 @@ def check_ksl(flag_name=SITE_NAME):
                     if not any(k in title_lower for k in keywords_lower):
                         continue
 
-                    if not is_new_listing(link, seen_listings, SITE_NAME):
+                    if not is_new_listing(link, user_seen, SITE_NAME):
                         continue
 
                     normalized_link = normalize_url(link)
                     lock = get_seen_listings_lock(SITE_NAME)
                     with lock:
-                        seen_listings[normalized_link] = datetime.now()
+                        user_seen[normalized_link] = datetime.now()
 
                     img_elem = post.xpath(".//img/@src") or post.xpath(".//img/@data-src")
                     image_url = None
@@ -222,7 +236,7 @@ def check_ksl(flag_name=SITE_NAME):
                         elif image_url and not image_url.startswith("http"):
                             image_url = urllib.parse.urljoin(BASE_URL, image_url)
 
-                    send_discord_message(title, link, price_val, image_url)
+                    send_discord_message(title, link, price_val, image_url, user_id=user_id)
                     results.append({"title": title, "link": link, "price": price_val, "image": image_url})
                 except Exception as e:
                     logger.warning(f"Error parsing a KSL post: {e}")
@@ -256,12 +270,12 @@ def check_ksl(flag_name=SITE_NAME):
                         if not any(k in text_blob for k in keywords_lower):
                             continue
 
-                        if not is_new_listing(link, seen_listings, SITE_NAME):
+                        if not is_new_listing(link, user_seen, SITE_NAME):
                             continue
 
                         normalized_link = normalize_url(link)
                         with lock:
-                            seen_listings[normalized_link] = datetime.now()
+                            user_seen[normalized_link] = datetime.now()
 
                         image_url = entry.get("image")
                         if isinstance(image_url, str):
@@ -270,13 +284,13 @@ def check_ksl(flag_name=SITE_NAME):
                             elif image_url.startswith("/"):
                                 image_url = urllib.parse.urljoin(BASE_URL, image_url)
 
-                        send_discord_message(title, link, price_val, image_url)
+                        send_discord_message(title, link, price_val, image_url, user_id=user_id)
                         results.append({"title": title, "link": link, "price": price_val, "image": image_url})
                     except Exception as e:
                         logger.warning(f"Error parsing KSL JSON-LD listing: {e}")
 
             if results:
-                save_seen_listings(seen_listings, SITE_NAME)
+                save_seen_listings(user_seen, SITE_NAME, username=user_id)
                 metrics.success = True
                 metrics.listings_found = len(results)
             else:
@@ -297,8 +311,6 @@ def check_ksl(flag_name=SITE_NAME):
 # ======================
 def run_ksl_scraper(flag_name=SITE_NAME, user_id=None):
     """Run KSL scraper with proper error handling."""
-    global seen_listings
-    
     # Check for recursion
     if check_recursion_guard(SITE_NAME):
         return
@@ -306,22 +318,23 @@ def run_ksl_scraper(flag_name=SITE_NAME, user_id=None):
     set_recursion_guard(SITE_NAME, True)
     
     try:
-        logger.info("Starting KSL scraper")
-        seen_listings = load_seen_listings(SITE_NAME)
+        logger.info(f"Starting KSL scraper for user {user_id}")
+        user_key = _user_key(user_id)
+        user_seen = load_seen_listings(SITE_NAME, username=user_id)
+        seen_listings[user_key] = user_seen
         
         try:
             while running_flags.get(flag_name, True):
                 try:
-                    logger.debug("Running KSL scraper check")
-                    results = check_ksl(flag_name)
+                    logger.debug(f"Running KSL scraper check for user {user_id}")
+                    results = check_ksl(flag_name, user_id=user_id, user_seen=user_seen)
                     if results:
-                        logger.info(f"KSL scraper found {len(results)} new listings")
+                        logger.info(f"KSL scraper found {len(results)} new listings for user {user_id}")
                     else:
-                        logger.debug("KSL scraper found no new listings")
+                        logger.debug(f"KSL scraper found no new listings for user {user_id}")
                 except RecursionError as e:
                     print(f"ERROR: RecursionError in KSL scraper: {e}", file=sys.stderr, flush=True)
                     # Wait before retrying to avoid tight loop
-                    import time
                     time.sleep(10)
                     continue
                 except Exception as e:
@@ -333,7 +346,7 @@ def run_ksl_scraper(flag_name=SITE_NAME, user_id=None):
                     # Continue running but log the error
                     continue
                 
-                settings = load_settings()
+                settings = load_settings(username=user_id)
                 human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
                 
         except KeyboardInterrupt:

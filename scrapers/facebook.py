@@ -8,6 +8,7 @@ from utils import debug_scraper_output, logger
 from db import get_settings, save_listing
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
 from location_utils import geocode_location, get_location_coords, miles_to_km
+from collections import defaultdict
 
 # ======================
 # CONFIGURATION
@@ -26,7 +27,7 @@ LOCATION_IDS = {
     "sacramento": "108108715896878",
 }
 
-seen_listings = {}
+seen_listings = defaultdict(dict)
 _seen_listings_lock = threading.Lock()  # Thread safety for seen_listings
 
 # ======================
@@ -72,7 +73,14 @@ def normalize_url(url):
         logger.debug(f"Error normalizing URL {url}: {e}")
         return url
 
-def is_new_listing(link):
+def _user_key(user_id):
+    """Generate a filesystem-safe key for tracking per-user state."""
+    if not user_id:
+        return "global"
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', str(user_id))
+
+
+def is_new_listing(link, user_id=None):
     """Check if a listing has been seen within the last 24 hours."""
     normalized_link = normalize_url(link)
     if not normalized_link:
@@ -80,45 +88,54 @@ def is_new_listing(link):
         logger.debug(f"URL normalization failed for {link}, treating as new")
         return True
     
+    user_key = _user_key(user_id)
     with _seen_listings_lock:
-        if normalized_link not in seen_listings:
+        user_seen = seen_listings[user_key]
+        last_seen = user_seen.get(normalized_link)
+        if last_seen is None:
             return True
-        last_seen = seen_listings[normalized_link]
-        return (datetime.now() - last_seen).total_seconds() > 86400
+    return (datetime.now() - last_seen).total_seconds() > 86400
 
-def save_seen_listings(filename="facebook_seen.json"):
+def save_seen_listings(user_id=None, filename=None):
     """Save seen listings to JSON."""
     try:
+        user_key = _user_key(user_id)
+        if filename is None:
+            filename = f"facebook_{user_key}_seen.json" if user_key != "global" else "facebook_seen.json"
+
         with _seen_listings_lock:
+            user_seen = seen_listings[user_key]
             with open(filename, "w") as f:
-                json.dump({k: v.isoformat() for k, v in seen_listings.items()}, f, indent=2)
+                json.dump({k: v.isoformat() for k, v in user_seen.items()}, f, indent=2)
         logger.debug(f"Saved seen listings to {filename}")
     except (OSError, PermissionError) as e:
         logger.error(f"File system error saving seen listings: {e}")
     except Exception as e:
         logger.error(f"Failed to save seen listings: {e}")
 
-def load_seen_listings(filename="facebook_seen.json"):
+def load_seen_listings(user_id=None, filename=None):
     """Load previously seen listings from JSON."""
-    global seen_listings
+    user_key = _user_key(user_id)
     try:
+        if filename is None:
+            filename = f"facebook_{user_key}_seen.json" if user_key != "global" else "facebook_seen.json"
         with open(filename, "r") as f:
             data = json.load(f)
         with _seen_listings_lock:
-            seen_listings = {k: datetime.fromisoformat(v) for k, v in data.items()}
-        logger.debug(f"Loaded {len(seen_listings)} seen listings from {filename}")
+            seen_listings[user_key] = {k: datetime.fromisoformat(v) for k, v in data.items()}
+        logger.debug(f"Loaded {len(seen_listings[user_key])} seen listings from {filename}")
     except FileNotFoundError:
         logger.info(f"Seen listings file not found: {filename}, starting fresh")
         with _seen_listings_lock:
-            seen_listings = {}
+            seen_listings[user_key] = {}
     except (json.JSONDecodeError, ValueError) as e:
         logger.error(f"Invalid JSON in seen listings file: {e}")
         with _seen_listings_lock:
-            seen_listings = {}
+            seen_listings[user_key] = {}
     except Exception as e:
         logger.error(f"Failed to load seen listings: {e}")
         with _seen_listings_lock:
-            seen_listings = {}
+            seen_listings[user_key] = {}
 
 def validate_listing(title, link, price=None):
     """Validate listing data before saving."""
@@ -133,7 +150,7 @@ def validate_listing(title, link, price=None):
     
     return True, None
 
-def send_discord_message(title, link, price=None, image_url=None):
+def send_discord_message(title, link, price=None, image_url=None, user_id=None):
     """Save listing to database and send notification."""
     try:
         # Validate data before saving
@@ -143,15 +160,23 @@ def send_discord_message(title, link, price=None, image_url=None):
             return
         
         # Save to database
-        ErrorHandler.handle_database_error(save_listing, title, price, link, image_url, "facebook")
+        ErrorHandler.handle_database_error(
+            save_listing,
+            title,
+            price,
+            link,
+            image_url,
+            "facebook",
+            user_id,
+        )
         logger.info(f"📢 New Facebook Listing: {title} | ${price} | {link}")
     except Exception as e:
         logger.error(f"Failed to save Facebook listing for {link}: {e}")
 
-def load_settings():
+def load_settings(user_id=None):
     """Load settings from database"""
     try:
-        settings = get_settings()  # Get global settings
+        settings = get_settings(username=user_id)
         return {
             "keywords": [k.strip() for k in settings.get("keywords","Firebird,Camaro,Corvette").split(",") if k.strip()],
             "min_price": int(settings.get("min_price", 1000)),
@@ -232,9 +257,9 @@ def get_facebook_url(settings):
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_facebook(driver):
+def check_facebook(driver, user_id=None):
     try:
-        settings = ErrorHandler.handle_database_error(load_settings)
+        settings = ErrorHandler.handle_database_error(load_settings, user_id)
         keywords = settings["keywords"]
         min_price = settings["min_price"]
         max_price = settings["max_price"]
@@ -291,13 +316,14 @@ def check_facebook(driver):
                     continue
                 
                 # Check if new listing
-                if not is_new_listing(link):
+                if not is_new_listing(link, user_id=user_id):
                     continue
 
                 # Update seen listings
                 normalized_link = normalize_url(link)
                 with _seen_listings_lock:
-                    seen_listings[normalized_link] = datetime.now()
+                    user_key = _user_key(user_id)
+                    seen_listings[user_key][normalized_link] = datetime.now()
 
                 # Attempt to get image URL (simplified and optimized)
                 image_url = None
@@ -331,14 +357,14 @@ def check_facebook(driver):
                 except Exception:
                     pass  # Silently ignore image extraction errors
 
-                send_discord_message(title, link, price, image_url)
+                send_discord_message(title, link, price, image_url, user_id=user_id)
                 new_links.append(link)
             except Exception as e:
                 logger.warning(f"Error processing Facebook listing: {e}")
                 continue
 
         if new_links:
-            save_seen_listings()
+            save_seen_listings(user_id=user_id)
         else:
             logger.debug(f"No new Facebook listings. Next check in {check_interval}s...")
 
@@ -369,13 +395,13 @@ def run_facebook_scraper(driver, flag_name="facebook", user_id=None):
     _recursion_guard.in_scraper = True
     
     try:
-        load_seen_listings()
-        logger.info("Starting Facebook scraper")
+        load_seen_listings(user_id=user_id)
+        logger.info(f"Starting Facebook scraper for user {user_id}")
         
         try:
             while running_flags.get(flag_name, True):
                 try:
-                    check_facebook(driver)
+                    check_facebook(driver, user_id=user_id)
                 except RecursionError as e:
                     import sys
                     print(f"ERROR: RecursionError in Facebook scraper: {e}", file=sys.stderr, flush=True)
@@ -408,7 +434,7 @@ def run_facebook_scraper(driver, flag_name="facebook", user_id=None):
                     continue
                 
                 try:
-                    settings = ErrorHandler.handle_database_error(load_settings)
+                    settings = ErrorHandler.handle_database_error(load_settings, user_id)
                     human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
                 except Exception as e:
                     try:

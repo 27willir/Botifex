@@ -2,21 +2,29 @@ import random, time, json
 import threading
 from datetime import datetime
 import requests
-from bs4 import BeautifulSoup
 from pathlib import Path
 import urllib.parse
-from lxml import html
+import re
 from utils import debug_scraper_output, logger
 from db import get_settings, save_listing
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
 from location_utils import geocode_location, get_location_coords, miles_to_km
+from scrapers.common import parse_html_with_fallback
+from collections import defaultdict
 
 # ======================
 # CONFIGURATION
 # ======================
 poshmark_url = "https://poshmark.com"
 
-seen_listings = {}
+def _user_key(user_id):
+    """Generate a filesystem-safe key for tracking per-user state."""
+    if not user_id:
+        return "global"
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', str(user_id))
+
+
+seen_listings = defaultdict(dict)
 _seen_listings_lock = threading.Lock()  # Thread safety for seen_listings
 
 # ======================
@@ -54,7 +62,7 @@ def normalize_url(url):
         logger.debug(f"Error normalizing URL {url}: {e}")
         return url
 
-def is_new_listing(link):
+def is_new_listing(link, user_id=None):
     """Return True if this listing is new or last seen more than 24h ago."""
     normalized_link = normalize_url(link)
     if not normalized_link:
@@ -64,17 +72,22 @@ def is_new_listing(link):
         return True
     
     with _seen_listings_lock:
-        if normalized_link not in seen_listings:
+        user_key = _user_key(user_id)
+        user_seen = seen_listings[user_key]
+        last_seen = user_seen.get(normalized_link)
+        if last_seen is None:
             return True
-        last_seen = seen_listings[normalized_link]
-        return (datetime.now() - last_seen).total_seconds() > 86400
+    return (datetime.now() - last_seen).total_seconds() > 86400
 
-def save_seen_listings(filename="poshmark_seen.json"):
+def save_seen_listings(user_id=None, filename="poshmark_seen.json"):
     """Save seen listings with timestamps to JSON."""
     try:
         with _seen_listings_lock:
+            user_key = _user_key(user_id)
+            if user_key != "global":
+                filename = f"poshmark_{user_key}_seen.json"
             Path(filename).write_text(
-                json.dumps({k: v.isoformat() for k, v in seen_listings.items()}, indent=2),
+                json.dumps({k: v.isoformat() for k, v in seen_listings[user_key].items()}, indent=2),
                 encoding="utf-8"
             )
         logger.debug(f"Saved seen listings to {filename}")
@@ -83,27 +96,30 @@ def save_seen_listings(filename="poshmark_seen.json"):
     except Exception as e:
         logger.error(f"Error saving seen listings: {e}")
 
-def load_seen_listings(filename="poshmark_seen.json"):
+def load_seen_listings(user_id=None, filename="poshmark_seen.json"):
     """Load seen listings from JSON, if available."""
     global seen_listings
     try:
+        user_key = _user_key(user_id)
+        if user_key != "global":
+            filename = f"poshmark_{user_key}_seen.json"
         text = Path(filename).read_text(encoding="utf-8")
         data = json.loads(text) if text else {}
         with _seen_listings_lock:
-            seen_listings = {k: datetime.fromisoformat(v) for k, v in data.items()}
-        logger.debug(f"Loaded {len(seen_listings)} seen listings from {filename}")
+            seen_listings[user_key] = {k: datetime.fromisoformat(v) for k, v in data.items()}
+        logger.debug(f"Loaded {len(seen_listings[user_key])} seen listings from {filename}")
     except FileNotFoundError:
         logger.info(f"Seen listings file not found: {filename}, starting fresh")
         with _seen_listings_lock:
-            seen_listings = {}
+            seen_listings[_user_key(user_id)] = {}
     except (json.JSONDecodeError, ValueError) as e:
         logger.error(f"Invalid JSON in seen listings file: {e}")
         with _seen_listings_lock:
-            seen_listings = {}
+            seen_listings[_user_key(user_id)] = {}
     except Exception as e:
         logger.error(f"Error loading seen listings: {e}")
         with _seen_listings_lock:
-            seen_listings = {}
+            seen_listings[_user_key(user_id)] = {}
 
 def validate_listing(title, link, price=None):
     """Validate listing data before saving."""
@@ -118,7 +134,7 @@ def validate_listing(title, link, price=None):
     
     return True, None
 
-def send_discord_message(title, link, price=None, image_url=None):
+def send_discord_message(title, link, price=None, image_url=None, user_id=None):
     """Save listing to database and send notification."""
     try:
         # Validate data before saving
@@ -128,15 +144,15 @@ def send_discord_message(title, link, price=None, image_url=None):
             return
         
         # Save to database
-        save_listing(title, price, link, image_url, "poshmark")
+        save_listing(title, price, link, image_url, "poshmark", user_id=user_id)
         logger.info(f"📢 New Poshmark: {title} | ${price} | {link}")
     except Exception as e:
         logger.error(f"⚠️ Failed to save listing for {link}: {e}")
 
-def load_settings():
+def load_settings(user_id=None):
     """Load settings from database"""
     try:
-        settings = get_settings()  # Get global settings
+        settings = get_settings(username=user_id)  # Get user-specific settings
         return {
             "keywords": [k.strip() for k in settings.get("keywords","Firebird,Camaro,Corvette").split(",") if k.strip()],
             "min_price": int(settings.get("min_price", 1000)),
@@ -159,8 +175,8 @@ def load_settings():
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_poshmark(flag_name="poshmark"):
-    settings = load_settings()
+def check_poshmark(flag_name="poshmark", user_id=None):
+    settings = load_settings(user_id=user_id)
     keywords = settings["keywords"]
     min_price = settings["min_price"]
     max_price = settings["max_price"]
@@ -219,10 +235,26 @@ def check_poshmark(flag_name="poshmark"):
 
             response = requests.get(full_url, headers=headers, timeout=30)
             response.raise_for_status()  # Raise exception for bad status codes
-            
-            # Parse with BeautifulSoup for better HTML handling
-            soup = BeautifulSoup(response.text, 'html.parser')
+
+            encoding_candidates = []
+            if response.encoding:
+                encoding_candidates.append(response.encoding)
+            apparent_encoding = getattr(response, "apparent_encoding", None)
+            if apparent_encoding and apparent_encoding not in encoding_candidates:
+                encoding_candidates.append(apparent_encoding)
+
+            # Parse with fallback-aware HTML parser handling
+            soup = parse_html_with_fallback(
+                response.text,
+                parser_order=("html.parser", "lxml"),
+                encodings=encoding_candidates,
+                raw_bytes=response.content,
+                site_name="Poshmark",
+            )
             break  # Success, exit retry loop
+        except ScraperError as e:
+            logger.error(f"Poshmark parser failed after fallbacks: {e}")
+            return []
         except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
             logger.warning(f"Poshmark request failed (attempt {attempt + 1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
@@ -249,6 +281,7 @@ def check_poshmark(flag_name="poshmark"):
         
         # Pre-compile keywords for faster matching
         keywords_lower = [k.lower() for k in keywords]
+        user_key = _user_key(user_id)
         
         for item in items:
             try:
@@ -301,13 +334,13 @@ def check_poshmark(flag_name="poshmark"):
                     continue
                 
                 # Check if new listing
-                if not is_new_listing(link):
+                if not is_new_listing(link, user_id=user_id):
                     continue
                 
-                # Update seen listings
+                # Update seen listings for this user
                 normalized_link = normalize_url(link)
                 with _seen_listings_lock:
-                    seen_listings[normalized_link] = datetime.now()
+                    seen_listings[user_key][normalized_link] = datetime.now()
                 
                 # Extract image URL
                 image_url = None
@@ -322,14 +355,14 @@ def check_poshmark(flag_name="poshmark"):
                             elif image_url.startswith('/'):
                                 image_url = "https://poshmark.com" + image_url
                 
-                send_discord_message(title, link, price_val, image_url)
+                send_discord_message(title, link, price_val, image_url, user_id=user_id)
                 results.append({"title": title, "link": link, "price": price_val, "image": image_url})
             except Exception as e:
                 logger.warning(f"Error parsing a Poshmark listing: {e}")
                 continue
 
         if results:
-            save_seen_listings()
+            save_seen_listings(user_id=user_id)
         else:
             logger.info(f"No new Poshmark listings. Next check in {check_interval}s...")
 
@@ -354,18 +387,18 @@ def run_poshmark_scraper(flag_name="poshmark", user_id=None):
     _recursion_guard.in_scraper = True
     
     try:
-        logger.info("Starting Poshmark scraper")
-        load_seen_listings()
+        logger.info(f"Starting Poshmark scraper for user {user_id}")
+        load_seen_listings(user_id=user_id)
         
         try:
             while running_flags.get(flag_name, True):
                 try:
-                    logger.debug("Running Poshmark scraper check")
-                    results = check_poshmark(flag_name)
+                    logger.debug(f"Running Poshmark scraper check for user {user_id}")
+                    results = check_poshmark(flag_name, user_id=user_id)
                     if results:
-                        logger.info(f"Poshmark scraper found {len(results)} new listings")
+                        logger.info(f"Poshmark scraper found {len(results)} new listings for user {user_id}")
                     else:
-                        logger.debug("Poshmark scraper found no new listings")
+                        logger.debug(f"Poshmark scraper found no new listings for user {user_id}")
                 except RecursionError as e:
                     import sys
                     print(f"ERROR: RecursionError in Poshmark scraper: {e}", file=sys.stderr, flush=True)
@@ -382,7 +415,7 @@ def run_poshmark_scraper(flag_name="poshmark", user_id=None):
                     # Continue running but log the error
                     continue
                 
-                settings = load_settings()
+                settings = load_settings(user_id=user_id)
                 # Delay dynamically based on interval
                 human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
                 

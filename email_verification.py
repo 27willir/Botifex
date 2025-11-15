@@ -3,26 +3,30 @@ Email Verification System for Super-Bot
 Handles email verification tokens and verification process
 """
 
+import html
 import secrets
 import smtplib
 from datetime import datetime, timedelta
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from pathlib import Path
-from utils import logger
-from error_handling import log_errors
-import os
+from email.mime.text import MIMEText
+
 from dotenv import load_dotenv
 
-load_dotenv()
+from email_utils import (
+    EmailConfigurationError,
+    SMTP_FROM_EMAIL,
+    SMTP_FROM_NAME,
+    SMTP_HOST,
+    SMTP_PORT,
+    SMTP_PASSWORD,
+    SMTP_USERNAME,
+    is_email_configured,
+    smtp_connection,
+)
+from error_handling import log_errors
+from utils import logger
 
-# Email configuration
-SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
-SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
-SMTP_USERNAME = os.getenv('SMTP_USERNAME', '')
-SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
-SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL', SMTP_USERNAME)
-SMTP_FROM_NAME = os.getenv('SMTP_FROM_NAME', 'Super-Bot')
+load_dotenv()
 
 # Token expiration (24 hours)
 TOKEN_EXPIRATION_HOURS = 24
@@ -52,12 +56,13 @@ def send_verification_email(to_email, username, token, base_url):
     Returns:
         bool: True if email sent successfully
     """
-    if not SMTP_USERNAME or not SMTP_PASSWORD:
+    if not is_email_configured():
         logger.warning("Email credentials not configured. Verification email not sent.")
         return False
     
     try:
         verification_link = f"{base_url}/verify-email?token={token}"
+        safe_verification_link = html.escape(verification_link, quote=True)
         
         # Create message
         msg = MIMEMultipart('alternative')
@@ -173,7 +178,7 @@ The Super-Bot Team
                         <p>To get started, please verify your email address by clicking the button below:</p>
                         
                         <div style="text-align: center;">
-                            <a href="{verification_link}" class="button">✓ Verify Email Address</a>
+                            <a href="{safe_verification_link}" class="button">✓ Verify Email Address</a>
                         </div>
                         
                         <div class="info-box">
@@ -209,9 +214,7 @@ The Super-Bot Team
         msg.attach(part2)
         
         # Send email
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+        with smtp_connection() as server:
             server.send_message(msg)
         
         logger.info(f"✅ Verification email sent to {to_email}")
@@ -220,7 +223,7 @@ The Super-Bot Team
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"❌ Email authentication failed: {e}")
         return False
-    except smtplib.SMTPException as e:
+    except (smtplib.SMTPException, EmailConfigurationError) as e:
         logger.error(f"❌ SMTP error sending verification email: {e}")
         return False
     except Exception as e:
@@ -242,12 +245,13 @@ def send_password_reset_email(to_email, username, token, base_url):
     Returns:
         bool: True if email sent successfully
     """
-    if not SMTP_USERNAME or not SMTP_PASSWORD:
+    if not is_email_configured():
         logger.warning("Email credentials not configured. Password reset email not sent.")
         return False
     
     try:
         reset_link = f"{base_url}/reset-password?token={token}"
+        safe_reset_link = html.escape(reset_link, quote=True)
         
         # Create message
         msg = MIMEMultipart('alternative')
@@ -358,7 +362,7 @@ The Super-Bot Team
                         <p>Click the button below to create a new password:</p>
                         
                         <div style="text-align: center;">
-                            <a href="{reset_link}" class="button">🔑 Reset Password</a>
+                            <a href="{safe_reset_link}" class="button">🔑 Reset Password</a>
                         </div>
                         
                         <div class="warning-box">
@@ -390,22 +394,21 @@ The Super-Bot Team
         msg.attach(part2)
         
         # Send email
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+        with smtp_connection() as server:
             server.send_message(msg)
         
         logger.info(f"✅ Password reset email sent to {to_email}")
         return True
         
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"❌ Email authentication failed: {e}")
+        return False
+    except (smtplib.SMTPException, EmailConfigurationError) as e:
+        logger.error(f"❌ SMTP error sending password reset email: {e}")
+        return False
     except Exception as e:
         logger.error(f"❌ Failed to send password reset email: {e}")
         return False
-
-
-def is_email_configured():
-    """Check if email is properly configured"""
-    return bool(SMTP_USERNAME and SMTP_PASSWORD)
 
 
 __all__ = [
@@ -415,5 +418,11 @@ __all__ = [
     'send_password_reset_email',
     'is_email_configured',
     'TOKEN_EXPIRATION_HOURS',
+    'SMTP_HOST',
+    'SMTP_PORT',
+    'SMTP_USERNAME',
+    'SMTP_PASSWORD',
+    'SMTP_FROM_EMAIL',
+    'SMTP_FROM_NAME',
 ]
 

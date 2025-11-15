@@ -233,6 +233,38 @@ def load_user(user_id):
 # SETTINGS MANAGEMENT
 # ======================
 
+def _get_subscription_interval_seconds(tier):
+    """Return refresh interval in seconds for a subscription tier."""
+    try:
+        interval_seconds = SubscriptionManager.get_refresh_interval(tier)
+        return max(1, interval_seconds)
+    except Exception as e:
+        logger.warning(f"Failed to resolve interval for tier {tier}: {e}")
+        return 60
+
+
+def _apply_subscription_interval(settings):
+    """
+    Ensure the settings dict reflects the correct interval for the current user's subscription.
+    Returns a new dict instance to avoid mutating cached references unexpectedly.
+    """
+    settings = dict(settings)
+    
+    try:
+        if getattr(current_user, "is_authenticated", False):
+            subscription = db_enhanced.get_user_subscription(current_user.id)
+            tier = subscription.get('tier', 'free')
+        else:
+            tier = 'free'
+        
+        settings['interval'] = str(_get_subscription_interval_seconds(tier))
+    except Exception as e:
+        logger.warning(f"Failed to apply subscription interval to settings: {e}")
+        settings.setdefault('interval', '60')
+    
+    return settings
+
+
 @log_errors()
 def get_user_settings():
     """Get settings for the current user from database with caching"""
@@ -241,21 +273,23 @@ def get_user_settings():
             logger.debug("Getting default settings for unauthenticated user")
             return get_default_settings()
         
-        # Try cache first
         cache_key = f"settings:{current_user.id}"
         cached_settings = cache_get(cache_key)
         if cached_settings:
-            return cached_settings
+            settings = _apply_subscription_interval(cached_settings)
+            cache_set(cache_key, settings, ttl=300)
+            return settings
         
         settings = ErrorHandler.handle_database_error(db_enhanced.get_settings, current_user.id)
-        # Set default values if missing
+        
         default_settings = get_default_settings()
         for key, value in default_settings.items():
             if key not in settings:
                 settings[key] = value
                 logger.debug(f"Using default value for missing setting: {key}")
         
-        # Cache settings for 5 minutes
+        settings = _apply_subscription_interval(settings)
+        
         cache_set(cache_key, settings, ttl=300)
         return settings
     except Exception as e:
@@ -268,7 +302,7 @@ def get_default_settings():
         "keywords": "Firebird,Camaro,Corvette",
         "min_price": "1000",
         "max_price": "30000",
-        "interval": "60",
+        "interval": str(_get_subscription_interval_seconds('free')),
         "location": "boise",
         "radius": "50"
     }
@@ -1711,6 +1745,7 @@ def stripe_webhook():
                         stripe_customer_id=customer_id,
                         stripe_subscription_id=subscription_id
                     )
+                    cache_set(f"settings:{username}", None, ttl=0)
                     
                     db_enhanced.log_subscription_event(
                         username=username,
@@ -1748,6 +1783,8 @@ def stripe_webhook():
                         stripe_subscription_id=subscription.get('stripe_subscription_id')
                     )
                     
+                    cache_set(f"settings:{username}", None, ttl=0)
+                    
                     db_enhanced.log_subscription_event(
                         username=username,
                         tier=subscription['tier'],
@@ -1771,6 +1808,7 @@ def stripe_webhook():
                 username = subscription['username']
                 try:
                     db_enhanced.cancel_subscription(username)
+                    cache_set(f"settings:{username}", None, ttl=0)
                     db_enhanced.log_subscription_event(
                         username=username,
                         tier='free',

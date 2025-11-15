@@ -2,9 +2,11 @@ import json
 
 from lxml import html
 from bs4 import BeautifulSoup
+from bs4.builder import ParserRejectedMarkup
 
 from scrapers.craigslist import _parse_json_listings as parse_craigslist_json
 from scrapers.ebay import _parse_json_listings as parse_ebay_json, _parse_price_value as ebay_parse_price
+from scrapers.common import parse_html_with_fallback
 
 
 def test_craigslist_json_parser_extracts_listing():
@@ -69,4 +71,27 @@ def test_ebay_json_parser_extracts_listing():
 
 def test_ebay_price_parser_handles_range_strings():
     assert ebay_parse_price("$120.00 to $150.00") == 120
+
+
+def test_parse_html_with_fallback_recovers_from_parser_rejection():
+    calls = []
+
+    class DummyBuilder:
+        def __call__(self, markup, parser):
+            calls.append(parser)
+            if parser == "html.parser":
+                raise ParserRejectedMarkup("simulated failure")
+            return {"parser": parser, "markup": markup}
+
+    builder = DummyBuilder()
+
+    result = parse_html_with_fallback(
+        "<html></html>",
+        parser_order=("html.parser", "lxml"),
+        soup_builder=builder,
+        site_name="TestSite",
+    )
+
+    assert result["parser"] == "lxml"
+    assert calls == ["html.parser", "lxml"]
 
