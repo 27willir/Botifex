@@ -58,7 +58,15 @@ class HealthMonitor:
             # Simple database health check without reinitializing
             pool = get_pool()
             with pool.get_connection() as conn:
-                conn.execute("SELECT 1").fetchone()
+                cursor = conn.cursor()
+                try:
+                    cursor.execute("SELECT 1")
+                    cursor.fetchone()
+                finally:
+                    try:
+                        cursor.close()
+                    except Exception:
+                        pass
             self.health_status["database"]["status"] = "healthy"
             self.health_status["database"]["last_check"] = datetime.now()
             self.health_status["database"]["error_count"] = 0

@@ -110,6 +110,52 @@ class _PostgresCursorWrapper:
     def __exit__(self, exc_type, exc_val, exc_tb):
         return self._cursor.__exit__(exc_type, exc_val, exc_tb)
 
+
+class _PostgresConnectionWrapper:
+    """Connection proxy that emulates sqlite3 connection helpers for PostgreSQL."""
+
+    def __init__(self, connection):
+        self._connection = connection
+
+    def cursor(self, *args, **kwargs):
+        cursor = self._connection.cursor(*args, **kwargs)
+        return _PostgresCursorWrapper(cursor)
+
+    def execute(self, statement, *args, **kwargs):
+        cursor = self.cursor()
+        try:
+            cursor.execute(statement, *args, **kwargs)
+        except Exception:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+            raise
+        return cursor
+
+    def executemany(self, statement, seq_of_params):
+        cursor = self.cursor()
+        try:
+            cursor.executemany(statement, seq_of_params)
+        except Exception:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+            raise
+        return cursor
+
+    def __getattr__(self, item):
+        return getattr(self._connection, item)
+
+    def __enter__(self):
+        self._connection.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return self._connection.__exit__(exc_type, exc_val, exc_tb)
+
+
 # Connection pool configuration - optimized for production
 POOL_SIZE = 5  # Reduced pool size for better memory management
 CONNECTION_TIMEOUT = 10  # Reduced timeout for faster failure detection
@@ -304,31 +350,79 @@ class PostgreSQLConnectionPool:
             raise DatabaseError(f"Failed to initialize PostgreSQL pool: {e}")
     
     @contextmanager
-    def get_connection(self):
+    def get_connection(self, timeout=CONNECTION_TIMEOUT):
         """Get a connection from the pool (context manager)"""
+        from psycopg2.pool import PoolError
+
+        if timeout is None:
+            timeout = CONNECTION_TIMEOUT
+
         conn = None
-        try:
-            conn = self.pool.getconn()
-            if conn is None:
-                raise DatabaseError("Failed to get connection from PostgreSQL pool")
-            # Test connection
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                cur.fetchone()
-            yield conn
-        except Exception as e:
-            logger.error(f"PostgreSQL connection error: {e}")
-            raise DatabaseError(f"PostgreSQL connection failed: {e}")
-        finally:
-            if conn:
+        start_time = time.time()
+
+        while True:
+            try:
+                conn = self.pool.getconn()
+                if conn is None:
+                    raise DatabaseError("Failed to get connection from PostgreSQL pool")
+
+                # Align transaction behavior with SQLite autocommit mode
+                if hasattr(conn, "autocommit") and not conn.autocommit:
+                    conn.autocommit = True
+
+                # Test connection viability
+                cursor = conn.cursor()
                 try:
-                    self.pool.putconn(conn)
+                    cursor.execute("SELECT 1")
+                    cursor.fetchone()
+                finally:
+                    try:
+                        cursor.close()
+                    except Exception:
+                        pass
+                break
+            except PoolError as pool_error:
+                if timeout > 0 and (time.time() - start_time) < timeout:
+                    time.sleep(0.1)
+                    continue
+                logger.error(f"PostgreSQL connection pool exhausted: {pool_error}")
+                raise DatabaseError(f"PostgreSQL connection failed: {pool_error}")
+            except Exception as e:
+                if conn:
+                    try:
+                        self.pool.putconn(conn, close=True)
+                    except Exception:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                    conn = None
+
+                if timeout > 0 and (time.time() - start_time) < timeout:
+                    time.sleep(0.1)
+                    continue
+
+                logger.error(f"PostgreSQL connection error: {e}")
+                raise DatabaseError(f"PostgreSQL connection failed: {e}")
+
+        proxy = _PostgresConnectionWrapper(conn)
+
+        try:
+            yield proxy
+        finally:
+            raw_conn = proxy._connection if 'proxy' in locals() and proxy else conn
+            if raw_conn:
+                try:
+                    self.pool.putconn(raw_conn)
                 except Exception as e:
                     logger.error(f"Error returning connection to pool: {e}")
                     try:
-                        conn.close()
-                    except:
-                        pass
+                        self.pool.putconn(raw_conn, close=True)
+                    except Exception:
+                        try:
+                            raw_conn.close()
+                        except Exception:
+                            pass
     
     def close_all(self):
         """Close all connections in the pool"""
