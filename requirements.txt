@@ -27,6 +27,8 @@ schedule==1.2.0
 # Real-time WebSocket notifications
 Flask-SocketIO==5.3.6
 python-socketio==5.11.1
+redis==5.1.0
+PyJWT==2.8.0
 
 # API Documentation
 flask-swagger-ui==4.11.1

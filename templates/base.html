@@ -25,5 +25,28 @@
 <body>
     {% block content %}{% endblock %}
     {% block scripts %}{% endblock %}
+    <script>
+    (function() {
+        try {
+            var params = new URLSearchParams(window.location.search || '');
+            var code = params.get('ref');
+            if (!code) {
+                return;
+            }
+            var landing = window.location.pathname || '/';
+            fetch('/api/referrals/track', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    code: code,
+                    landing_page: landing + (window.location.search || '')
+                })
+            }).catch(function() {});
+        } catch (err) {
+            console.warn('Referral tracking failed', err);
+        }
+    })();
+    </script>
 </body>
 </html>

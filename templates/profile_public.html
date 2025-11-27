@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ profile.display_name or profile.username }} - Botifex</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Inter", sans-serif;
+            background: radial-gradient(circle at top, #1f2040 0%, #090a16 58%, #04050c 100%);
+            color: #f0f4ff;
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        a {
+            color: inherit;
+        }
+
+        .page {
+            max-width: 960px;
+            margin: 0 auto;
+        }
+
+        .cover {
+            position: relative;
+            border-radius: 22px;
+            overflow: hidden;
+            background: linear-gradient(135deg, rgba(46, 139, 255, 0.35), rgba(150, 120, 255, 0.25));
+            min-height: 200px;
+            border: 1px solid rgba(72, 122, 255, 0.25);
+            margin-bottom: 28px;
+        }
+
+        .cover::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(4,6,12,0.05) 0%, rgba(4,6,12,0.75) 65%, rgba(4,6,12,0.95) 100%);
+        }
+
+        .cover-image {
+            position: absolute;
+            inset: 0;
+            background-size: cover;
+            background-position: center;
+            opacity: 0.55;
+        }
+
+        .profile-info {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            gap: 20px;
+            padding: 32px;
+            align-items: flex-end;
+        }
+
+        .avatar {
+            width: 112px;
+            height: 112px;
+            border-radius: 18px;
+            overflow: hidden;
+            border: 3px solid rgba(255, 255, 255, 0.6);
+            background: rgba(16, 20, 36, 0.8);
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+        }
+
+        .avatar img,
+        .avatar-fallback {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .avatar-fallback {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 42px;
+            font-weight: 700;
+            color: rgba(255,255,255,0.85);
+            background: linear-gradient(135deg, rgba(46, 139, 255, 0.6), rgba(150, 120, 255, 0.55));
+        }
+
+        .headline {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .display-name {
+            font-size: 30px;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+        }
+
+        .handle {
+            color: rgba(226, 232, 255, 0.7);
+            font-size: 15px;
+            letter-spacing: 0.3px;
+        }
+
+        .tag-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: rgba(235, 240, 255, 0.85);
+            font-size: 13px;
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 280px;
+            gap: 24px;
+        }
+
+        .card {
+            background: rgba(16, 19, 36, 0.85);
+            border-radius: 20px;
+            border: 1px solid rgba(72, 122, 255, 0.18);
+            padding: 22px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.28);
+        }
+
+        .card h2 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 18px;
+            margin-bottom: 16px;
+            letter-spacing: 0.4px;
+        }
+
+        .bio {
+            font-size: 16px;
+            line-height: 1.6;
+            color: rgba(240, 244, 255, 0.92);
+            white-space: pre-wrap;
+        }
+
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .chip {
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: rgba(46, 139, 255, 0.14);
+            border: 1px solid rgba(46, 139, 255, 0.25);
+            color: rgba(220, 236, 255, 0.9);
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .showcase {
+            display: grid;
+            gap: 16px;
+        }
+
+        .showcase-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .showcase-item {
+            padding: 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            display: grid;
+            gap: 8px;
+        }
+
+        .showcase-title {
+            font-weight: 600;
+            font-size: 16px;
+            color: rgba(236, 244, 255, 0.95);
+        }
+
+        .showcase-note {
+            font-size: 14px;
+            color: rgba(210, 224, 255, 0.65);
+        }
+
+        .activity-feed {
+            display: grid;
+            gap: 14px;
+        }
+
+        .activity-item {
+            display: grid;
+            gap: 6px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.032);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .activity-title {
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .activity-meta {
+            font-size: 13px;
+            color: rgba(208, 220, 255, 0.6);
+        }
+
+        .empty-state {
+            padding: 18px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px dashed rgba(255, 255, 255, 0.12);
+            text-align: center;
+            color: rgba(210, 222, 255, 0.62);
+            font-size: 15px;
+        }
+
+        .sidebar-card {
+            display: grid;
+            gap: 16px;
+        }
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.06);
+            color: rgba(240, 244, 255, 0.92);
+            font-weight: 600;
+            text-decoration: none;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+            cursor: pointer;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(72, 122, 255, 0.35);
+        }
+
+        .button:disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        .button.success {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.35), rgba(22, 163, 74, 0.32));
+            border-color: rgba(34, 197, 94, 0.45);
+            color: #dcfce7;
+        }
+
+        @media (max-width: 960px) {
+            body {
+                padding: 18px;
+            }
+
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="cover">
+            {% if profile.banner_url %}
+                <div class="cover-image" style="background-image: url('{{ profile.banner_url }}');"></div>
+            {% endif %}
+            <div class="profile-info">
+                <div class="avatar">
+                    {% if profile.avatar_url %}
+                        <img src="{{ profile.avatar_url }}" alt="Avatar of {{ profile.display_name or profile.username }}">
+                    {% else %}
+                        <div class="avatar-fallback">{{ (profile.display_name or profile.username)[:1]|upper }}</div>
+                    {% endif %}
+                </div>
+                <div class="headline">
+                    <div class="display-name">{{ profile.display_name or profile.username }}</div>
+                    <div class="handle">@{{ profile.username }}</div>
+                    <div class="tag-row">
+                        {% if profile.pronouns %}
+                            <span class="tag"><i class="fas fa-person"></i> {{ profile.pronouns }}</span>
+                        {% endif %}
+                        {% if profile.gender %}
+                            <span class="tag"><i class="fas fa-venus-mars"></i> {{ profile.gender }}</span>
+                        {% endif %}
+                        {% if profile.location %}
+                            <span class="tag"><i class="fas fa-location-dot"></i> {{ profile.location }}</span>
+                        {% endif %}
+                        {% if is_owner %}
+                            <a class="button" href="{{ url_for('profile_page') }}"><i class="fas fa-pen"></i> Edit My Profile</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <section class="card">
+                <h2><i class="fas fa-user-astronaut"></i> About</h2>
+                {% if profile.bio %}
+                    <p class="bio">{{ profile.bio }}</p>
+                {% else %}
+                    <div class="empty-state">Nothing shared yet.</div>
+                {% endif %}
+
+                {% if profile.search_interests %}
+                    <h2 style="margin-top:22px;"><i class="fas fa-compass"></i> Interests</h2>
+                    <div class="chips">
+                        {% for interest in profile.search_interests %}
+                            <span class="chip">{{ interest.label or interest.id }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                {% if activity_visible %}
+                    <h2 style="margin-top:24px;"><i class="fas fa-clock-rotate-left"></i> Recent Activity</h2>
+                    {% if profile_activity %}
+                        <div class="activity-feed">
+                            {% for item in profile_activity %}
+                                <div class="activity-item">
+                                    <div class="activity-title">{{ item.activity_type.replace('_', ' ')|title }}</div>
+                                    {% if item.metadata and item.metadata.note %}
+                                        <div class="activity-meta">{{ item.metadata.note }}</div>
+                                    {% elif item.metadata and item.metadata.fields %}
+                                        <div class="activity-meta">Fields updated: {{ item.metadata.fields|join(', ') }}</div>
+                                    {% endif %}
+                                    <div class="activity-meta"><i class="fas fa-calendar-day"></i> {{ item.occurred_at }}</div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="empty-state">No public activity recorded yet.</div>
+                    {% endif %}
+                {% endif %}
+            </section>
+
+            <aside class="sidebar-card">
+                {% if showcase_visible and (showcase.favorite_searches or showcase.featured_listings or showcase.servers_joined) %}
+                    <div class="card">
+                        <h2><i class="fas fa-display"></i> Showcase</h2>
+                        <div class="showcase">
+                            {% if showcase.favorite_searches %}
+                                <div>
+                                    <h3><i class="fas fa-search"></i> Favorite Searches</h3>
+                                    <div class="showcase-grid">
+                                        {% for item in showcase.favorite_searches %}
+                                            <div class="showcase-item">
+                                                <div class="showcase-title">{{ item.label or 'Search #' ~ item.entity_id }}</div>
+                                                {% if item.metadata and item.metadata.note %}
+                                                    <div class="showcase-note">{{ item.metadata.note }}</div>
+                                                {% endif %}
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                            {% if showcase.featured_listings %}
+                                <div>
+                                    <h3><i class="fas fa-boxes-stacked"></i> Featured Listings</h3>
+                                    <div class="showcase-grid">
+                                        {% for item in showcase.featured_listings %}
+                                            <div class="showcase-item">
+                                                <div class="showcase-title">{{ item.label or 'Listing #' ~ item.entity_id }}</div>
+                                                {% if item.metadata and item.metadata.note %}
+                                                    <div class="showcase-note">{{ item.metadata.note }}</div>
+                                                {% endif %}
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                            {% if showcase.servers_joined %}
+                                <div>
+                                    <h3><i class="fas fa-users-line"></i> Servers Joined</h3>
+                                    <div class="showcase-grid">
+                                        {% for item in showcase.servers_joined %}
+                                            <div class="showcase-item">
+                                                <div class="showcase-title">{{ item.label or 'Server #' ~ item.entity_id }}</div>
+                                                {% if item.metadata and item.metadata.note %}
+                                                    <div class="showcase-note">{{ item.metadata.note }}</div>
+                                                {% endif %}
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+
+                <div class="card">
+                    <h2><i class="fas fa-share-nodes"></i> Connect</h2>
+                    <div class="showcase-grid">
+                        <div class="showcase-item">
+                            <div class="showcase-title"><i class="fas fa-link"></i> Profile Link</div>
+                            <div class="showcase-note">Share this profile: {{ request.url }}</div>
+                        </div>
+                        {% if current_user.is_authenticated and not is_owner %}
+                            <div class="showcase-item" id="friendActionCard">
+                                <div class="showcase-title"><i class="fas fa-user-plus"></i> Friendship</div>
+                                <div class="showcase-note" id="friendActionStatus"></div>
+                                <div class="action-row" id="friendActionButtons" style="display:flex; gap:10px; flex-wrap:wrap;"></div>
+                            </div>
+                            <div class="showcase-item" id="dmConnectCard" style="display:none;">
+                                <div class="showcase-title"><i class="fas fa-comments"></i> Direct Messages</div>
+                                <div class="showcase-note" id="dmConnectStatus">Friends can start messaging instantly.</div>
+                                <button class="button" id="dmConnectButton" type="button">
+                                    <i class="fas fa-paper-plane"></i> Open Messages
+                                </button>
+                            </div>
+                        {% endif %}
+                        {% if is_owner %}
+                            <div class="showcase-item">
+                                <div class="showcase-title"><i class="fas fa-pen"></i> Manage Profile</div>
+                                <a class="button" href="{{ url_for('profile_page') }}"><i class="fas fa-sliders"></i> Open Editor</a>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+    {% if current_user.is_authenticated and not is_owner %}
+    <script>
+        (function () {
+            const profileUsername = "{{ profile.username }}";
+            const messagesPageUrl = "{{ url_for('messages_page') }}";
+            let relationship = {{ friend_relationship | tojson }};
+
+            const friendCard = document.getElementById("friendActionCard");
+            const friendStatusEl = document.getElementById("friendActionStatus");
+            const friendButtonsEl = document.getElementById("friendActionButtons");
+            const dmCard = document.getElementById("dmConnectCard");
+            const dmStatusEl = document.getElementById("dmConnectStatus");
+            const dmButton = document.getElementById("dmConnectButton");
+
+            function ensureRelationship() {
+                if (!relationship || typeof relationship !== "object") {
+                    relationship = { status: "none" };
+                }
+            }
+
+            function setFriendStatus(text) {
+                if (friendStatusEl) {
+                    friendStatusEl.textContent = text;
+                }
+            }
+
+            function toggleDmCard(visible) {
+                if (!dmCard) return;
+                dmCard.style.display = visible ? "" : "none";
+                if (visible && dmStatusEl) {
+                    dmStatusEl.textContent = "Friends can start messaging instantly.";
+                }
+            }
+
+            function updateFriendUI() {
+                ensureRelationship();
+                if (!friendCard || !friendButtonsEl) {
+                    return;
+                }
+
+                const status = relationship.status || "none";
+                friendButtonsEl.innerHTML = "";
+
+                switch (status) {
+                    case "friends":
+                        setFriendStatus("You are friends. Start a conversation anytime.");
+                        friendButtonsEl.innerHTML = `
+                            <button class="button" data-action="remove"><i class="fas fa-user-minus"></i> Remove Friend</button>
+                        `;
+                        toggleDmCard(true);
+                        break;
+                    case "incoming_pending":
+                        setFriendStatus("You have a pending friend request from this user.");
+                        friendButtonsEl.innerHTML = `
+                            <button class="button success" data-action="accept"><i class="fas fa-user-check"></i> Accept</button>
+                            <button class="button" data-action="decline"><i class="fas fa-xmark"></i> Decline</button>
+                        `;
+                        toggleDmCard(false);
+                        break;
+                    case "outgoing_pending":
+                        setFriendStatus("Friend request sent. Waiting for their response.");
+                        friendButtonsEl.innerHTML = `
+                            <button class="button" data-action="cancel"><i class="fas fa-ban"></i> Cancel Request</button>
+                        `;
+                        toggleDmCard(false);
+                        break;
+                    case "none":
+                        setFriendStatus("Send a friend request to unlock direct messages.");
+                        friendButtonsEl.innerHTML = `
+                            <button class="button" data-action="send"><i class="fas fa-user-plus"></i> Add Friend</button>
+                        `;
+                        toggleDmCard(false);
+                        break;
+                    default:
+                        setFriendStatus("Unable to determine connection state.");
+                        toggleDmCard(false);
+                        break;
+                }
+            }
+
+            async function sendFriendRequest() {
+                setFriendStatus("Sending friend request...");
+                const response = await fetch(`/api/profile/${encodeURIComponent(profileUsername)}/friend-request`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    setFriendStatus(data.error || "Unable to send friend request.");
+                    return;
+                }
+                const request = data.request || {};
+                if (request.direction === "incoming") {
+                    relationship = { status: "incoming_pending", request };
+                    setFriendStatus("They already sent you a request—accept to become friends.");
+                } else {
+                    relationship = { status: "outgoing_pending", request };
+                    setFriendStatus("Friend request sent. Waiting for their response.");
+                }
+                updateFriendUI();
+            }
+
+            async function acceptFriendRequest() {
+                const requestId = relationship?.request?.id;
+                if (!requestId) {
+                    setFriendStatus("Unable to find the friend request.");
+                    return;
+                }
+                setFriendStatus("Accepting...");
+                const response = await fetch(`/api/friends/requests/${requestId}/respond`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ action: "accept" })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    setFriendStatus(data.error || "Unable to accept request.");
+                    return;
+                }
+                relationship = { status: "friends" };
+                setFriendStatus("You're now friends!");
+                updateFriendUI();
+            }
+
+            async function declineFriendRequest() {
+                const requestId = relationship?.request?.id;
+                if (!requestId) {
+                    setFriendStatus("Unable to find the friend request.");
+                    return;
+                }
+                setFriendStatus("Declining...");
+                const response = await fetch(`/api/friends/requests/${requestId}/respond`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ action: "decline" })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    setFriendStatus(data.error || "Unable to decline request.");
+                    return;
+                }
+                relationship = { status: "none" };
+                setFriendStatus("Request declined.");
+                updateFriendUI();
+            }
+
+            async function cancelFriendRequest() {
+                const requestId = relationship?.request?.id;
+                if (!requestId) {
+                    setFriendStatus("Unable to find the friend request.");
+                    return;
+                }
+                setFriendStatus("Cancelling request...");
+                const response = await fetch(`/api/friends/requests/${requestId}`, {
+                    method: "DELETE"
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    setFriendStatus(data.error || "Unable to cancel request.");
+                    return;
+                }
+                relationship = { status: "none" };
+                setFriendStatus("Friend request cancelled.");
+                updateFriendUI();
+            }
+
+            async function removeFriend() {
+                const confirmation = window.confirm("Remove this friend?");
+                if (!confirmation) {
+                    return;
+                }
+                setFriendStatus("Removing friend...");
+                const response = await fetch(`/api/friends/${encodeURIComponent(profileUsername)}`, {
+                    method: "DELETE"
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    setFriendStatus(data.error || "Unable to remove friend.");
+                    return;
+                }
+                relationship = { status: "none" };
+                setFriendStatus("Friend removed.");
+                updateFriendUI();
+            }
+
+            async function openConversation() {
+                if (!dmButton) {
+                    return;
+                }
+                const originalHtml = dmButton.innerHTML;
+                dmButton.disabled = true;
+                dmButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Opening...';
+                try {
+                    const response = await fetch(`/api/profile/connections/${encodeURIComponent(profileUsername)}`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({})
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        if (dmStatusEl) {
+                            dmStatusEl.textContent = "Conversation ready. Redirecting…";
+                        }
+                        setTimeout(() => {
+                            window.location.href = messagesPageUrl;
+                        }, 600);
+                    } else {
+                        if (dmStatusEl) {
+                            dmStatusEl.textContent = data.error || "Unable to open conversation.";
+                        }
+                        dmButton.disabled = false;
+                        dmButton.innerHTML = originalHtml;
+                    }
+                } catch (error) {
+                    if (dmStatusEl) {
+                        dmStatusEl.textContent = "Network error. Try again.";
+                    }
+                    dmButton.disabled = false;
+                    dmButton.innerHTML = originalHtml;
+                }
+            }
+
+            if (friendButtonsEl) {
+                friendButtonsEl.addEventListener("click", async event => {
+                    const btn = event.target.closest("button[data-action]");
+                    if (!btn) {
+                        return;
+                    }
+                    const action = btn.dataset.action;
+                    try {
+                        if (action === "send") {
+                            await sendFriendRequest();
+                        } else if (action === "accept") {
+                            await acceptFriendRequest();
+                        } else if (action === "decline") {
+                            await declineFriendRequest();
+                        } else if (action === "cancel") {
+                            await cancelFriendRequest();
+                        } else if (action === "remove") {
+                            await removeFriend();
+                        }
+                    } catch (error) {
+                        setFriendStatus(error.message || "Something went wrong.");
+                    }
+                });
+            }
+
+            if (dmButton) {
+                dmButton.addEventListener("click", async event => {
+                    event.preventDefault();
+                    await openConversation();
+                });
+            }
+
+            updateFriendUI();
+        })();
+    </script>
+    {% endif %}
+</body>
+</html>
+

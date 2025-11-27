@@ -17,9 +17,10 @@ from scrapers.common import (
     load_seen_listings, validate_listing, load_settings, get_session,
     make_request_with_retry, validate_image_url, check_recursion_guard,
     set_recursion_guard, log_selector_failure, log_parse_attempt,
-    get_seen_listings_lock, extract_json_ld_items
+    get_seen_listings_lock, extract_json_ld_items, reset_session
 )
 from scrapers.metrics import ScraperMetrics
+from scrapers import anti_blocking
 
 # ======================
 # CONFIGURATION
@@ -39,6 +40,19 @@ CRAIGSLIST_LOCATION_ALIASES = {
 }
 
 _location_resolution_log = set()
+
+_BLOCK_KEYWORDS = {
+    "blocked | craigslist",
+    "we have detected unusual activity",
+    "please verify that you are a human",
+    "security check required",
+    "craigslist requires verification",
+    "why did this happen",
+    "unusual traffic from your computer",
+    "access denied | craigslist",
+    "are you a robot",
+    "captcha",
+}
 
 
 def _normalize_location_key(location):
@@ -88,6 +102,19 @@ def _user_key(user_id):
     if not user_id:
         return "global"
     return re.sub(r'[^a-zA-Z0-9_-]', '_', str(user_id))
+
+
+def _flag_key(flag_name, user_id):
+    """Build a unique running flag key per user."""
+    user_key = _user_key(user_id)
+    if user_key == "global":
+        return flag_name
+    return f"{flag_name}:{user_key}"
+
+
+def get_craigslist_flag_key(user_id=None, flag_name=SITE_NAME):
+    """Public helper used by orchestrators to compute flag keys."""
+    return _flag_key(flag_name, user_id)
 
 
 seen_listings = {}
@@ -185,9 +212,26 @@ def send_discord_message(title, link, price=None, image_url=None, user_id=None):
         logger.error(f"⚠️ Failed to save listing for {link}: {e}")
 
 # ======================
+# URL NORMALIZATION
+# ======================
+def resolve_listing_link(raw_link, base_domain):
+    """Normalize Craigslist listing URLs and remove tracker parameters."""
+    if not raw_link:
+        return None
+
+    href = str(raw_link).strip()
+    if not href:
+        return None
+
+    absolute = urllib.parse.urljoin(base_domain, href)
+    normalized = normalize_url(absolute)
+    return normalized or absolute
+
+
+# ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None):
+def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None):
     settings = load_settings(username=user_id)
     keywords = settings["keywords"]
     min_price = settings["min_price"]
@@ -197,6 +241,7 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None):
     radius = settings.get("radius", 50)
 
     results = []
+    flag_key = flag_key or _flag_key(flag_name, user_id)
     user_key = _user_key(user_id)
     if user_seen is None:
         user_seen = seen_listings.setdefault(user_key, {})
@@ -204,6 +249,10 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None):
     # Use metrics tracking
     with ScraperMetrics(SITE_NAME) as metrics:
         try:
+            if not running_flags.get(flag_key, True):
+                metrics.error = "stopped"
+                return []
+
             resolved_location, fallback_used = resolve_craigslist_location(location)
             log_key = (location.lower(), resolved_location)
             if fallback_used and log_key not in _location_resolution_log:
@@ -261,11 +310,12 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None):
             
             # Check for bot detection or blocking in response
             response_text_lower = response.text.lower()
-            if any(keyword in response_text_lower for keyword in ['are you a robot', 'unusual activity', 'blocked', 'access denied', 'captcha']):
-                logger.warning("Craigslist: Possible bot detection or blocking detected in response")
-                from scrapers import anti_blocking
-                anti_blocking.record_block(SITE_NAME, "keyword:craigslist-block", cooldown_hint=120)
-                metrics.error = "Bot detection detected"
+            block_hit = any(keyword in response_text_lower for keyword in _BLOCK_KEYWORDS)
+            if block_hit:
+                logger.warning("Craigslist: Block page detected (bot protection triggered)")
+                anti_blocking.record_block(SITE_NAME, "keyword:craigslist-block", cooldown_hint=180)
+                metrics.error = "Bot protection page detected"
+                reset_session(SITE_NAME, initialize_url=base_domain, username=user_id)
                 return []
             
             tree = html.fromstring(response.text)
@@ -331,8 +381,12 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None):
             seen_lock = get_seen_listings_lock(SITE_NAME)
             processed_links = set()
 
-            def handle_candidate(title, link, price_val, image_url=None, description=None):
-                if not title or not link:
+            def handle_candidate(title, raw_link, price_val, image_url=None, description=None):
+                if not title or not raw_link:
+                    return
+
+                link = resolve_listing_link(raw_link, base_domain)
+                if not link:
                     return
 
                 normalized_price = None
@@ -356,7 +410,7 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None):
                 if not is_new_listing(link, user_seen, SITE_NAME):
                     return
 
-                normalized_link = normalize_url(link)
+                normalized_link = normalize_url(link) or link
                 if normalized_link in processed_links:
                     return
                 processed_links.add(normalized_link)
@@ -391,8 +445,13 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None):
                         
                         if anchor:
                             link = anchor[0].get('href')
-                            # Try multiple title extraction methods
-                            title = anchor[0].get('title') or anchor[0].text_content().strip() if anchor[0].text_content() else None
+                            title_attr = post.get("title")
+                            if title_attr:
+                                title = title_attr.strip()
+                            else:
+                                # Try multiple title extraction methods
+                                raw_title = anchor[0].get('title') or (anchor[0].text_content() or "").strip()
+                                title = raw_title or None
                             if not title:
                                 # Try finding title in nearby elements
                                 title_elem = post.xpath(".//span[contains(@class, 'title')] | .//h2 | .//h3 | .//div[contains(@class, 'title')]")
@@ -402,9 +461,10 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None):
                         if not link or not title:
                             continue
 
-                        link = urllib.parse.urljoin(base_domain, link)
-
-                        price_elem = post.xpath(".//span[contains(@class, 'price')]/text()")
+                        price_elem = (
+                            post.xpath(".//span[contains(@class, 'price')]/text()")
+                            or post.xpath(".//div[contains(@class, 'price')]/text()")
+                        )
                         price_val = _parse_price_text(price_elem[0]) if price_elem else None
 
                         image_url = None
@@ -424,9 +484,6 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None):
                     try:
                         title = entry.get("title")
                         link = entry.get("url")
-                        if link:
-                            link = urllib.parse.urljoin(base_domain, link)
-
                         image_url = entry.get("image")
                         if isinstance(image_url, str):
                             if image_url.startswith('//'):
@@ -435,7 +492,7 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None):
                                 image_url = "https://images.craigslist.org" + image_url
 
                         description = entry.get("description")
-                        price_val = entry.get("price")
+                        price_val = _parse_price_text(entry.get("price"))
 
                         handle_candidate(title, link, price_val, image_url, description)
                     except Exception as e:
@@ -468,6 +525,8 @@ def run_craigslist_scraper(flag_name=SITE_NAME, user_id=None):
         return
     
     set_recursion_guard(SITE_NAME, True)
+    flag_key = _flag_key(flag_name, user_id)
+    running_flags.setdefault(flag_key, True)
     
     try:
         logger.info(f"Starting Craigslist scraper for user {user_id}")
@@ -476,10 +535,10 @@ def run_craigslist_scraper(flag_name=SITE_NAME, user_id=None):
         seen_listings[user_key] = user_seen
         
         try:
-            while running_flags.get(flag_name, True):
+            while running_flags.get(flag_key, True):
                 try:
                     logger.debug(f"Running Craigslist scraper check for user {user_id}")
-                    results = check_craigslist(flag_name, user_id=user_id, user_seen=user_seen)
+                    results = check_craigslist(flag_name, user_id=user_id, user_seen=user_seen, flag_key=flag_key)
                     if results:
                         logger.info(f"Craigslist scraper found {len(results)} new listings for user {user_id}")
                     else:
@@ -500,7 +559,7 @@ def run_craigslist_scraper(flag_name=SITE_NAME, user_id=None):
                 
                 settings = load_settings(username=user_id)
                 # Delay dynamically based on interval
-                human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
+                human_delay(running_flags, flag_key, settings["interval"]*0.9, settings["interval"]*1.1)
                 
         except KeyboardInterrupt:
             logger.info("Craigslist scraper interrupted by user")

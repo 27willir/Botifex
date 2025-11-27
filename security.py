@@ -153,3 +153,15 @@ class SecurityConfig:
             response.headers['X-Frame-Options'] = 'DENY'
             response.headers['X-XSS-Protection'] = '1; mode=block'
             return response
+
+    @staticmethod
+    def get_realtime_jwt_secret():
+        """
+        Retrieve the secret used for signing realtime JWTs.
+        Falls back to the application SECRET_KEY if a dedicated secret isn't provided.
+        """
+        secret = os.getenv('REALTIME_JWT_SECRET')
+        if secret:
+            return secret
+        # Reuse the primary Flask secret key as a fallback
+        return SecurityConfig.get_secret_key()

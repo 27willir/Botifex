@@ -1,0 +1,439 @@
+{% extends "base.html" %}
+
+{% block title %}All Community Servers{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    body {
+        font-family: "Inter", sans-serif;
+        background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #16213e 100%);
+        background-attachment: fixed;
+        color: #ffffff;
+        min-height: 100vh;
+    }
+
+    a {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .servers-directory {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 48px 20px 80px;
+    }
+
+    .page-heading {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 32px;
+        text-align: center;
+    }
+
+    .page-heading h1 {
+        font-size: 2.75rem;
+        letter-spacing: -0.03em;
+        background: linear-gradient(135deg, #00d4ff, #4285ff);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .page-heading p {
+        color: #94a3b8;
+        font-size: 1.05rem;
+    }
+
+    .nav-links {
+        text-align: center;
+        margin-bottom: 32px;
+        display: flex;
+        justify-content: center;
+        gap: 18px;
+        flex-wrap: wrap;
+    }
+
+    .nav-links a {
+        color: #00d4ff;
+        font-weight: 500;
+        transition: color 0.3s ease;
+    }
+
+    .nav-links a:hover {
+        color: #00ff88;
+    }
+
+    .flash-messages {
+        margin-bottom: 24px;
+    }
+
+    .alert {
+        padding: 14px 18px;
+        border-radius: 12px;
+        margin-bottom: 12px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border: 1px solid transparent;
+    }
+
+    .alert.error {
+        background: rgba(239, 68, 68, 0.18);
+        border-color: rgba(248, 113, 113, 0.45);
+        color: #fecaca;
+    }
+
+    .alert.success {
+        background: rgba(34, 197, 94, 0.18);
+        border-color: rgba(134, 239, 172, 0.45);
+        color: #bbf7d0;
+    }
+
+    .alert.info {
+        background: rgba(14, 165, 233, 0.18);
+        border-color: rgba(14, 165, 233, 0.45);
+        color: #bae6fd;
+    }
+
+    .servers-section {
+        margin-bottom: 52px;
+    }
+
+    .servers-section header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+
+    .servers-section h2 {
+        font-size: 1.8rem;
+        font-weight: 600;
+        color: #f8fafc;
+        letter-spacing: -0.01em;
+    }
+
+    .servers-section small {
+        color: #94a3b8;
+        font-size: 0.95rem;
+    }
+
+    .servers-grid {
+        display: grid;
+        gap: 22px;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    }
+
+    .server-card {
+        background: rgba(17, 24, 39, 0.9);
+        border-radius: 18px;
+        padding: 24px;
+        border: 1px solid rgba(59, 130, 246, 0.28);
+        box-shadow: 0 20px 50px rgba(2, 132, 199, 0.18);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, border 0.2s ease;
+    }
+
+    .server-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 28px 60px rgba(14, 165, 233, 0.22);
+        border-color: rgba(34, 211, 238, 0.5);
+    }
+
+    .server-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .server-card-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .server-card-title h3 {
+        font-size: 1.35rem;
+        font-weight: 600;
+        color: #e0f2ff;
+        letter-spacing: -0.01em;
+    }
+
+    .server-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.35), rgba(16, 185, 129, 0.35));
+        display: grid;
+        place-items: center;
+        color: #7dd3fc;
+    }
+
+    .server-visibility {
+        font-size: 0.85rem;
+        font-weight: 600;
+        padding: 6px 14px;
+        border-radius: 999px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        background: rgba(37, 99, 235, 0.22);
+        border: 1px solid rgba(59, 130, 246, 0.4);
+        color: #cbd5f5;
+    }
+
+    .description {
+        color: #cbd5f5;
+        font-size: 0.98rem;
+        line-height: 1.55;
+        min-height: 70px;
+    }
+
+    .topic-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .topic-tag {
+        background: rgba(37, 99, 235, 0.18);
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        color: #e0f2ff;
+        border-radius: 999px;
+        padding: 6px 12px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+    }
+
+    .server-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        font-size: 0.9rem;
+        color: #94a3b8;
+    }
+
+    .server-meta span {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .server-meta span i {
+        color: #38bdf8;
+    }
+
+    .server-actions {
+        margin-top: auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+    }
+
+    .actions-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .server-slug {
+        font-family: "Inter", sans-serif;
+        font-weight: 600;
+        color: #60a5fa;
+        letter-spacing: 0.02em;
+    }
+
+    .open-link {
+        color: #38bdf8;
+        font-size: 0.9rem;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: color 0.2s ease;
+    }
+
+    .open-link:hover {
+        color: #7dd3fc;
+    }
+
+    .join-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 22px;
+        border-radius: 999px;
+        border: none;
+        background: linear-gradient(135deg, #2563eb, #06b6d4);
+        color: #ffffff;
+        font-weight: 600;
+        font-size: 0.95rem;
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+        text-align: center;
+    }
+
+    .join-button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 28px rgba(59, 130, 246, 0.35);
+    }
+
+    .join-button.joined {
+        background: rgba(34, 197, 94, 0.18);
+        border: 1px solid rgba(34, 197, 94, 0.45);
+        color: #86efac;
+        cursor: default;
+        box-shadow: none;
+    }
+
+    .join-button.pending {
+        background: rgba(250, 204, 21, 0.18);
+        border: 1px solid rgba(250, 204, 21, 0.45);
+        color: #facc15;
+        cursor: default;
+        box-shadow: none;
+    }
+
+    .join-button:disabled {
+        opacity: 0.85;
+        cursor: default;
+    }
+
+    .join-button i {
+        font-size: 0.9em;
+    }
+
+    @media (max-width: 720px) {
+        .servers-directory {
+            padding: 36px 16px 64px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<main class="servers-directory">
+    <div class="page-heading">
+        <h1>All Community Servers</h1>
+        <p>Explore every community that’s been launched on Botifex. Join with a single click to unlock channels, drops, and member-only alerts.</p>
+    </div>
+
+    <nav class="nav-links">
+        <a href="{{ url_for('dashboard') }}"><i class="fas fa-home"></i> Dashboard</a>
+        <a href="{{ url_for('servers_discover_page') }}"><i class="fas fa-compass"></i> Discover</a>
+        <a href="{{ url_for('servers_create_page') }}"><i class="fas fa-plus-circle"></i> Create Server</a>
+        {% if current_user.is_authenticated %}
+            <a href="{{ url_for('profile_page') }}"><i class="fas fa-user"></i> Profile</a>
+        {% endif %}
+    </nav>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+                <div class="alert {{ category }}">
+                    {% if category == 'error' %}<i class="fas fa-exclamation-triangle"></i>{% elif category == 'success' %}<i class="fas fa-check-circle"></i>{% else %}<i class="fas fa-info-circle"></i>{% endif %}
+                    <span>{{ message }}</span>
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    {% if current_user.is_authenticated and user_servers %}
+    <section class="servers-section">
+        <header>
+            <h2><i class="fas fa-bookmark"></i> Your Servers</h2>
+            <small>{{ user_servers|length }} membership{{ '' if user_servers|length == 1 else 's' }}</small>
+        </header>
+        <div class="servers-grid">
+            {% for server in user_servers %}
+                {% include 'servers_discover_card.html' %}
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    <section class="servers-section">
+        <header>
+            <h2><i class="fas fa-layer-group"></i> Entire Directory</h2>
+            <small>{{ servers|length }} server{{ '' if servers|length == 1 else 's' }} total</small>
+        </header>
+        {% if servers %}
+        <div class="servers-grid">
+            {% for server in servers %}
+                {% include 'servers_discover_card.html' %}
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alert info">
+            <i class="fas fa-circle-info"></i>
+            <span>There are no community servers yet. Be the first to <a href="{{ url_for('servers_create_page') }}">launch one</a>.</span>
+        </div>
+        {% endif %}
+    </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+{% if current_user.is_authenticated %}
+<script>
+    document.querySelectorAll('.join-button[data-join]').forEach((button) => {
+        button.addEventListener('click', async (event) => {
+            event.preventDefault();
+            if (button.classList.contains('joined') || button.classList.contains('pending') || button.disabled) {
+                return;
+            }
+
+            const slug = button.dataset.join;
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Joining...';
+
+            try {
+                const response = await fetch(`/api/servers/${slug}/join`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Unable to join server.');
+                }
+
+                if (data.membership && data.membership.status === 'active') {
+                    button.textContent = 'Joined';
+                    button.classList.add('joined');
+                } else {
+                    button.textContent = 'Requested';
+                    button.classList.add('pending');
+                }
+            } catch (error) {
+                console.error(error);
+                alert(error.message || 'Unable to join server. Please try again.');
+                button.textContent = originalText;
+                button.disabled = false;
+                return;
+            }
+
+            button.disabled = true;
+        });
+    });
+</script>
+{% endif %}
+{% endblock %}
+

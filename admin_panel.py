@@ -215,6 +215,9 @@ def dashboard():
         users_raw = db_enhanced.get_all_users()
         users = [_normalize_user_row(u) for u in users_raw]
         
+        search_preferences = db_enhanced.get_search_preferences(limit=40)
+        recent_saved_searches = db_enhanced.get_recent_saved_searches(limit=40)
+        
         stats = {
             'total_users': user_count,
             'total_listings': listing_count,
@@ -226,7 +229,9 @@ def dashboard():
         return render_template('admin/dashboard.html', 
                              stats=stats, 
                              recent_activity=recent_activity,
-                             users=users[:20])  # Show first 20 users
+                             users=users[:20],  # Show first 20 users
+                             search_preferences=search_preferences,
+                             saved_searches=recent_saved_searches)
     
     except Exception as e:
         logger.error(f"Error loading admin dashboard: {e}")

@@ -24,6 +24,19 @@ def _user_key(user_id):
     return re.sub(r'[^a-zA-Z0-9_-]', '_', str(user_id))
 
 
+def _flag_key(flag_name, user_id):
+    """Build a unique running flag key per user."""
+    user_key = _user_key(user_id)
+    if user_key == "global":
+        return flag_name
+    return f"{flag_name}:{user_key}"
+
+
+def get_poshmark_flag_key(user_id=None, flag_name="poshmark"):
+    """Expose per-user running flag keys for orchestrators."""
+    return _flag_key(flag_name, user_id)
+
+
 seen_listings = defaultdict(dict)
 _seen_listings_lock = threading.Lock()  # Thread safety for seen_listings
 
@@ -175,7 +188,7 @@ def load_settings(user_id=None):
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_poshmark(flag_name="poshmark", user_id=None):
+def check_poshmark(flag_name="poshmark", user_id=None, flag_key=None):
     settings = load_settings(user_id=user_id)
     keywords = settings["keywords"]
     min_price = settings["min_price"]
@@ -185,6 +198,9 @@ def check_poshmark(flag_name="poshmark", user_id=None):
     radius = settings.get("radius", 50)
 
     results = []
+    flag_key = flag_key or _flag_key(flag_name, user_id)
+    if not running_flags.get(flag_key, True):
+        return []
     max_retries = 3
     base_retry_delay = 2
     
@@ -385,16 +401,18 @@ def run_poshmark_scraper(flag_name="poshmark", user_id=None):
         return
     
     _recursion_guard.in_scraper = True
+    flag_key = _flag_key(flag_name, user_id)
+    running_flags.setdefault(flag_key, True)
     
     try:
         logger.info(f"Starting Poshmark scraper for user {user_id}")
         load_seen_listings(user_id=user_id)
         
         try:
-            while running_flags.get(flag_name, True):
+            while running_flags.get(flag_key, True):
                 try:
                     logger.debug(f"Running Poshmark scraper check for user {user_id}")
-                    results = check_poshmark(flag_name, user_id=user_id)
+                    results = check_poshmark(flag_name, user_id=user_id, flag_key=flag_key)
                     if results:
                         logger.info(f"Poshmark scraper found {len(results)} new listings for user {user_id}")
                     else:
@@ -417,7 +435,7 @@ def run_poshmark_scraper(flag_name="poshmark", user_id=None):
                 
                 settings = load_settings(user_id=user_id)
                 # Delay dynamically based on interval
-                human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
+                human_delay(running_flags, flag_key, settings["interval"]*0.9, settings["interval"]*1.1)
                 
         except KeyboardInterrupt:
             logger.info("Poshmark scraper interrupted by user")

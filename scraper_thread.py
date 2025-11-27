@@ -26,12 +26,36 @@ MAX_ERRORS_PER_HOUR = 10  # Maximum errors before circuit opens
 ERROR_RESET_PERIOD = 3600  # Reset error count after 1 hour
 
 # NOTE: each scraper module exposes its own running_flags dict
-from scrapers.facebook import running_flags as fb_flags, run_facebook_scraper
-from scrapers.craigslist import running_flags as cl_flags, run_craigslist_scraper
-from scrapers.ksl import running_flags as ksl_flags, run_ksl_scraper
-from scrapers.ebay import running_flags as ebay_flags, run_ebay_scraper
-from scrapers.poshmark import running_flags as poshmark_flags, run_poshmark_scraper
-from scrapers.mercari import running_flags as mercari_flags, run_mercari_scraper
+from scrapers.facebook import (
+    running_flags as fb_flags,
+    run_facebook_scraper,
+    get_facebook_flag_key,
+)
+from scrapers.craigslist import (
+    running_flags as cl_flags,
+    run_craigslist_scraper,
+    get_craigslist_flag_key,
+)
+from scrapers.ksl import (
+    running_flags as ksl_flags,
+    run_ksl_scraper,
+    get_ksl_flag_key,
+)
+from scrapers.ebay import (
+    running_flags as ebay_flags,
+    run_ebay_scraper,
+    get_ebay_flag_key,
+)
+from scrapers.poshmark import (
+    running_flags as poshmark_flags,
+    run_poshmark_scraper,
+    get_poshmark_flag_key,
+)
+from scrapers.mercari import (
+    running_flags as mercari_flags,
+    run_mercari_scraper,
+    get_mercari_flag_key,
+)
 
 # ----------------------------
 # RESOURCE MANAGEMENT
@@ -212,13 +236,14 @@ def start_facebook(user_id):
         logger.warning(f"Cannot start Facebook scraper for {user_id}: {reason}")
         return False
     
-    fb_flags["facebook"] = True
+    flag_key = get_facebook_flag_key(user_id)
+    fb_flags[flag_key] = True
     
     def target():
         driver = None
         retry_delay = 30
         
-        while fb_flags.get("facebook", True):
+        while fb_flags.get(flag_key, True):
             try:
                 driver = _create_driver("facebook", user_id)
                 if not driver:
@@ -257,7 +282,8 @@ def stop_facebook(user_id):
     if user_id not in _threads or "facebook" not in _threads[user_id]:
         return True
     
-    fb_flags["facebook"] = False
+    flag_key = get_facebook_flag_key(user_id)
+    fb_flags[flag_key] = False
     t = _threads[user_id]["facebook"]
     if t:
         t.join(timeout=5)
@@ -289,7 +315,8 @@ def start_craigslist(user_id):
         logger.warning(f"Cannot start Craigslist scraper for {user_id}: {reason}")
         return False
     
-    cl_flags["craigslist"] = True
+    flag_key = get_craigslist_flag_key(user_id)
+    cl_flags[flag_key] = True
     
     def target():
         try:
@@ -311,7 +338,8 @@ def stop_craigslist(user_id):
     if user_id not in _threads or "craigslist" not in _threads[user_id]:
         return True
     
-    cl_flags["craigslist"] = False
+    flag_key = get_craigslist_flag_key(user_id)
+    cl_flags[flag_key] = False
     t = _threads[user_id]["craigslist"]
     if t:
         t.join(timeout=5)
@@ -340,7 +368,8 @@ def start_ksl(user_id):
         logger.warning(f"Cannot start KSL scraper for {user_id}: {reason}")
         return False
     
-    ksl_flags["ksl"] = True
+    flag_key = get_ksl_flag_key(user_id)
+    ksl_flags[flag_key] = True
     
     def target():
         try:
@@ -362,7 +391,8 @@ def stop_ksl(user_id):
     if user_id not in _threads or "ksl" not in _threads[user_id]:
         return True
     
-    ksl_flags["ksl"] = False
+    flag_key = get_ksl_flag_key(user_id)
+    ksl_flags[flag_key] = False
     t = _threads[user_id]["ksl"]
     if t:
         t.join(timeout=5)
@@ -391,7 +421,8 @@ def start_ebay(user_id):
         logger.warning(f"Cannot start eBay scraper for {user_id}: {reason}")
         return False
     
-    ebay_flags["ebay"] = True
+    flag_key = get_ebay_flag_key(user_id)
+    ebay_flags[flag_key] = True
     
     def target():
         try:
@@ -413,7 +444,8 @@ def stop_ebay(user_id):
     if user_id not in _threads or "ebay" not in _threads[user_id]:
         return True
     
-    ebay_flags["ebay"] = False
+    flag_key = get_ebay_flag_key(user_id)
+    ebay_flags[flag_key] = False
     t = _threads[user_id]["ebay"]
     if t:
         t.join(timeout=5)
@@ -442,7 +474,8 @@ def start_poshmark(user_id):
         logger.warning(f"Cannot start Poshmark scraper for {user_id}: {reason}")
         return False
     
-    poshmark_flags["poshmark"] = True
+    flag_key = get_poshmark_flag_key(user_id)
+    poshmark_flags[flag_key] = True
     
     def target():
         try:
@@ -464,7 +497,8 @@ def stop_poshmark(user_id):
     if user_id not in _threads or "poshmark" not in _threads[user_id]:
         return True
     
-    poshmark_flags["poshmark"] = False
+    flag_key = get_poshmark_flag_key(user_id)
+    poshmark_flags[flag_key] = False
     t = _threads[user_id]["poshmark"]
     if t:
         t.join(timeout=5)
@@ -493,7 +527,8 @@ def start_mercari(user_id):
         logger.warning(f"Cannot start Mercari scraper for {user_id}: {reason}")
         return False
     
-    mercari_flags["mercari"] = True
+    flag_key = get_mercari_flag_key(user_id)
+    mercari_flags[flag_key] = True
     
     def target():
         try:
@@ -515,7 +550,8 @@ def stop_mercari(user_id):
     if user_id not in _threads or "mercari" not in _threads[user_id]:
         return True
     
-    mercari_flags["mercari"] = False
+    flag_key = get_mercari_flag_key(user_id)
+    mercari_flags[flag_key] = False
     t = _threads[user_id]["mercari"]
     if t:
         t.join(timeout=5)

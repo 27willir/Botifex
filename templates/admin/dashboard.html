@@ -150,4 +150,78 @@
         </tbody>
     </table>
 </div>
+
+<div class="section">
+    <h2><i class="fas fa-search"></i> Latest Search Preferences</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Keywords</th>
+                <th>Location</th>
+                <th>Radius</th>
+                <th>Price Range</th>
+                <th>Updated</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pref in search_preferences %}
+            <tr>
+                <td><a href="{{ url_for('admin.user_detail', username=pref.username) }}">{{ pref.username }}</a></td>
+                <td>{{ pref.keywords or '—' }}</td>
+                <td>{{ pref.location or '—' }}</td>
+                <td>{{ pref.radius or '—' }}</td>
+                <td>
+                    {% if pref.min_price or pref.max_price %}
+                        {{ pref.min_price or '0' }} – {{ pref.max_price or '∞' }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td>{{ pref.updated_at or '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" style="text-align:center;">No search preferences found.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="section">
+    <h2><i class="fas fa-bookmark"></i> Recent Saved Searches</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Name</th>
+                <th>Keywords</th>
+                <th>Location</th>
+                <th>Radius</th>
+                <th>Price Range</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for search in saved_searches %}
+            <tr>
+                <td><a href="{{ url_for('admin.user_detail', username=search.username) }}">{{ search.username }}</a></td>
+                <td>{{ search.name or '—' }}</td>
+                <td>{{ search.keywords or '—' }}</td>
+                <td>{{ search.location or '—' }}</td>
+                <td>{{ search.radius or '—' }}</td>
+                <td>
+                    {% if search.min_price or search.max_price %}
+                        {{ search.min_price or '0' }} – {{ search.max_price or '∞' }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td>{{ search.created_at or '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" style="text-align:center;">No saved searches found.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% endblock %}

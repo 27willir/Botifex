@@ -33,6 +33,19 @@ def _user_key(user_id):
     return re.sub(r'[^a-zA-Z0-9_-]', '_', str(user_id))
 
 
+def _flag_key(flag_name, user_id):
+    """Build a unique running flag key per user."""
+    user_key = _user_key(user_id)
+    if user_key == "global":
+        return flag_name
+    return f"{flag_name}:{user_key}"
+
+
+def get_ksl_flag_key(user_id=None, flag_name=SITE_NAME):
+    """Public helper to compute running flag keys for orchestrators."""
+    return _flag_key(flag_name, user_id)
+
+
 seen_listings = {}
 
 # ======================
@@ -66,7 +79,7 @@ def send_discord_message(title, link, price=None, image_url=None, user_id=None):
 # ======================
 # MAIN SCRAPER FUNCTION
 # ======================
-def check_ksl(flag_name=SITE_NAME, user_id=None, user_seen=None):
+def check_ksl(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None):
     settings = load_settings(username=user_id)
     keywords = settings["keywords"]
     min_price = settings["min_price"]
@@ -76,6 +89,7 @@ def check_ksl(flag_name=SITE_NAME, user_id=None, user_seen=None):
     radius = settings.get("radius", 50)
 
     results = []
+    flag_key = flag_key or _flag_key(flag_name, user_id)
     user_key = _user_key(user_id)
     if user_seen is None:
         user_seen = seen_listings.setdefault(user_key, {})
@@ -83,6 +97,10 @@ def check_ksl(flag_name=SITE_NAME, user_id=None, user_seen=None):
     # Use metrics tracking
     with ScraperMetrics(SITE_NAME) as metrics:
         try:
+            if not running_flags.get(flag_key, True):
+                metrics.error = "stopped"
+                return []
+
             # Get location coordinates for distance filtering
             location_coords = get_location_coords(location)
             if location_coords:
@@ -316,6 +334,8 @@ def run_ksl_scraper(flag_name=SITE_NAME, user_id=None):
         return
     
     set_recursion_guard(SITE_NAME, True)
+    flag_key = _flag_key(flag_name, user_id)
+    running_flags.setdefault(flag_key, True)
     
     try:
         logger.info(f"Starting KSL scraper for user {user_id}")
@@ -324,10 +344,10 @@ def run_ksl_scraper(flag_name=SITE_NAME, user_id=None):
         seen_listings[user_key] = user_seen
         
         try:
-            while running_flags.get(flag_name, True):
+            while running_flags.get(flag_key, True):
                 try:
                     logger.debug(f"Running KSL scraper check for user {user_id}")
-                    results = check_ksl(flag_name, user_id=user_id, user_seen=user_seen)
+                    results = check_ksl(flag_name, user_id=user_id, user_seen=user_seen, flag_key=flag_key)
                     if results:
                         logger.info(f"KSL scraper found {len(results)} new listings for user {user_id}")
                     else:
@@ -347,7 +367,7 @@ def run_ksl_scraper(flag_name=SITE_NAME, user_id=None):
                     continue
                 
                 settings = load_settings(username=user_id)
-                human_delay(running_flags, flag_name, settings["interval"]*0.9, settings["interval"]*1.1)
+                human_delay(running_flags, flag_key, settings["interval"]*0.9, settings["interval"]*1.1)
                 
         except KeyboardInterrupt:
             logger.info("KSL scraper interrupted by user")

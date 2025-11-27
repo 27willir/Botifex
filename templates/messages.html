@@ -1,0 +1,1270 @@
+{% extends "base.html" %}
+
+{% block title %}Direct Messages{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+    body {
+        margin: 0;
+        font-family: "Inter", sans-serif;
+        background: linear-gradient(135deg, #09090f 0%, #141a2a 50%, #1b1f3b 100%);
+        color: #f8fafc;
+        min-height: 100vh;
+    }
+
+    .dm-page {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        gap: 0;
+        height: 100vh;
+        max-height: 100vh;
+    }
+
+    .dm-sidebar {
+        background: rgba(11, 15, 28, 0.95);
+        border-right: 1px solid rgba(59, 130, 246, 0.25);
+        display: flex;
+        flex-direction: column;
+        padding: 20px;
+        gap: 16px;
+    }
+
+    .dm-sidebar header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-weight: 600;
+        font-size: 1.1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #7dd3fc;
+    }
+
+    .dm-search input {
+        width: 100%;
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        background: rgba(13, 20, 38, 0.7);
+        color: #e2e8f0;
+    }
+
+    .dm-search input:focus {
+        outline: none;
+        border-color: rgba(56, 189, 248, 0.8);
+        box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+        background: rgba(14, 22, 44, 0.9);
+    }
+
+    .dm-conversations {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .dm-conversation {
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(16, 23, 42, 0.65);
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: all 0.18s ease;
+        display: grid;
+        gap: 6px;
+    }
+
+    .dm-conversation:hover {
+        border-color: rgba(59, 130, 246, 0.45);
+        background: rgba(17, 27, 52, 0.85);
+        transform: translateY(-1px);
+    }
+
+    .dm-conversation.active {
+        border-color: rgba(59, 130, 246, 0.65);
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.28), rgba(6, 182, 212, 0.18));
+    }
+
+    .dm-conversation .title-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-weight: 600;
+        color: #e0f2ff;
+    }
+
+    .dm-conversation .last-message {
+        color: #94a3b8;
+        font-size: 0.9rem;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .dm-conversation .meta-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.75rem;
+        color: #64748b;
+    }
+
+    .dm-unread-badge {
+        background: rgba(96, 165, 250, 0.3);
+        color: #e0f2fe;
+        border-radius: 20px;
+        padding: 2px 8px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .dm-new-button {
+        border: none;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #2563eb, #06b6d4);
+        color: #ffffff;
+        font-weight: 600;
+        padding: 12px 16px;
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.2s ease;
+    }
+
+    .dm-new-button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 24px rgba(37, 99, 235, 0.35);
+    }
+
+    .dm-chat {
+        display: grid;
+        grid-template-rows: auto 1fr auto auto;
+        background: rgba(11, 15, 26, 0.9);
+        height: 100vh;
+    }
+
+    .dm-chat-header {
+        padding: 22px 26px;
+        border-bottom: 1px solid rgba(59, 130, 246, 0.25);
+        background: rgba(10, 16, 30, 0.9);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .dm-chat-header h1 {
+        font-size: 1.4rem;
+        font-weight: 600;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .dm-chat-header .participants {
+        color: #94a3b8;
+        font-size: 0.9rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .dm-messages {
+        overflow-y: auto;
+        padding: 26px;
+        display: grid;
+        gap: 12px;
+        background: rgba(9, 13, 24, 0.88);
+    }
+
+    .dm-message {
+        background: rgba(17, 24, 39, 0.82);
+        border: 1px solid rgba(59, 130, 246, 0.2);
+        border-radius: 14px;
+        padding: 12px 16px;
+        max-width: 75%;
+        display: grid;
+        gap: 8px;
+    }
+
+    .dm-message.mine {
+        justify-self: end;
+        background: rgba(22, 163, 74, 0.22);
+        border-color: rgba(34, 197, 94, 0.4);
+    }
+
+    .dm-message .meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        font-size: 0.75rem;
+        color: #93c5fd;
+    }
+
+    .dm-message .body {
+        font-size: 0.96rem;
+        color: #f8fafc;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .dm-message .rich-preview {
+        border-radius: 12px;
+        background: rgba(30, 41, 59, 0.65);
+        border: 1px solid rgba(59, 130, 246, 0.25);
+        padding: 12px;
+        display: grid;
+        gap: 6px;
+    }
+
+    .dm-message .rich-preview .title {
+        font-weight: 600;
+        color: #e0f2ff;
+    }
+
+    .dm-message .reactions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .dm-reaction-chip {
+        background: rgba(59, 130, 246, 0.18);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 0.78rem;
+        color: #bfdbfe;
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: background 0.2s ease, border 0.2s ease;
+    }
+
+    .dm-reaction-chip.active {
+        background: rgba(96, 165, 250, 0.35);
+        border-color: rgba(191, 219, 254, 0.7);
+        color: #f8fafc;
+    }
+
+    .dm-reaction-picker {
+        display: flex;
+        gap: 6px;
+    }
+
+    .dm-reaction-picker button {
+        border: none;
+        background: rgba(15, 23, 42, 0.6);
+        border-radius: 50%;
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.15s ease, transform 0.15s ease;
+    }
+
+    .dm-reaction-picker button:hover {
+        background: rgba(37, 99, 235, 0.35);
+        transform: translateY(-1px);
+    }
+
+    .dm-typing {
+        min-height: 24px;
+        padding: 0 26px;
+        color: #bae6fd;
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .dm-composer {
+        padding: 18px 26px;
+        border-top: 1px solid rgba(59, 130, 246, 0.25);
+        background: rgba(12, 18, 34, 0.92);
+        display: grid;
+        gap: 12px;
+    }
+
+    .dm-composer textarea {
+        width: 100%;
+        min-height: 80px;
+        max-height: 200px;
+        border-radius: 14px;
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        background: rgba(9, 14, 28, 0.78);
+        color: #f8fafc;
+        padding: 14px 16px;
+        resize: vertical;
+        font-size: 0.98rem;
+    }
+
+    .dm-composer textarea:focus {
+        outline: none;
+        border-color: rgba(56, 189, 248, 0.8);
+        box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+        background: rgba(11, 18, 34, 0.92);
+    }
+
+    .dm-composer-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .dm-composer-controls .left {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .dm-button {
+        border: none;
+        border-radius: 10px;
+        padding: 8px 14px;
+        font-size: 0.85rem;
+        background: rgba(37, 99, 235, 0.18);
+        color: #bfdbfe;
+        cursor: pointer;
+        transition: background 0.2s ease, transform 0.15s ease;
+    }
+
+    .dm-button:hover {
+        background: rgba(37, 99, 235, 0.32);
+        transform: translateY(-1px);
+    }
+
+    .dm-send-button {
+        border: none;
+        border-radius: 999px;
+        padding: 12px 24px;
+        background: linear-gradient(135deg, #2563eb, #0ea5e9);
+        color: #ffffff;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: transform 0.18s ease, box-shadow 0.2s ease;
+    }
+
+    .dm-send-button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 28px rgba(14, 165, 233, 0.32);
+    }
+
+    .dm-quick-replies {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .dm-empty-state {
+        display: grid;
+        place-items: center;
+        color: #94a3b8;
+        font-size: 1rem;
+        height: 100%;
+        text-align: center;
+    }
+
+    @media (max-width: 960px) {
+        .dm-page {
+            grid-template-columns: 1fr;
+            height: auto;
+        }
+        .dm-sidebar {
+            order: 2;
+            height: 40vh;
+        }
+        .dm-chat {
+            order: 1;
+            height: 60vh;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<main class="dm-page" data-viewer="{{ viewer_username }}" data-quick-templates='{{ quick_templates | tojson | safe }}'>
+    <aside class="dm-sidebar">
+        <header>
+            <span><i class="fas fa-comments"></i> Direct Messages</span>
+            <button id="startConversationBtn" class="dm-new-button">
+                <i class="fas fa-plus"></i> New
+            </button>
+        </header>
+        <div class="dm-search">
+            <input id="conversationSearch" type="text" placeholder="Search conversations">
+        </div>
+        <div id="conversationList" class="dm-conversations"></div>
+    </aside>
+    <section class="dm-chat">
+        <div id="chatHeader" class="dm-chat-header">
+            <h1>Select a conversation</h1>
+            <div class="participants">Start a conversation from the sidebar to begin chatting.</div>
+        </div>
+        <div id="messageScroll" class="dm-messages">
+            <div class="dm-empty-state">
+                <div>
+                    <i class="fas fa-comments fa-2x" style="margin-bottom: 12px;"></i>
+                    <div>Pick a conversation to see your messages.</div>
+                </div>
+            </div>
+        </div>
+        <div id="typingIndicator" class="dm-typing"></div>
+        <div class="dm-composer">
+            <div class="dm-composer-controls">
+                <div class="left">
+                    <button id="shareSavedSearchBtn" class="dm-button">
+                        <i class="fas fa-search"></i> Share saved search
+                    </button>
+                    <button id="shareListingBtn" class="dm-button">
+                        <i class="fas fa-link"></i> Share listing
+                    </button>
+                </div>
+                <div class="dm-quick-replies" id="quickReplyButtons"></div>
+            </div>
+            <textarea id="messageInput" placeholder="Type your message..."></textarea>
+            <div class="dm-composer-controls">
+                <span style="color:#64748b;font-size:0.85rem;">Press Enter to send, Shift+Enter for new line</span>
+                <button id="sendButton" class="dm-send-button">
+                    <i class="fas fa-paper-plane"></i> Send
+                </button>
+            </div>
+        </div>
+    </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+(function() {
+    const rootEl = document.querySelector('.dm-page');
+    const viewerUsername = (rootEl && rootEl.dataset.viewer) || '';
+    let quickReplyTemplates = [];
+    try {
+        quickReplyTemplates = JSON.parse((rootEl && rootEl.dataset.quickTemplates) || '[]');
+    } catch (error) {
+        console.warn('Failed to parse quick reply templates', error);
+        quickReplyTemplates = [];
+    }
+
+    const conversationListEl = document.getElementById('conversationList');
+    const messageScrollEl = document.getElementById('messageScroll');
+    const chatHeaderEl = document.getElementById('chatHeader');
+    const typingIndicatorEl = document.getElementById('typingIndicator');
+    const messageInputEl = document.getElementById('messageInput');
+    const sendButtonEl = document.getElementById('sendButton');
+    const quickReplyButtonsEl = document.getElementById('quickReplyButtons');
+    const conversationSearchEl = document.getElementById('conversationSearch');
+    const shareSavedSearchBtn = document.getElementById('shareSavedSearchBtn');
+    const shareListingBtn = document.getElementById('shareListingBtn');
+    const startConversationBtn = document.getElementById('startConversationBtn');
+
+    let socket = null;
+    let conversations = [];
+    let filteredConversations = [];
+    let savedSearches = [];
+    let recentListings = [];
+    let activeConversationId = null;
+    let conversationMessages = {};
+    let typingTimers = {};
+    let readReceiptState = {};
+    let reactionPalette = ["👍", "❤️", "🔥", "✅"];
+    let typingThrottle = null;
+
+    function init() {
+        setupSocket();
+        setupEventHandlers();
+        renderQuickReplies();
+        loadConversations();
+        loadSavedSearches();
+        loadRecentListings();
+    }
+
+    function setupSocket() {
+        socket = io({ withCredentials: true });
+
+        socket.on('connect', () => {
+            if (activeConversationId) {
+                socket.emit('dm.join', { conversation_id: activeConversationId });
+            }
+        });
+
+        socket.on('dm.message', payload => {
+            const { conversation_id, message } = payload;
+            cacheMessage(conversation_id, message);
+            if (conversation_id === activeConversationId) {
+                appendMessage(conversation_id, message, true);
+                scheduleRead(conversation_id);
+            } else {
+                incrementUnread(conversation_id);
+            }
+            updateConversationPreview(conversation_id, message);
+        });
+
+        socket.on('dm.reaction', payload => {
+            const { conversation_id, message_id, reactions } = payload;
+            const messages = conversationMessages[conversation_id] || [];
+            const message = messages.find(m => m.id === message_id);
+            if (message) {
+                message.reactions = reactions;
+                if (conversation_id === activeConversationId) {
+                    updateMessageReactions(message_id, reactions);
+                }
+            }
+        });
+
+        socket.on('dm.read', payload => {
+            const { conversation_id, username, message_id } = payload;
+            if (!readReceiptState[conversation_id]) {
+                readReceiptState[conversation_id] = {};
+            }
+            readReceiptState[conversation_id][username] = message_id;
+            if (conversation_id === activeConversationId) {
+                renderReadReceipts(conversation_id);
+            }
+        });
+
+        socket.on('dm.typing', payload => {
+            const { conversation_id, username, expires_at, typing } = payload;
+            if (username === viewerUsername) {
+                return;
+            }
+            if (!typingTimers[conversation_id]) {
+                typingTimers[conversation_id] = {};
+            }
+            const expiresIn = Math.max(0, new Date(expires_at).getTime() - Date.now());
+            if (typing) {
+                typingTimers[conversation_id][username] = setTimeout(() => {
+                    delete typingTimers[conversation_id][username];
+                    renderTypingIndicator();
+                }, expiresIn || DM_TYPING_TTL);
+            } else {
+                clearTimeout(typingTimers[conversation_id][username]);
+                delete typingTimers[conversation_id][username];
+            }
+            renderTypingIndicator();
+        });
+
+        socket.on('dm.presence', payload => {
+            const { conversation_id, participants } = payload;
+            const conversation = conversations.find(c => c.id === conversation_id);
+            if (conversation) {
+                conversation.participants = participants;
+                renderConversations();
+                if (conversation_id === activeConversationId) {
+                    renderChatHeader(conversation);
+                    renderReadReceipts(conversation_id);
+                }
+            }
+        });
+    }
+
+    function setupEventHandlers() {
+        sendButtonEl.addEventListener('click', sendMessage);
+        messageInputEl.addEventListener('keydown', handleComposerKeydown);
+        messageInputEl.addEventListener('input', () => emitTyping());
+
+        conversationSearchEl.addEventListener('input', () => {
+            filterConversations(conversationSearchEl.value);
+        });
+
+        shareSavedSearchBtn.addEventListener('click', shareSavedSearch);
+        shareListingBtn.addEventListener('click', shareListing);
+        startConversationBtn.addEventListener('click', startConversation);
+    }
+
+    function renderQuickReplies() {
+        quickReplyButtonsEl.innerHTML = '';
+        quickReplyTemplates.forEach(template => {
+            const button = document.createElement('button');
+            button.className = 'dm-button';
+            button.textContent = template.label;
+            button.addEventListener('click', () => sendQuickReply(template));
+            quickReplyButtonsEl.appendChild(button);
+        });
+    }
+
+    async function loadConversations() {
+        try {
+            const response = await fetch('/api/dm/conversations', { credentials: 'include' });
+            if (!response.ok) {
+                throw new Error('Failed to load conversations');
+            }
+            const data = await response.json();
+            conversations = data.conversations || [];
+            filteredConversations = conversations.slice();
+            renderConversations();
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    async function loadSavedSearches() {
+        try {
+            const response = await fetch('/api/saved-searches', { credentials: 'include' });
+            if (response.ok) {
+                const data = await response.json();
+                savedSearches = data.searches || [];
+            }
+        } catch (error) {
+            console.warn('Failed to load saved searches', error);
+        }
+    }
+
+    async function loadRecentListings() {
+        try {
+            const response = await fetch('/api/listings', { credentials: 'include' });
+            if (response.ok) {
+                const data = await response.json();
+                recentListings = (data.listings || []).slice(0, 20);
+            }
+        } catch (error) {
+            console.warn('Failed to load listings', error);
+        }
+    }
+
+    function filterConversations(term) {
+        const value = (term || '').toLowerCase();
+        filteredConversations = conversations.filter(conversation => {
+            const title = (conversation.title || '').toLowerCase();
+            return title.includes(value);
+        });
+        renderConversations();
+    }
+
+    function renderConversations() {
+        conversationListEl.innerHTML = '';
+        if (!filteredConversations.length) {
+            const empty = document.createElement('div');
+            empty.className = 'dm-empty-state';
+            empty.innerHTML = '<div>No conversations yet. Start one to begin chatting.</div>';
+            conversationListEl.appendChild(empty);
+            return;
+        }
+
+        filteredConversations.forEach(conversation => {
+            const item = document.createElement('div');
+            item.className = 'dm-conversation' + (conversation.id === activeConversationId ? ' active' : '');
+            item.dataset.id = conversation.id;
+
+            const titleRow = document.createElement('div');
+            titleRow.className = 'title-row';
+            titleRow.textContent = conversation.title || `Conversation #${conversation.id}`;
+
+            const unreadBadge = document.createElement('span');
+            unreadBadge.className = 'dm-unread-badge';
+            const unreadCount = conversation.unread_count || 0;
+            unreadBadge.textContent = unreadCount ? `${unreadCount} new` : '';
+            if (!unreadCount) {
+                unreadBadge.style.visibility = 'hidden';
+            }
+            titleRow.appendChild(unreadBadge);
+
+            const lastMessage = document.createElement('div');
+            lastMessage.className = 'last-message';
+            if (conversation.last_message) {
+                const prefix = conversation.last_message.sender_id === viewerUsername ? 'You: ' : `${conversation.last_message.display_name || conversation.last_message.sender_id}: `;
+                lastMessage.textContent = prefix + (conversation.last_message.body || '[Attachment]');
+            } else {
+                lastMessage.textContent = 'No messages yet.';
+            }
+
+            const metaRow = document.createElement('div');
+            metaRow.className = 'meta-row';
+            const participantCount = (conversation.participants || []).filter(p => !p.left_at).length;
+            metaRow.textContent = `${participantCount} participant${participantCount === 1 ? '' : 's'}`;
+
+            item.appendChild(titleRow);
+            item.appendChild(lastMessage);
+            item.appendChild(metaRow);
+
+            item.addEventListener('click', () => selectConversation(conversation.id));
+            conversationListEl.appendChild(item);
+        });
+    }
+
+    function selectConversation(conversationId) {
+        if (activeConversationId === conversationId) {
+            return;
+        }
+        if (activeConversationId && typingTimers[activeConversationId]) {
+            Object.values(typingTimers[activeConversationId]).forEach(clearTimeout);
+            typingTimers[activeConversationId] = {};
+        }
+        if (activeConversationId) {
+            socket.emit('dm.leave', { conversation_id: activeConversationId });
+        }
+        activeConversationId = conversationId;
+        socket.emit('dm.join', { conversation_id: conversationId });
+
+        conversationMessages[conversationId] = [];
+        typingIndicatorEl.textContent = '';
+        if (!typingTimers[conversationId]) {
+            typingTimers[conversationId] = {};
+        }
+        renderConversations();
+        fetchConversation(conversationId);
+        fetchMessages(conversationId);
+    }
+
+    async function fetchConversation(conversationId) {
+        try {
+            const response = await fetch(`/api/dm/conversations/${conversationId}`, { credentials: 'include' });
+            if (!response.ok) {
+                throw new Error('Failed to fetch conversation');
+            }
+            const data = await response.json();
+            const conversation = data.conversation;
+            const index = conversations.findIndex(c => c.id === conversationId);
+            if (index !== -1) {
+                conversations[index] = conversation;
+            } else {
+                conversations.push(conversation);
+            }
+            renderChatHeader(conversation);
+            renderConversations();
+            renderReadReceipts(conversationId);
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    function renderChatHeader(conversation) {
+        chatHeaderEl.innerHTML = '';
+        const title = document.createElement('h1');
+        title.innerHTML = `<i class="fas fa-user-group"></i> ${conversation.title || 'Conversation'}`;
+
+        const participantsRow = document.createElement('div');
+        participantsRow.className = 'participants';
+
+        (conversation.participants || []).forEach(participant => {
+            const badge = document.createElement('span');
+            const isSelf = participant.username === viewerUsername;
+            badge.textContent = isSelf ? 'You' : (participant.display_name || participant.username);
+            const lastActive = participant.last_active_at ? new Date(participant.last_active_at) : null;
+            const isOnline = lastActive && (Date.now() - lastActive.getTime()) < 120000;
+            badge.style.color = isOnline ? '#34d399' : '#94a3b8';
+            participantsRow.appendChild(badge);
+        });
+
+        chatHeaderEl.appendChild(title);
+        chatHeaderEl.appendChild(participantsRow);
+    }
+
+    async function fetchMessages(conversationId) {
+        try {
+            const response = await fetch(`/api/dm/conversations/${conversationId}/messages?limit=100`, { credentials: 'include' });
+            if (!response.ok) {
+                throw new Error('Failed to fetch messages');
+            }
+            const data = await response.json();
+            conversationMessages[conversationId] = data.messages || [];
+            renderMessages(conversationId);
+            scheduleRead(conversationId);
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    function renderMessages(conversationId) {
+        const messages = conversationMessages[conversationId] || [];
+        messageScrollEl.innerHTML = '';
+        if (!messages.length) {
+            const empty = document.createElement('div');
+            empty.className = 'dm-empty-state';
+            empty.innerHTML = '<div>No messages yet. Say hello! 👋</div>';
+            messageScrollEl.appendChild(empty);
+            return;
+        }
+        messages.forEach(message => appendMessage(conversationId, message, false));
+        messageScrollEl.scrollTop = messageScrollEl.scrollHeight;
+    }
+
+    function appendMessage(conversationId, message, appendToEnd = true) {
+        const messageEl = document.createElement('div');
+        messageEl.className = 'dm-message' + (message.sender_id === viewerUsername ? ' mine' : '');
+        messageEl.dataset.messageId = message.id;
+        messageEl.dataset.sender = message.sender_id;
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.innerHTML = `<span>${message.display_name || message.sender_id}</span><span>${message.created_at || ''}</span>`;
+
+        const body = document.createElement('div');
+        body.className = 'body';
+        body.innerHTML = escapeHtml(message.body || '');
+
+        messageEl.appendChild(meta);
+        if (message.body) {
+            messageEl.appendChild(body);
+        }
+
+        if (message.rich_preview) {
+            messageEl.appendChild(renderRichPreview(message.rich_preview));
+        }
+
+        const reactionsBar = document.createElement('div');
+        reactionsBar.className = 'reactions';
+        reactionsBar.appendChild(renderReactionPicker(message.id));
+        if (message.reactions && message.reactions.length) {
+            message.reactions.forEach(reaction => {
+                reactionsBar.appendChild(renderReactionChip(message.id, reaction));
+            });
+        }
+        messageEl.appendChild(reactionsBar);
+
+        if (appendToEnd) {
+            messageScrollEl.appendChild(messageEl);
+            messageScrollEl.scrollTop = messageScrollEl.scrollHeight;
+        } else {
+            messageScrollEl.appendChild(messageEl);
+        }
+    }
+
+    function renderRichPreview(preview) {
+        const container = document.createElement('div');
+        container.className = 'rich-preview';
+
+        if (preview.type === 'listing') {
+            const title = document.createElement('div');
+            title.className = 'title';
+            title.textContent = preview.title || 'Listing';
+
+            const details = document.createElement('div');
+            details.style.fontSize = '0.88rem';
+            details.style.color = '#bfdbfe';
+            details.textContent = `${preview.source || ''} • $${preview.price || '—'}`;
+
+            const link = document.createElement('a');
+            link.href = preview.link || '#';
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.style.color = '#7dd3fc';
+            link.textContent = 'View listing';
+
+            container.appendChild(title);
+            container.appendChild(details);
+            container.appendChild(link);
+        } else if (preview.type === 'saved_search') {
+            const title = document.createElement('div');
+            title.className = 'title';
+            title.textContent = preview.name || 'Saved search';
+
+            const details = document.createElement('div');
+            details.style.fontSize = '0.88rem';
+            details.style.color = '#bfdbfe';
+            details.textContent = [
+                preview.keywords || '',
+                preview.location || '',
+                preview.radius ? `${preview.radius} mi` : ''
+            ].filter(Boolean).join(' • ');
+
+            container.appendChild(title);
+            container.appendChild(details);
+        } else if (preview.type === 'quick_reply') {
+            const title = document.createElement('div');
+            title.className = 'title';
+            title.textContent = preview.label || 'Quick reply';
+            container.appendChild(title);
+            if (preview.body) {
+                const details = document.createElement('div');
+                details.style.fontSize = '0.88rem';
+                details.style.color = '#bfdbfe';
+                details.textContent = preview.body;
+                container.appendChild(details);
+            }
+        } else {
+            container.textContent = JSON.stringify(preview);
+        }
+
+        return container;
+    }
+
+    function renderReactionPicker(messageId) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'dm-reaction-picker';
+        reactionPalette.forEach(emoji => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = emoji;
+            button.addEventListener('click', () => toggleReaction(messageId, emoji));
+            wrapper.appendChild(button);
+        });
+        return wrapper;
+    }
+
+    function renderReactionChip(messageId, reaction) {
+        const chip = document.createElement('div');
+        chip.className = 'dm-reaction-chip' + (reaction.viewer_reacted ? ' active' : '');
+        chip.textContent = `${reaction.reaction} ${reaction.count}`;
+        chip.addEventListener('click', () => toggleReaction(messageId, reaction.reaction));
+        return chip;
+    }
+
+    function updateMessageReactions(messageId, reactions) {
+        const messageEl = messageScrollEl.querySelector(`.dm-message[data-message-id="${messageId}"]`);
+        if (!messageEl) {
+            return;
+        }
+        const oldReactions = messageEl.querySelector('.reactions');
+        if (!oldReactions) {
+            return;
+        }
+        const picker = oldReactions.querySelector('.dm-reaction-picker');
+        oldReactions.innerHTML = '';
+        oldReactions.appendChild(renderReactionPicker(messageId));
+        reactions.forEach(reaction => {
+            oldReactions.appendChild(renderReactionChip(messageId, reaction));
+        });
+    }
+
+    async function toggleReaction(messageId, reaction) {
+        if (!activeConversationId) {
+            return;
+        }
+        const message = (conversationMessages[activeConversationId] || []).find(m => m.id === messageId);
+        const existing = (message?.reactions || []).find(r => r.reaction === reaction && r.viewer_reacted);
+        const method = existing ? 'DELETE' : 'POST';
+        const body = existing ? null : JSON.stringify({ reaction });
+        try {
+            const response = await fetch(`/api/dm/conversations/${activeConversationId}/messages/${messageId}/reactions${existing ? `?reaction=${encodeURIComponent(reaction)}` : ''}`, {
+                method,
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: body
+            });
+            if (!response.ok) {
+                throw new Error('Failed to update reaction');
+            }
+            const data = await response.json();
+            if (message) {
+                message.reactions = data.reactions;
+            }
+            updateMessageReactions(messageId, data.reactions);
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    function cacheMessage(conversationId, message) {
+        if (!conversationMessages[conversationId]) {
+            conversationMessages[conversationId] = [];
+        }
+        const list = conversationMessages[conversationId];
+        if (!list.find(m => m.id === message.id)) {
+            list.push(message);
+        }
+    }
+
+    function updateConversationPreview(conversationId, message) {
+        const conversation = conversations.find(c => c.id === conversationId);
+        if (conversation) {
+            conversation.last_message = message;
+            if (conversation.id !== activeConversationId) {
+                conversation.unread_count = (conversation.unread_count || 0) + 1;
+            } else {
+                conversation.unread_count = 0;
+            }
+        }
+        renderConversations();
+    }
+
+    function incrementUnread(conversationId) {
+        const conversation = conversations.find(c => c.id === conversationId);
+        if (conversation) {
+            conversation.unread_count = (conversation.unread_count || 0) + 1;
+            renderConversations();
+        }
+    }
+
+    function scheduleRead(conversationId) {
+        const messages = conversationMessages[conversationId] || [];
+        if (!messages.length) {
+            return;
+        }
+        const lastMessage = messages[messages.length - 1];
+        setTimeout(() => {
+            markConversationRead(conversationId, lastMessage.id);
+        }, 250);
+    }
+
+    async function markConversationRead(conversationId, messageId) {
+        try {
+            const response = await fetch(`/api/dm/conversations/${conversationId}/read`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message_id: messageId })
+            });
+            if (response.ok) {
+                const conversation = conversations.find(c => c.id === conversationId);
+                if (conversation) {
+                    conversation.unread_count = 0;
+                    renderConversations();
+                }
+            }
+        } catch (error) {
+            console.warn('Failed to mark read', error);
+        }
+    }
+
+    function renderReadReceipts(conversationId) {
+        const conversation = conversations.find(c => c.id === conversationId);
+        if (!conversation) {
+            return;
+        }
+
+        const myMessages = (conversationMessages[conversationId] || []).filter(m => m.sender_id === viewerUsername);
+        if (!myMessages.length) {
+            return;
+        }
+        const lastMyMessage = myMessages[myMessages.length - 1];
+        const receipts = readReceiptState[conversationId] || {};
+
+        const seenBy = Object.entries(receipts)
+            .filter(([username, lastSeenId]) => username !== viewerUsername && lastSeenId >= lastMyMessage.id)
+            .map(([username]) => {
+                const participant = (conversation.participants || []).find(p => p.username === username);
+                return participant ? (participant.display_name || username) : username;
+            });
+
+        let footer = messageScrollEl.querySelector('.dm-read-footer');
+        if (!footer) {
+            footer = document.createElement('div');
+            footer.className = 'dm-read-footer';
+            footer.style.textAlign = 'right';
+            footer.style.fontSize = '0.78rem';
+            footer.style.color = '#94a3b8';
+            footer.style.marginTop = '4px';
+            messageScrollEl.appendChild(footer);
+        }
+        footer.textContent = seenBy.length ? `Seen by ${seenBy.join(', ')}` : '';
+    }
+
+    function renderTypingIndicator() {
+        const typingUsers = typingTimers[activeConversationId] || {};
+        const activeUsers = Object.keys(typingUsers);
+        if (activeUsers.length) {
+            const names = activeUsers.map(username => {
+                if (username === viewerUsername) {
+                    return 'You';
+                }
+                const conversation = conversations.find(c => c.id === activeConversationId);
+                const participant = conversation ? (conversation.participants || []).find(p => p.username === username) : null;
+                return participant ? (participant.display_name || participant.username) : username;
+            });
+            typingIndicatorEl.textContent = `${names.join(', ')} ${names.length > 1 ? 'are' : 'is'} typing…`;
+        } else {
+            typingIndicatorEl.textContent = '';
+        }
+    }
+
+    function emitTyping() {
+        if (!activeConversationId || !socket) {
+            return;
+        }
+        if (typingThrottle) {
+            return;
+        }
+        socket.emit('dm.typing', { conversation_id: activeConversationId });
+        typingThrottle = setTimeout(() => {
+            typingThrottle = null;
+        }, 2500);
+    }
+
+    async function sendMessage() {
+        if (!activeConversationId) {
+            return;
+        }
+        const body = messageInputEl.value.trim();
+        if (!body) {
+            return;
+        }
+        try {
+            const response = await fetch(`/api/dm/conversations/${activeConversationId}/messages`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ body })
+            });
+            if (!response.ok) {
+                const err = await response.json();
+                alert(err.error || 'Unable to send message.');
+                return;
+            }
+            const data = await response.json();
+            cacheMessage(activeConversationId, data.message);
+            appendMessage(activeConversationId, data.message, true);
+            messageInputEl.value = '';
+            scheduleRead(activeConversationId);
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    function handleComposerKeydown(event) {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            sendMessage();
+        }
+    }
+
+    async function sendQuickReply(template) {
+        if (!activeConversationId) {
+            return;
+        }
+        try {
+            const response = await fetch(`/api/dm/conversations/${activeConversationId}/messages`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message_type: 'quick_reply',
+                    rich_content: { template_key: template.template_key }
+                })
+            });
+            if (!response.ok) {
+                throw new Error('Failed to send quick reply');
+            }
+            const data = await response.json();
+            cacheMessage(activeConversationId, data.message);
+            appendMessage(activeConversationId, data.message, true);
+            scheduleRead(activeConversationId);
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    async function shareSavedSearch() {
+        if (!activeConversationId || !savedSearches.length) {
+            alert('No saved searches found. Create one first.');
+            return;
+        }
+        const options = savedSearches.map(search => `${search.id}: ${search.name}`).join('\n');
+        const input = prompt(`Share which saved search?\n${options}`);
+        if (!input) {
+            return;
+        }
+        const search = savedSearches.find(item => String(item.id) === input.trim());
+        if (!search) {
+            alert('Saved search not found.');
+            return;
+        }
+        try {
+            const response = await fetch(`/api/dm/conversations/${activeConversationId}/messages`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message_type: 'saved_search',
+                    rich_content: { saved_search_id: search.id }
+                })
+            });
+            if (!response.ok) {
+                throw new Error('Failed to share saved search');
+            }
+            const data = await response.json();
+            cacheMessage(activeConversationId, data.message);
+            appendMessage(activeConversationId, data.message, true);
+            scheduleRead(activeConversationId);
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    async function shareListing() {
+        if (!activeConversationId || !recentListings.length) {
+            alert('No listings ready to share.');
+            return;
+        }
+        const options = recentListings.map(listing => `${listing[0]}: ${listing[1]} ($${listing[2] || '—'})`).join('\n');
+        const input = prompt(`Share which listing?\n${options}`);
+        if (!input) {
+            return;
+        }
+        const listing = recentListings.find(item => String(item[0]) === input.trim());
+        if (!listing) {
+            alert('Listing not found.');
+            return;
+        }
+        try {
+            const response = await fetch(`/api/dm/conversations/${activeConversationId}/messages`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message_type: 'listing',
+                    rich_content: { listing_id: listing[0] }
+                })
+            });
+            if (!response.ok) {
+                throw new Error('Failed to share listing');
+            }
+            const data = await response.json();
+            cacheMessage(activeConversationId, data.message);
+            appendMessage(activeConversationId, data.message, true);
+            scheduleRead(activeConversationId);
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    async function startConversation() {
+        const input = prompt("Start a conversation with (comma-separated usernames):");
+        if (!input) {
+            return;
+        }
+        const participants = input.split(',').map(item => item.trim()).filter(Boolean);
+        if (!participants.length) {
+            return;
+        }
+        try {
+            const response = await fetch('/api/dm/conversations', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ participants })
+            });
+            if (!response.ok) {
+                const err = await response.json();
+                alert(err.error || 'Failed to create conversation.');
+                return;
+            }
+            const data = await response.json();
+            conversations.unshift(data.conversation);
+            filteredConversations = conversations.slice();
+            renderConversations();
+            selectConversation(data.conversation.id);
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    function escapeHtml(value) {
+        return (value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;')
+            .replace(/\n/g, '<br>');
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+
+    const DM_TYPING_TTL = 6000;
+})();
+</script>
+{% endblock %}
+
+

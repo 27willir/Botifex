@@ -1,0 +1,58 @@
+<div class="server-card">
+    <div class="server-card-header">
+        <div class="server-card-title">
+            <span class="server-icon"><i class="fas fa-hashtag"></i></span>
+            <h3>{{ server.name }}</h3>
+        </div>
+        <span class="server-visibility">{{ (server.visibility or 'public')|capitalize }}</span>
+    </div>
+
+    <p class="description">
+        {% if server.description %}
+            {{ server.description }}
+        {% else %}
+            No description yet. Be the first to spark the conversation.
+        {% endif %}
+    </p>
+
+    {% if server.topic_tags %}
+        <div class="topic-tags">
+            {% for tag in server.topic_tags %}
+                {% if tag is mapping %}
+                    <span class="topic-tag">{{ tag.get('label') or tag.get('slug') }}</span>
+                {% else %}
+                    <span class="topic-tag">{{ tag }}</span>
+                {% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <div class="server-meta">
+        <span><i class="fas fa-users"></i>{{ server.member_count or 0 }} members</span>
+        {% if server.pending_requests %}
+            <span><i class="fas fa-hourglass-half"></i>{{ server.pending_requests }} pending</span>
+        {% endif %}
+        {% if server.channel_count %}
+            <span><i class="fas fa-comments"></i>{{ server.channel_count }} channels</span>
+        {% endif %}
+    </div>
+
+    <div class="server-actions">
+        <div class="actions-left">
+            <span class="server-slug">/{{ server.slug }}</span>
+            <a class="open-link" href="{{ url_for('servers_view', slug=server.slug) }}"><i class="fas fa-door-open"></i> Open</a>
+        </div>
+        {% if current_user.is_authenticated %}
+            {% if server.slug in joined_slugs %}
+                <button class="join-button joined" disabled><i class="fas fa-check"></i> Joined</button>
+            {% elif server.slug in pending_slugs %}
+                <button class="join-button pending" disabled><i class="fas fa-hourglass-half"></i> Requested</button>
+            {% else %}
+                <button class="join-button" data-join="{{ server.slug }}"><i class="fas fa-plus"></i> Join</button>
+            {% endif %}
+        {% else %}
+            <a class="join-button" href="{{ url_for('login', next=request.full_path) }}"><i class="fas fa-sign-in-alt"></i> Log in to join</a>
+        {% endif %}
+    </div>
+</div>
+

@@ -7,7 +7,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -510,6 +509,58 @@
     </div>
 
     <script>
+        const chartJsSources = [
+            'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js',
+            '/static/js/vendor/chart.umd.min.js'
+        ];
+        let chartJsLoadingPromise = null;
+
+        function loadChartScript(src) {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = false;
+                script.onload = () => {
+                    if (typeof Chart !== 'undefined') {
+                        resolve(src);
+                    } else {
+                        reject(new Error(`Chart global missing after loading ${src}`));
+                    }
+                };
+                script.onerror = () => reject(new Error(`Failed to load ${src}`));
+                document.head.appendChild(script);
+            });
+        }
+
+        function ensureChartJs() {
+            if (typeof Chart !== 'undefined') {
+                return Promise.resolve('available');
+            }
+
+            if (chartJsLoadingPromise) {
+                return chartJsLoadingPromise;
+            }
+
+            const sources = [...chartJsSources];
+
+            const attemptLoad = () => {
+                const nextSrc = sources.shift();
+                if (!nextSrc) {
+                    return Promise.reject(new Error('All Chart.js sources failed'));
+                }
+                return loadChartScript(nextSrc).catch(error => {
+                    console.warn('Chart.js source failed:', nextSrc, error);
+                    return attemptLoad();
+                });
+            };
+
+            chartJsLoadingPromise = attemptLoad().finally(() => {
+                chartJsLoadingPromise = null;
+            });
+
+            return chartJsLoadingPromise;
+        }
+
         let charts = {};
         let currentData = {};
 
@@ -554,15 +605,23 @@
         }
 
         // Initialize the dashboard
-        document.addEventListener('DOMContentLoaded', function() {
-            // Check if Chart.js is loaded
-            if (typeof Chart === 'undefined') {
-                console.error('Chart.js is not loaded!');
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                await ensureChartJs();
+            } catch (error) {
+                console.error('Chart.js failed to load', error);
                 showError('Chart library failed to load. Please refresh the page.');
                 return;
             }
+
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js is not available after loading attempts.');
+                showError('Chart library failed to load. Please refresh the page.');
+                return;
+            }
+
             console.log('Chart.js loaded successfully. Version:', Chart.version);
-            
+
             loadAnalytics();
             loadKeywords();
             loadSellingAnalytics();

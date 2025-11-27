@@ -1,0 +1,487 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container support-console">
+    <div class="page-header">
+        <h1>Support Tickets</h1>
+        <p class="text-muted">Monitor and respond to owner/admin support requests.</p>
+    </div>
+
+    {% if is_admin %}
+    <div id="metricsCard" class="card metrics-card mb-4" style="display:none;">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h2 class="h5 mb-1">SLA Metrics</h2>
+                    <p class="text-muted mb-0">Rolling window: <span id="metricsWindow">-</span> hours</p>
+                </div>
+                <button id="refreshMetrics" class="btn btn-outline-secondary btn-sm">Refresh Metrics</button>
+            </div>
+            <div id="metricsBody" class="metrics-grid"></div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card filters-card">
+        <div class="card-body d-flex flex-wrap gap-3 align-items-end">
+            <div>
+                <label for="statusFilter" class="form-label">Status</label>
+                <select id="statusFilter" class="form-select">
+                    <option value="">All</option>
+                </select>
+            </div>
+            <div>
+                <label for="severityFilter" class="form-label">Severity</label>
+                <select id="severityFilter" class="form-select">
+                    <option value="">All</option>
+                </select>
+            </div>
+            <div>
+                <label for="assignedFilter" class="form-label">Assigned To</label>
+                <input type="text" id="assignedFilter" class="form-control" placeholder="username">
+            </div>
+            <div>
+                <label for="serverFilter" class="form-label">Server Slug</label>
+                <input type="text" id="serverFilter" class="form-control" placeholder="optional">
+            </div>
+            <div>
+                <label for="reporterFilter" class="form-label">Reporter</label>
+                <input type="text" id="reporterFilter" class="form-control" placeholder="optional">
+            </div>
+            <button id="refreshTickets" class="btn btn-primary ms-auto">Refresh</button>
+        </div>
+    </div>
+
+    <div id="ticketsContainer" class="ticket-list mt-4"></div>
+    <div id="ticketEmptyState" class="alert alert-info mt-4" style="display:none;">
+        No tickets found for the selected filters.
+    </div>
+</div>
+
+<style>
+.support-console .ticket-card {
+    border: 1px solid rgba(0,0,0,0.1);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.support-console .ticket-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.support-console .ticket-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+.support-console .badge {
+    text-transform: capitalize;
+}
+.support-console .badge.status {
+    background: #0d6efd;
+}
+.support-console .badge.severity {
+    background: #6c757d;
+}
+.support-console .ticket-meta {
+    font-size: 0.9rem;
+    color: #6c757d;
+}
+.support-console .ticket-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0;
+}
+.support-console .ticket-actions select,
+.support-console .ticket-actions input {
+    min-width: 140px;
+}
+.support-console .ticket-comment textarea {
+    width: 100%;
+    min-height: 60px;
+    margin-bottom: 8px;
+}
+.support-console .ticket-events {
+    margin-top: 12px;
+    border-top: 1px solid rgba(0,0,0,0.08);
+    padding-top: 12px;
+}
+.support-console .ticket-events ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 200px;
+    overflow-y: auto;
+}
+.support-console .ticket-events li {
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+}
+.support-console .ticket-events li span {
+    display: block;
+}
+.support-console .ticket-errors {
+    color: #dc3545;
+    font-size: 0.9rem;
+    margin-top: 6px;
+}
+.support-console .metrics-card {
+    background: #f8f9fb;
+    border: 1px solid rgba(0,0,0,0.08);
+}
+.support-console .metrics-grid {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.support-console .metrics-tile {
+    background: #fff;
+    border: 1px solid rgba(0,0,0,0.04);
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.support-console .metrics-tile h3 {
+    font-size: 2rem;
+    margin: 0;
+}
+.support-console .metrics-tile span {
+    display: block;
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-top: 4px;
+}
+.support-console .metrics-list {
+    list-style: none;
+    padding-left: 0;
+    margin: 12px 0 0;
+    font-size: 0.9rem;
+}
+.support-console .metrics-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+}
+.support-console .metrics-list li + li {
+    border-top: 1px solid rgba(0,0,0,0.05);
+}
+</style>
+
+<script>
+(() => {
+    const STATUS_OPTIONS = ["open", "in_progress", "waiting", "resolved", "closed"];
+    const SEVERITY_OPTIONS = ["low", "medium", "high", "urgent"];
+    const IS_ADMIN = {{ 'true' if is_admin else 'false' }};
+    const statusFilter = document.getElementById("statusFilter");
+    const severityFilter = document.getElementById("severityFilter");
+    const assignedFilter = document.getElementById("assignedFilter");
+    const serverFilter = document.getElementById("serverFilter");
+    const reporterFilter = document.getElementById("reporterFilter");
+    const ticketsContainer = document.getElementById("ticketsContainer");
+    const emptyState = document.getElementById("ticketEmptyState");
+    const refreshBtn = document.getElementById("refreshTickets");
+    const metricsCard = document.getElementById("metricsCard");
+    const metricsBody = document.getElementById("metricsBody");
+    const metricsWindow = document.getElementById("metricsWindow");
+    const refreshMetricsBtn = document.getElementById("refreshMetrics");
+
+    STATUS_OPTIONS.forEach(status => {
+        const option = document.createElement("option");
+        option.value = status;
+        option.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        statusFilter.appendChild(option);
+    });
+
+    SEVERITY_OPTIONS.forEach(severity => {
+        const option = document.createElement("option");
+        option.value = severity;
+        option.textContent = severity.charAt(0).toUpperCase() + severity.slice(1);
+        severityFilter.appendChild(option);
+    });
+
+    async function fetchTickets() {
+        ticketsContainer.innerHTML = "";
+        emptyState.style.display = "none";
+
+        const params = new URLSearchParams();
+        if (statusFilter.value) params.set("status", statusFilter.value);
+        if (severityFilter.value) params.set("severity", severityFilter.value);
+        if (assignedFilter.value) params.set("assigned_to", assignedFilter.value.trim());
+        if (serverFilter.value) params.set("server", serverFilter.value.trim());
+        if (reporterFilter.value) params.set("reporter", reporterFilter.value.trim());
+
+        try {
+            const response = await fetch(`/api/support/tickets?${params.toString()}`, { credentials: "same-origin" });
+            if (!response.ok) throw new Error(`Failed to load tickets (${response.status})`);
+            const data = await response.json();
+            if (!data.tickets || !data.tickets.length) {
+                emptyState.style.display = "block";
+                return;
+            }
+            data.tickets.forEach(ticket => renderTicket(ticket));
+        } catch (error) {
+            console.error(error);
+            ticketsContainer.innerHTML = `<div class="alert alert-danger">Unable to load support tickets. Please try again later.</div>`;
+        }
+        await fetchMetrics();
+    }
+
+    async function fetchMetrics() {
+        if (!IS_ADMIN) return;
+        const params = new URLSearchParams();
+        params.set("window_hours", "720");
+        if (serverFilter.value) params.set("server", serverFilter.value.trim());
+        if (assignedFilter.value) params.set("assigned_to", assignedFilter.value.trim());
+
+        try {
+            const response = await fetch(`/api/support/metrics?${params.toString()}`, { credentials: "same-origin" });
+            if (!response.ok) throw new Error(`Failed to load metrics (${response.status})`);
+            const data = await response.json();
+            renderMetrics(data);
+        } catch (error) {
+            console.warn(error);
+            if (metricsCard) {
+                metricsCard.style.display = "block";
+                metricsBody.innerHTML = `<div class="alert alert-warning mb-0">Unable to load metrics.</div>`;
+            }
+        }
+    }
+
+    function renderMetrics(metrics) {
+        if (!metricsCard) return;
+        metricsCard.style.display = "block";
+        metricsWindow.textContent = metrics.window_hours ?? "-";
+
+        const severityList = Object.entries(metrics.open_by_severity || {}).map(
+            ([severity, count]) => `<li><span>${severity}</span><span>${count}</span></li>`
+        ).join("") || "<li><span>None</span><span>0</span></li>";
+
+        const statusList = Object.entries(metrics.open_by_status || {}).map(
+            ([status, count]) => `<li><span>${status}</span><span>${count}</span></li>`
+        ).join("") || "<li><span>None</span><span>0</span></li>";
+
+        metricsBody.innerHTML = `
+            <div class="metrics-tile">
+                <h3>${metrics.open_count ?? 0}</h3>
+                <span>Open Tickets</span>
+                <ul class="metrics-list">${statusList}</ul>
+            </div>
+            <div class="metrics-tile">
+                <h3>${metrics.avg_first_response_hours ?? "—"}</h3>
+                <span>Avg First Response (hrs)</span>
+                <p class="text-muted mb-0">Median: ${metrics.median_first_response_hours ?? "—"} hrs</p>
+            </div>
+            <div class="metrics-tile">
+                <h3>${metrics.avg_resolution_hours ?? "—"}</h3>
+                <span>Avg Resolution (hrs)</span>
+                <p class="text-muted mb-0">Median: ${metrics.median_resolution_hours ?? "—"} hrs</p>
+            </div>
+            <div class="metrics-tile">
+                <h3>${metrics.response_sla_breach_count ?? 0}</h3>
+                <span>Response SLA Breaches</span>
+                <p class="text-muted mb-0">Resolution breaches: ${metrics.resolution_sla_breach_count ?? 0}</p>
+            </div>
+            <div class="metrics-tile">
+                <h3>${metrics.tickets_considered ?? 0}</h3>
+                <span>Tickets in Window</span>
+                <ul class="metrics-list">${severityList}</ul>
+            </div>
+        `;
+    }
+
+    async function loadTicketDetails(ticketId, card) {
+        try {
+            const response = await fetch(`/api/support/tickets/${ticketId}`, { credentials: "same-origin" });
+            if (!response.ok) throw new Error("Failed to load ticket detail");
+            const data = await response.json();
+            updateTicketCard(card, data.ticket);
+        } catch (error) {
+            console.warn(error);
+        }
+    }
+
+    function renderTicket(ticket) {
+        const card = document.createElement("div");
+        card.className = "ticket-card";
+        card.innerHTML = `
+            <div class="ticket-header">
+                <h3>#${ticket.id} &mdash; ${ticket.subject}</h3>
+                <span class="badge status">${ticket.status}</span>
+                <span class="badge severity">${ticket.severity}</span>
+            </div>
+            <div class="ticket-meta">
+                <span><strong>Reporter:</strong> ${ticket.reporter_username}</span>
+                ${ticket.server && ticket.server.slug ? `<span class="ms-3"><strong>Server:</strong> ${ticket.server.slug}</span>` : ""}
+                <span class="ms-3"><strong>Created:</strong> ${ticket.created_at || "n/a"}</span>
+                <span class="ms-3"><strong>Updated:</strong> ${ticket.updated_at || "n/a"}</span>
+            </div>
+            <p class="mt-3">${ticket.body || ""}</p>
+            <div class="ticket-actions"></div>
+            <div class="ticket-comment mt-3">
+                <textarea class="form-control" placeholder="Add a comment (visible to ticket participants)"></textarea>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-secondary btn-sm comment-btn">Post Comment</button>
+                    <div class="ticket-errors flex-grow-1"></div>
+                </div>
+            </div>
+            <div class="ticket-events">
+                <h5>Activity</h5>
+                <ul></ul>
+            </div>
+        `;
+        ticketsContainer.appendChild(card);
+        buildActionControls(card, ticket);
+        loadTicketDetails(ticket.id, card);
+    }
+
+    function buildActionControls(card, ticket) {
+        const actions = card.querySelector(".ticket-actions");
+        actions.innerHTML = "";
+
+        const statusSelect = document.createElement("select");
+        statusSelect.className = "form-select form-select-sm";
+        STATUS_OPTIONS.forEach(status => {
+            const option = document.createElement("option");
+            option.value = status;
+            option.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+            if (status === ticket.status) option.selected = true;
+            statusSelect.appendChild(option);
+        });
+
+        const severitySelect = document.createElement("select");
+        severitySelect.className = "form-select form-select-sm";
+        SEVERITY_OPTIONS.forEach(severity => {
+            const option = document.createElement("option");
+            option.value = severity;
+            option.textContent = severity.charAt(0).toUpperCase() + severity.slice(1);
+            if (severity === ticket.severity) option.selected = true;
+            severitySelect.appendChild(option);
+        });
+
+        const assignedInput = document.createElement("input");
+        assignedInput.type = "text";
+        assignedInput.className = "form-control form-control-sm";
+        assignedInput.placeholder = "Assigned to";
+        assignedInput.value = ticket.assigned_to || "";
+
+        const updateButton = document.createElement("button");
+        updateButton.className = "btn btn-primary btn-sm";
+        updateButton.textContent = "Update Ticket";
+
+        actions.appendChild(createLabeledControl("Status", statusSelect));
+        actions.appendChild(createLabeledControl("Severity", severitySelect));
+        if (IS_ADMIN === true) {
+            actions.appendChild(createLabeledControl("Assignee", assignedInput));
+        }
+        actions.appendChild(updateButton);
+
+        updateButton.addEventListener("click", async () => {
+            const payload = {
+                status: statusSelect.value,
+                severity: severitySelect.value,
+            };
+            if (IS_ADMIN === true) {
+                payload.assigned_to = assignedInput.value.trim() || null;
+            }
+            await submitTicketUpdate(ticket.id, card, payload);
+        });
+
+        const commentButton = card.querySelector(".comment-btn");
+        const commentField = card.querySelector("textarea");
+        commentButton.addEventListener("click", async () => {
+            const message = commentField.value.trim();
+            if (!message) {
+                showError(card, "Please enter a comment before posting.");
+                return;
+            }
+            await submitTicketUpdate(ticket.id, card, { comment: message });
+            commentField.value = "";
+        });
+    }
+
+    function createLabeledControl(label, element) {
+        const wrapper = document.createElement("div");
+        const labelEl = document.createElement("label");
+        labelEl.className = "form-label";
+        labelEl.textContent = label;
+        wrapper.appendChild(labelEl);
+        wrapper.appendChild(element);
+        return wrapper;
+    }
+
+    function updateTicketCard(card, ticket) {
+        if (!ticket) return;
+        card.querySelector(".badge.status").textContent = ticket.status;
+        card.querySelector(".badge.status").className = `badge status`;
+        card.querySelector(".badge.severity").textContent = ticket.severity;
+        card.querySelector(".badge.severity").className = `badge severity`;
+        card.querySelector(".ticket-meta").innerHTML = `
+            <span><strong>Reporter:</strong> ${ticket.reporter_username}</span>
+            ${ticket.server && ticket.server.slug ? `<span class="ms-3"><strong>Server:</strong> ${ticket.server.slug}</span>` : ""}
+            <span class="ms-3"><strong>Created:</strong> ${ticket.created_at || "n/a"}</span>
+            <span class="ms-3"><strong>Updated:</strong> ${ticket.updated_at || "n/a"}</span>
+            ${ticket.assigned_to ? `<span class="ms-3"><strong>Assigned:</strong> ${ticket.assigned_to}</span>` : ""}
+        `;
+        const eventsContainer = card.querySelector(".ticket-events ul");
+        eventsContainer.innerHTML = "";
+        (ticket.events || []).forEach(event => {
+            const item = document.createElement("li");
+            item.innerHTML = `
+                <span><strong>${event.event_type}</strong> &middot; ${event.created_at || ""}</span>
+                ${event.actor_username ? `<span>by ${event.actor_username}</span>` : ""}
+                ${event.comment ? `<span>${event.comment}</span>` : ""}
+            `;
+            eventsContainer.appendChild(item);
+        });
+        buildActionControls(card, ticket);
+        clearError(card);
+    }
+
+    async function submitTicketUpdate(ticketId, card, payload) {
+        clearError(card);
+        try {
+            const response = await fetch(`/api/support/tickets/${ticketId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify(payload),
+            });
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.error || `Failed with status ${response.status}`);
+            }
+            const data = await response.json();
+            updateTicketCard(card, data.ticket);
+        } catch (error) {
+            showError(card, error.message);
+        }
+    }
+
+    function showError(card, message) {
+        const errorEl = card.querySelector(".ticket-errors");
+        if (errorEl) {
+            errorEl.textContent = message;
+        }
+    }
+
+    function clearError(card) {
+        const errorEl = card.querySelector(".ticket-errors");
+        if (errorEl) {
+            errorEl.textContent = "";
+        }
+    }
+
+    refreshBtn.addEventListener("click", fetchTickets);
+    if (refreshMetricsBtn) {
+        refreshMetricsBtn.addEventListener("click", fetchMetrics);
+    }
+    fetchTickets();
+})();
+</script>
+{% endblock %}
+

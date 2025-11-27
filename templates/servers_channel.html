@@ -1,0 +1,1757 @@
+{% extends "base.html" %}
+
+{% block title %}{{ server.name }} - #{{ channel.name }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    body {
+        font-family: "Inter", sans-serif;
+        background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #16213e 100%);
+        background-attachment: fixed;
+        color: #ffffff;
+        min-height: 100vh;
+    }
+
+    a {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .server-channel-page {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        gap: 24px;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 48px 20px 64px;
+    }
+
+    .channel-sidebar {
+        background: rgba(15, 23, 42, 0.9);
+        border-radius: 18px;
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        padding: 20px;
+        box-shadow: 0 18px 40px rgba(2, 132, 199, 0.15);
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
+
+    .channel-sidebar h2 {
+        font-size: 1.1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: #7dd3fc;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: #38bdf8;
+        font-weight: 600;
+        font-size: 0.9rem;
+        transition: color 0.2s ease;
+    }
+
+    .back-link:hover {
+        color: #7dd3fc;
+    }
+
+    .channel-list {
+        display: grid;
+        gap: 10px;
+    }
+
+    .channel-link {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        color: #cbd5f5;
+        transition: background 0.2s ease, transform 0.2s ease;
+        border: 1px solid transparent;
+    }
+
+    .channel-link i {
+        width: 20px;
+        text-align: center;
+        color: #38bdf8;
+    }
+
+    .channel-link:hover {
+        background: rgba(37, 99, 235, 0.18);
+        border-color: rgba(59, 130, 246, 0.35);
+        transform: translateX(4px);
+    }
+
+    .channel-link.active {
+        background: rgba(59, 130, 246, 0.25);
+        border-color: rgba(59, 130, 246, 0.55);
+        color: #ffffff;
+        font-weight: 600;
+    }
+
+    .channel-main {
+        background: rgba(17, 24, 39, 0.92);
+        border-radius: 18px;
+        border: 1px solid rgba(59, 130, 246, 0.32);
+        box-shadow: 0 22px 55px rgba(37, 99, 235, 0.18);
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        overflow: hidden;
+    }
+
+    .tip-admin-panel {
+        padding: 18px 26px;
+        border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+        background: rgba(15, 23, 42, 0.72);
+    }
+
+    .tip-admin-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .tip-admin-header h3 {
+        font-size: 1rem;
+        color: #93c5fd;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .tip-admin-form {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 14px;
+        background: rgba(15, 23, 42, 0.65);
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        border-radius: 12px;
+        padding: 14px;
+    }
+
+    .tip-admin-form input[type="text"],
+    .tip-admin-form input[type="url"],
+    .tip-admin-form input[type="number"],
+    .tip-admin-form textarea {
+        width: 100%;
+        border-radius: 10px;
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        background: rgba(9, 14, 26, 0.92);
+        color: #e0f2ff;
+        padding: 10px 12px;
+        font-size: 0.95rem;
+    }
+
+    .tip-admin-form textarea {
+        resize: vertical;
+        min-height: 90px;
+    }
+
+    .tip-form-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .tip-form-row label {
+        font-size: 0.85rem;
+        color: #cbd5f5;
+    }
+
+    .tip-form-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+    }
+
+    .tip-admin-list {
+        display: grid;
+        gap: 10px;
+    }
+
+    .tip-entry {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        border: 1px solid rgba(59, 130, 246, 0.28);
+        border-radius: 12px;
+        background: rgba(15, 23, 42, 0.68);
+        padding: 12px 14px;
+    }
+
+    .tip-entry-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: baseline;
+    }
+
+    .tip-entry-header .title {
+        font-weight: 600;
+        color: #cbd5f5;
+    }
+
+    .tip-entry-actions {
+        display: inline-flex;
+        gap: 8px;
+    }
+
+    .tip-entry-meta {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .server-tip-banner {
+        margin: 16px 26px 0;
+        border-radius: 14px;
+        border: 1px solid rgba(59, 130, 246, 0.32);
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(56, 189, 248, 0.18));
+        padding: 16px 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+    }
+
+    .server-tip-banner[hidden] {
+        display: none;
+    }
+
+    .server-tip-banner .tip-content {
+        flex: 1;
+    }
+
+    .server-tip-banner .tip-title {
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: #bfdbfe;
+        margin-bottom: 6px;
+    }
+
+    .server-tip-banner .tip-body {
+        color: #e2e8f0;
+        font-size: 0.95rem;
+    }
+
+    .server-tip-banner .tip-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .tip-entry.badge-inactive {
+        border-color: rgba(148, 163, 184, 0.35);
+        background: rgba(15, 23, 42, 0.4);
+    }
+
+    .channel-header {
+        padding: 22px 26px;
+        border-bottom: 1px solid rgba(59, 130, 246, 0.25);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        background: rgba(15, 23, 42, 0.8);
+    }
+
+    .channel-header .header-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .channel-header h1 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .channel-header h1 i {
+        color: #38bdf8;
+    }
+
+    .channel-header p {
+        color: #94a3b8;
+        font-size: 0.95rem;
+    }
+
+    .channel-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 12px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        border: 1px solid transparent;
+    }
+
+    .status-online {
+        background: rgba(34, 197, 94, 0.18);
+        border-color: rgba(34, 197, 94, 0.35);
+        color: #4ade80;
+    }
+
+    .status-connecting {
+        background: rgba(59, 130, 246, 0.18);
+        border-color: rgba(59, 130, 246, 0.35);
+        color: #93c5fd;
+    }
+
+    .status-disconnected {
+        background: rgba(239, 68, 68, 0.18);
+        border-color: rgba(239, 68, 68, 0.35);
+        color: #fca5a5;
+    }
+
+    .status-warning {
+        background: rgba(234, 179, 8, 0.18);
+        border-color: rgba(234, 179, 8, 0.35);
+        color: #facc15;
+    }
+
+    .channel-presence {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 6px;
+    }
+
+    .presence-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.82rem;
+        color: #cbd5f5;
+    }
+
+    .presence-label i {
+        color: #34d399;
+        font-size: 0.6rem;
+    }
+
+    .presence-list {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-height: 1.2rem;
+    }
+
+    .presence-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        background: rgba(59, 130, 246, 0.15);
+        color: #cbd5f5;
+        font-size: 0.78rem;
+        font-weight: 500;
+    }
+
+    .presence-pill.self {
+        border-color: rgba(34, 197, 94, 0.55);
+        background: rgba(34, 197, 94, 0.18);
+        color: #bbf7d0;
+    }
+
+    .presence-pill.more {
+        border-style: dashed;
+    }
+
+    .presence-pill.empty {
+        border-color: rgba(148, 163, 184, 0.45);
+        background: rgba(148, 163, 184, 0.14);
+        color: #94a3b8;
+        font-style: italic;
+    }
+
+    .typing-indicator {
+        font-size: 0.85rem;
+        color: #cbd5f5;
+        display: none;
+    }
+
+    .typing-indicator[aria-hidden="false"] {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .message-list {
+        padding: 26px;
+        overflow-y: auto;
+        display: grid;
+        gap: 16px;
+    }
+
+    .message {
+        display: grid;
+        gap: 8px;
+        background: rgba(30, 41, 59, 0.72);
+        border-radius: 14px;
+        padding: 14px 18px;
+        border: 1px solid rgba(59, 130, 246, 0.18);
+        max-width: 720px;
+        transition: background 0.2s ease, border 0.2s ease;
+    }
+
+    .message.mine {
+        justify-self: end;
+        background: rgba(34, 197, 94, 0.18);
+        border-color: rgba(34, 197, 94, 0.35);
+    }
+
+    .message .meta {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        font-size: 0.85rem;
+    }
+
+    .message .meta .author {
+        font-weight: 600;
+        color: #e0f2ff;
+    }
+
+    .message .meta .time {
+        color: #9ca3af;
+        font-size: 0.8rem;
+    }
+
+    .message .body {
+        color: #f8fafc;
+        font-size: 0.98rem;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .message .body.placeholder {
+        color: #cbd5f5;
+        font-style: italic;
+    }
+
+    .attachments {
+        display: grid;
+        gap: 8px;
+        margin-top: 4px;
+    }
+
+    .attachment-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        background: rgba(59, 130, 246, 0.12);
+        border-radius: 12px;
+        border: 1px solid rgba(59, 130, 246, 0.25);
+    }
+
+    .attachment-item i {
+        color: #38bdf8;
+    }
+
+    .attachment-item a {
+        color: #bfdbfe;
+        font-weight: 500;
+        word-break: break-word;
+    }
+
+    .reaction-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 6px;
+    }
+
+    .message-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 8px;
+    }
+
+    .message-actions button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(248, 113, 113, 0.35);
+        background: rgba(248, 113, 113, 0.15);
+        color: #fecaca;
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: transform 0.15s ease, background 0.15s ease, border 0.15s ease;
+    }
+
+    .message-actions button:hover {
+        transform: translateY(-1px);
+        border-color: rgba(248, 113, 113, 0.55);
+        background: rgba(248, 113, 113, 0.25);
+    }
+
+    .message-actions button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .reaction-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        border-radius: 999px;
+        font-size: 0.85rem;
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        background: rgba(59, 130, 246, 0.12);
+        color: #bfdbfe;
+        cursor: pointer;
+        transition: transform 0.15s ease, border 0.15s ease, background 0.15s ease;
+    }
+
+    .reaction-btn:hover {
+        transform: translateY(-1px);
+        border-color: rgba(59, 130, 246, 0.55);
+        background: rgba(59, 130, 246, 0.18);
+    }
+
+    .reaction-btn.active {
+        border-color: rgba(34, 197, 94, 0.55);
+        background: rgba(34, 197, 94, 0.18);
+        color: #bbf7d0;
+    }
+
+    .reaction-btn .count {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .reaction-btn.disabled {
+        cursor: wait;
+        opacity: 0.7;
+    }
+
+    .message-input {
+        border-top: 1px solid rgba(59, 130, 246, 0.25);
+        padding: 20px 26px;
+        background: rgba(15, 23, 42, 0.85);
+        display: grid;
+        gap: 12px;
+    }
+
+    .message-input form {
+        display: grid;
+        gap: 12px;
+    }
+
+    .message-input textarea {
+        width: 100%;
+        min-height: 90px;
+        max-height: 220px;
+        padding: 14px 16px;
+        border-radius: 14px;
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        background: rgba(10, 15, 30, 0.7);
+        color: #ffffff;
+        resize: vertical;
+        font-size: 0.98rem;
+        transition: border 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    .message-input textarea:focus {
+        outline: none;
+        border-color: rgba(56, 189, 248, 0.8);
+        box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+        background: rgba(10, 15, 30, 0.9);
+    }
+
+    .attachment-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .attachment-controls input {
+        flex: 1;
+        min-width: 220px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        background: rgba(10, 15, 30, 0.7);
+        color: #e2e8f0;
+    }
+
+    .attachment-controls button {
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(59, 130, 246, 0.45);
+        background: rgba(59, 130, 246, 0.15);
+        color: #bfdbfe;
+        cursor: pointer;
+        font-weight: 600;
+        transition: transform 0.15s ease, background 0.15s ease;
+    }
+
+    .attachment-controls button:hover {
+        background: rgba(59, 130, 246, 0.25);
+        transform: translateY(-1px);
+    }
+
+    .attachment-preview {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        background: rgba(59, 130, 246, 0.12);
+        border-radius: 12px;
+        border: 1px solid rgba(59, 130, 246, 0.25);
+    }
+
+    .attachment-preview[hidden] {
+        display: none;
+    }
+
+    .attachment-preview button {
+        padding: 8px 14px;
+        border-radius: 999px;
+        border: none;
+        background: rgba(239, 68, 68, 0.25);
+        color: #fecaca;
+        cursor: pointer;
+        font-size: 0.85rem;
+    }
+
+    .message-input .actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .message-input .hint {
+        color: #94a3b8;
+        font-size: 0.85rem;
+    }
+
+    .message-input .action-buttons {
+        display: inline-flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .message-input button[type="submit"] {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 22px;
+        border-radius: 999px;
+        border: none;
+        background: linear-gradient(135deg, #2563eb, #06b6d4);
+        color: #ffffff;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+    }
+
+    .message-input button[type="submit"]:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .message-input button[type="submit"]:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 28px rgba(59, 130, 246, 0.35);
+    }
+
+    .composer-status {
+        font-size: 0.85rem;
+        min-height: 1.2em;
+        color: #cbd5f5;
+    }
+
+    .composer-status[data-status="warning"] {
+        color: #facc15;
+    }
+
+    .composer-status[data-status="error"] {
+        color: #f87171;
+    }
+
+    @media (max-width: 960px) {
+        .server-channel-page {
+            grid-template-columns: 1fr;
+        }
+
+        .channel-sidebar {
+            order: 2;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<main class="server-channel-page" data-channel="{{ channel.slug }}" data-server="{{ server.slug }}" data-channel-id="{{ channel.id }}">
+    <aside class="channel-sidebar">
+        <a class="back-link" href="{{ url_for('servers_view', slug=server.slug) }}"><i class="fas fa-arrow-left"></i> Back to server</a>
+        <h2><i class="fas fa-sitemap"></i> Channels</h2>
+        <div class="channel-list">
+            {% for item in channels %}
+                <a class="channel-link {% if item.slug == channel.slug %}active{% endif %}" href="{{ url_for('servers_channel_page', slug=server.slug, channel_slug=item.slug) }}">
+                    {% if item.type == 'announcement' %}
+                        <i class="fas fa-bullhorn"></i>
+                    {% elif item.type == 'marketplace' %}
+                        <i class="fas fa-shopping-bag"></i>
+                    {% else %}
+                        <i class="fas fa-hashtag"></i>
+                    {% endif %}
+                    <span>{{ item.name }}</span>
+                </a>
+            {% endfor %}
+        </div>
+    </aside>
+
+    <section class="channel-main">
+        <header class="channel-header">
+            <div class="header-top">
+                <h1><i class="fas fa-hashtag"></i> {{ channel.name }}</h1>
+                <div class="channel-status">
+                    <span id="connectionStatus" class="status-pill status-connecting">Connecting…</span>
+                    <span id="slowmodeStatus" class="status-pill status-warning" hidden></span>
+                </div>
+            </div>
+            <p>{{ channel.topic or "Keep the conversation respectful and relevant." }}</p>
+            <div class="channel-presence">
+                <span class="presence-label"><i class="fas fa-circle"></i> Online now</span>
+                <div id="channelPresenceList" class="presence-list" aria-live="polite"></div>
+            </div>
+            <div id="typingIndicator" class="typing-indicator" aria-hidden="true">
+                <i class="fas fa-pencil-alt"></i> Someone is typing…
+            </div>
+        </header>
+
+        {% if can_manage_server %}
+        <div class="tip-admin-panel" id="tipAdminPanel">
+            <div class="tip-admin-header">
+                <h3><i class="fas fa-lightbulb"></i> Tips &amp; Announcements</h3>
+                <button type="button" class="btn btn-secondary small" id="toggleTipComposer">
+                    <i class="fas fa-plus"></i> Create Tip
+                </button>
+            </div>
+            <form class="tip-admin-form" id="tipComposer" hidden>
+                <input type="text" id="tipTitleInput" placeholder="Title" required>
+                <textarea id="tipBodyInput" placeholder="Message shown to members" required></textarea>
+                <div class="tip-form-row">
+                    <input type="text" id="tipCtaLabelInput" placeholder="CTA label (optional)">
+                    <input type="url" id="tipCtaUrlInput" placeholder="CTA link (optional)">
+                </div>
+                <div class="tip-form-row">
+                    <label><input type="checkbox" id="tipActiveInput" checked> Active</label>
+                    <label><input type="checkbox" id="tipDismissibleInput" checked> Dismissible</label>
+                    <input type="number" id="tipPriorityInput" placeholder="Priority (0)" min="0">
+                </div>
+                <div class="tip-form-actions">
+                    <button type="button" class="btn btn-secondary small" id="cancelTipComposer">Cancel</button>
+                    <button type="button" class="btn btn-primary small" id="saveTipButton">
+                        <i class="fas fa-floppy-disk"></i> Save Tip
+                    </button>
+                </div>
+            </form>
+            <div class="tip-admin-list" id="tipAdminList"></div>
+        </div>
+        {% endif %}
+
+        <div class="server-tip-banner" id="serverTipBanner" hidden>
+            <div class="tip-content">
+                <div class="tip-title" id="serverTipTitle"></div>
+                <div class="tip-body" id="serverTipBody"></div>
+            </div>
+            <div class="tip-actions">
+                <a href="#" id="serverTipCta" class="btn btn-secondary small" target="_blank" rel="noopener" hidden>
+                    <i class="fas fa-up-right-from-square"></i> Details
+                </a>
+                <button type="button" class="btn btn-secondary small" id="dismissTipButton">
+                    <i class="fas fa-xmark"></i> Dismiss
+                </button>
+            </div>
+        </div>
+
+        <div id="messageList" class="message-list">
+            {% for message in messages %}
+                <div class="message {% if message.sender_id == viewer_username %}mine{% endif %}" data-message-id="{{ message.id }}">
+                    <div class="meta">
+                        <span class="author">{{ message.display_name }}</span>
+                        <span class="time">{{ message.created_at }}</span>
+                    </div>
+                    <div class="body">{{ message.body | e }}</div>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="message-input">
+            <form id="messageForm">
+                <textarea id="messageBody" name="body" placeholder="Message #{{ channel.name }}" autocomplete="off"></textarea>
+
+                <div class="attachment-controls">
+                    <input type="url" id="attachmentLink" placeholder="Paste a link to attach (optional)">
+                    <button type="button" id="addAttachmentButton"><i class="fas fa-link"></i> Attach Link</button>
+                </div>
+                <div class="attachment-preview" id="attachmentPreview" hidden>
+                    <span id="attachmentPreviewLabel"></span>
+                    <button type="button" id="clearAttachmentButton"><i class="fas fa-times"></i> Remove</button>
+                </div>
+
+                <div class="actions">
+                    <span class="hint" id="composerHint">Press Enter to send, Shift+Enter for a new line</span>
+                    <div class="action-buttons">
+                        <button type="submit" id="sendMessageButton"><i class="fas fa-paper-plane"></i> Send</button>
+                    </div>
+                </div>
+                <div class="composer-status" id="composerStatus" data-status="info"></div>
+            </form>
+        </div>
+    </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/websocket-client.js') }}"></script>
+<script>
+    const apiUrl = "{{ url_for('api_server_channel_messages', slug=server.slug, channel_slug=channel.slug) }}";
+    const viewerUsername = "{{ viewer_username }}";
+    const channelSettings = {{ channel.settings | default({}) | tojson }};
+    const channelRoot = document.querySelector('.server-channel-page');
+    const channelId = Number(channelRoot?.dataset.channelId || 0);
+    const channelSlug = "{{ channel.slug }}";
+    const serverSlug = "{{ server.slug }}";
+    const canManageServer = {{ 'true' if can_manage_server else 'false' }};
+
+    const messageList = document.getElementById('messageList');
+    const messageForm = document.getElementById('messageForm');
+    const messageBody = document.getElementById('messageBody');
+    const sendButton = document.getElementById('sendMessageButton');
+    const composerHint = document.getElementById('composerHint');
+    const composerStatus = document.getElementById('composerStatus');
+    const connectionStatus = document.getElementById('connectionStatus');
+    const slowmodeStatus = document.getElementById('slowmodeStatus');
+    const typingIndicator = document.getElementById('typingIndicator');
+    const presenceListEl = document.getElementById('channelPresenceList');
+
+    const attachmentInput = document.getElementById('attachmentLink');
+    const addAttachmentButton = document.getElementById('addAttachmentButton');
+    const attachmentPreview = document.getElementById('attachmentPreview');
+    const attachmentPreviewLabel = document.getElementById('attachmentPreviewLabel');
+    const clearAttachmentButton = document.getElementById('clearAttachmentButton');
+
+    const TYPING_TTL_MS = 6000;
+    const TYPING_EMIT_INTERVAL_MS = 3000;
+    const typingUsers = new Map();
+    let lastTypingEmit = 0;
+    let typingCleanupInterval = null;
+
+    const REACTION_OPTIONS = ['👍', '🎉', '❤️', '🔥', '👏'];
+    const DEFAULT_SLOW_MODE = Number(channelSettings?.slow_mode || 0);
+
+    const messageCache = new Map();
+    let lastMessageId = 0;
+    let pendingAttachmentLink = '';
+    let slowModeTimer = null;
+    let slowModeEndsAt = 0;
+    let tipQueue = [];
+    let tipAdminData = [];
+
+    const tipBanner = document.getElementById('serverTipBanner');
+    const tipTitleEl = document.getElementById('serverTipTitle');
+    const tipBodyEl = document.getElementById('serverTipBody');
+    const tipCtaLink = document.getElementById('serverTipCta');
+    const tipDismissBtn = document.getElementById('dismissTipButton');
+    const tipAdminPanel = document.getElementById('tipAdminPanel');
+    const tipAdminList = document.getElementById('tipAdminList');
+    const toggleTipComposerBtn = document.getElementById('toggleTipComposer');
+    const tipComposer = document.getElementById('tipComposer');
+    const cancelTipComposerBtn = document.getElementById('cancelTipComposer');
+    const saveTipButton = document.getElementById('saveTipButton');
+    const tipTitleInput = document.getElementById('tipTitleInput');
+    const tipBodyInput = document.getElementById('tipBodyInput');
+    const tipCtaLabelInput = document.getElementById('tipCtaLabelInput');
+    const tipCtaUrlInput = document.getElementById('tipCtaUrlInput');
+    const tipActiveInput = document.getElementById('tipActiveInput');
+    const tipDismissibleInput = document.getElementById('tipDismissibleInput');
+    const tipPriorityInput = document.getElementById('tipPriorityInput');
+
+    function escapeHtml(value = '') {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function formatTimestamp(value) {
+        if (!value) {
+            return '';
+        }
+        const dt = new Date(value);
+        if (!Number.isNaN(dt.getTime())) {
+            return dt.toLocaleString();
+        }
+        return value;
+    }
+
+    function setConnectionStatus(status, detail = '') {
+        const stateClassMap = {
+            online: 'status-online',
+            connected: 'status-online',
+            connecting: 'status-connecting',
+            disconnected: 'status-disconnected',
+            error: 'status-disconnected'
+        };
+
+        connectionStatus.className = `status-pill ${stateClassMap[status] || 'status-connecting'}`;
+        switch (status) {
+            case 'online':
+            case 'connected':
+                connectionStatus.textContent = 'Online';
+                break;
+            case 'connecting':
+                connectionStatus.textContent = 'Connecting…';
+                break;
+            case 'error':
+                connectionStatus.textContent = detail ? `Error: ${detail}` : 'Connection error';
+                break;
+            default:
+                connectionStatus.textContent = 'Offline';
+        }
+    }
+
+    function showComposerMessage(message, type = 'info') {
+        composerStatus.dataset.status = type;
+        composerStatus.textContent = message || '';
+    }
+
+    function setComposerDisabled(disabled) {
+        messageBody.disabled = disabled;
+        sendButton.disabled = disabled;
+        addAttachmentButton.disabled = disabled;
+        attachmentInput.disabled = disabled;
+    }
+
+    function renderPresenceList(participants) {
+        if (!presenceListEl) {
+            return;
+        }
+        const list = Array.isArray(participants) ? participants : [];
+        if (!list.length) {
+            presenceListEl.innerHTML = '<span class="presence-pill empty">Just you for now</span>';
+            return;
+        }
+
+        const limit = 6;
+        const visible = list.slice(0, limit);
+        const fragments = visible.map((entry) => {
+            const rawUsername = entry?.username || '';
+            const safeUsername = escapeHtml(rawUsername);
+            const isSelf = rawUsername === viewerUsername;
+            const label = isSelf ? 'You' : `@${safeUsername}`;
+            const pillClass = isSelf ? 'presence-pill self' : 'presence-pill';
+            return `<span class="${pillClass}">${label}</span>`;
+        });
+
+        if (list.length > visible.length) {
+            fragments.push(`<span class="presence-pill more">+${list.length - visible.length}</span>`);
+        }
+
+        presenceListEl.innerHTML = fragments.join('');
+    }
+
+    function ensureTypingCleanupTimer() {
+        if (typingCleanupInterval) {
+            return;
+        }
+        typingCleanupInterval = setInterval(updateTypingIndicator, 1000);
+    }
+
+    function updateTypingIndicator() {
+        if (!typingIndicator) {
+            return;
+        }
+        const iconMarkup = '<i class="fas fa-pencil-alt"></i>';
+        const now = Date.now();
+        for (const [username, expiry] of typingUsers.entries()) {
+            if (expiry <= now) {
+                typingUsers.delete(username);
+            }
+        }
+        if (!typingUsers.size) {
+            typingIndicator.setAttribute('aria-hidden', 'true');
+            typingIndicator.innerHTML = `${iconMarkup} ${escapeHtml('No one is typing right now.')}`;
+            return;
+        }
+
+        const displayUsers = Array.from(typingUsers.keys()).map((name) => (name === viewerUsername ? 'You' : `@${name}`));
+        let message;
+        if (displayUsers.length === 1) {
+            message = `${displayUsers[0]} is typing…`;
+        } else if (displayUsers.length === 2) {
+            message = `${displayUsers[0]} and ${displayUsers[1]} are typing…`;
+        } else {
+            message = `${displayUsers[0]}, ${displayUsers[1]} and others are typing…`;
+        }
+        typingIndicator.innerHTML = `${iconMarkup} ${escapeHtml(message)}`;
+        typingIndicator.setAttribute('aria-hidden', 'false');
+    }
+
+    function handleChannelTypingEvent(data = {}) {
+        if (Number(data.channel_id) !== channelId) {
+            return;
+        }
+        const username = data.username;
+        if (!username || username === viewerUsername) {
+            return;
+        }
+        if (data.typing === false) {
+            typingUsers.delete(username);
+            updateTypingIndicator();
+            return;
+        }
+        const expiresAt = data.expires_at ? Date.parse(data.expires_at) : Date.now() + TYPING_TTL_MS;
+        typingUsers.set(username, Number.isNaN(expiresAt) ? Date.now() + TYPING_TTL_MS : expiresAt);
+        updateTypingIndicator();
+    }
+
+    function emitTypingSignal() {
+        const now = Date.now();
+        if (!channelId || !wsClient.socket) {
+            return;
+        }
+        if (now - lastTypingEmit < TYPING_EMIT_INTERVAL_MS) {
+            return;
+        }
+        wsClient.socket.emit('channel.typing', { channel_id: channelId });
+        lastTypingEmit = now;
+    }
+
+    function showSlowModeMessage(seconds) {
+        if (seconds > 0) {
+            slowmodeStatus.hidden = false;
+            slowmodeStatus.textContent = `Slow mode — ${seconds}s interval`;
+        } else {
+            slowmodeStatus.hidden = true;
+        }
+    }
+
+    function startSlowModeCountdown(seconds) {
+        if (!seconds || seconds <= 0) {
+            return;
+        }
+        slowModeEndsAt = Date.now() + seconds * 1000;
+        clearInterval(slowModeTimer);
+        setComposerDisabled(true);
+
+        const update = () => {
+            const remaining = Math.max(0, Math.round((slowModeEndsAt - Date.now()) / 1000));
+            if (remaining > 0) {
+                showComposerMessage(`Slow mode enabled — wait ${remaining}s before sending again.`, 'warning');
+            } else {
+                clearInterval(slowModeTimer);
+                slowModeTimer = null;
+                setComposerDisabled(false);
+                showComposerMessage('');
+            }
+        };
+
+        update();
+        slowModeTimer = setInterval(() => {
+            if (Date.now() >= slowModeEndsAt) {
+                clearInterval(slowModeTimer);
+                slowModeTimer = null;
+                setComposerDisabled(false);
+                showComposerMessage('');
+            } else {
+                update();
+            }
+        }, 1000);
+    }
+
+    function buildAttachmentList(attachments) {
+        if (!attachments || !attachments.length) {
+            return '';
+        }
+        return attachments.map((item) => {
+            const type = escapeHtml(item.type || 'link');
+            const label = escapeHtml(item.metadata?.label || item.metadata?.note || item.storage_key || type);
+            const url = escapeHtml(item.storage_key || '#');
+            let icon = 'fa-link';
+            if (type === 'image') {
+                icon = 'fa-image';
+            } else if (type === 'listing') {
+                icon = 'fa-tags';
+            }
+            return `
+                <div class="attachment-item">
+                    <i class="fas ${icon}"></i>
+                    <a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function buildReactionBar(message) {
+        const counts = new Map();
+        (message.reactions || []).forEach((entry) => {
+            counts.set(entry.reaction, entry);
+        });
+
+        return REACTION_OPTIONS.map((emoji) => {
+            const entry = counts.get(emoji);
+            const activeClass = entry && entry.viewer_reacted ? 'active' : '';
+            const countLabel = entry ? entry.count : '+';
+            return `
+                <button class="reaction-btn ${activeClass}" data-reaction="${emoji}">
+                    <span class="emoji">${emoji}</span>
+                    <span class="count">${countLabel}</span>
+                </button>
+            `;
+        }).join('');
+    }
+
+    function buildMessageElement(message) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'message' + (message.sender_id === viewerUsername ? ' mine' : '');
+        wrapper.dataset.messageId = message.id;
+
+        const attachmentsHtml = buildAttachmentList(message.attachments);
+        const reactionsHtml = buildReactionBar(message);
+
+        let safeBody = escapeHtml(message.body || '');
+        if (!safeBody.trim() && message.message_type && message.message_type !== 'text') {
+            safeBody = `<span class="body placeholder">Shared a ${escapeHtml(message.message_type)}.</span>`;
+        } else if (safeBody) {
+            safeBody = `<div class="body">${safeBody.replace(/\n/g, '<br>')}</div>`;
+        } else {
+            safeBody = '';
+        }
+
+        wrapper.innerHTML = `
+            <div class="meta">
+                <span class="author">${escapeHtml(message.display_name || message.sender_id)}</span>
+                <span class="time">${escapeHtml(formatTimestamp(message.created_at))}</span>
+            </div>
+            ${safeBody || ''}
+            ${attachmentsHtml ? `<div class="attachments">${attachmentsHtml}</div>` : ''}
+            <div class="reaction-bar">${reactionsHtml}</div>
+            <div class="message-actions">
+                <button class="report-btn" data-message-id="${message.id}">
+                    <i class="fas fa-flag"></i> Report
+                </button>
+            </div>
+        `;
+
+        wrapper.querySelectorAll('.reaction-btn').forEach((button) => {
+            button.addEventListener('click', () => toggleReaction(message.id, button.dataset.reaction, button));
+        });
+        wrapper.querySelectorAll('.report-btn').forEach((button) => {
+            button.addEventListener('click', () => reportChannelMessage(message.id, button));
+        });
+
+        return wrapper;
+    }
+
+    function renderMessage(message, { scroll } = { scroll: true }) {
+        if (!message || typeof message.id === 'undefined') {
+            return;
+        }
+        messageCache.set(message.id, message);
+
+        const existing = document.querySelector(`[data-message-id="${message.id}"]`);
+        const element = buildMessageElement(message);
+
+        if (existing) {
+            existing.replaceWith(element);
+        } else {
+            const isNearBottom = messageList.scrollHeight - messageList.scrollTop <= messageList.clientHeight + 80;
+            messageList.appendChild(element);
+            if (scroll && isNearBottom) {
+                messageList.scrollTop = messageList.scrollHeight;
+            }
+        }
+    }
+
+    function updateMessageReactions(messageId, reactions) {
+        const cached = messageCache.get(messageId);
+        if (!cached) {
+            return;
+        }
+        cached.reactions = reactions;
+        renderMessage(cached, { scroll: false });
+    }
+
+    async function toggleReaction(messageId, reaction, button) {
+        if (!reaction) {
+            return;
+        }
+        const message = messageCache.get(messageId);
+        if (!message) {
+            return;
+        }
+
+        const entry = (message.reactions || []).find(r => r.reaction === reaction);
+        const viewerReacted = entry ? Boolean(entry.viewer_reacted) : false;
+        const method = viewerReacted ? 'DELETE' : 'POST';
+        const endpoint = `${apiUrl}/${messageId}/reactions${viewerReacted ? `?reaction=${encodeURIComponent(reaction)}` : ''}`;
+
+        button?.classList.add('disabled');
+
+        try {
+            const response = await fetch(endpoint, {
+                method,
+                credentials: 'include',
+                headers: viewerReacted ? {} : { 'Content-Type': 'application/json' },
+                body: viewerReacted ? undefined : JSON.stringify({ reaction }),
+            });
+
+            if (!response.ok) {
+                return;
+            }
+
+            const data = await response.json();
+            updateMessageReactions(messageId, data.reactions || []);
+        } catch (error) {
+            console.error('Failed to toggle reaction', error);
+        } finally {
+            button?.classList.remove('disabled');
+        }
+    }
+
+    function clearAttachmentPreview() {
+        pendingAttachmentLink = '';
+        attachmentPreview.hidden = true;
+        attachmentPreviewLabel.textContent = '';
+    }
+
+    async function reportChannelMessage(messageId, button) {
+        const message = messageCache.get(messageId);
+        if (!message) {
+            return;
+        }
+        const reason = window.prompt('Help our moderators understand the issue. Why are you reporting this message?');
+        if (reason === null) {
+            return;
+        }
+        const trimmed = reason.trim();
+        if (!trimmed) {
+            showComposerMessage('Report cancelled. Please provide a reason.', 'warning');
+            return;
+        }
+        if (button) {
+            button.disabled = true;
+        }
+        try {
+            const response = await fetch('/api/reports', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target_type: 'channel_message',
+                    target_id: String(messageId),
+                    context: {
+                        reason: trimmed,
+                        channel_slug: channelSlug,
+                        server_slug: serverSlug,
+                        sender: message.sender_id,
+                    },
+                }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.error || 'Unable to submit report.');
+            }
+            showComposerMessage('Report submitted. Thank you for helping maintain the community.', 'warning');
+        } catch (error) {
+            console.error('Failed to report message', error);
+            showComposerMessage(error.message || 'Unable to submit report. Please try again later.', 'error');
+        } finally {
+            if (button) {
+                button.disabled = false;
+            }
+        }
+    }
+
+    function renderTipBanner() {
+        if (!tipBanner) {
+            return;
+        }
+        if (!tipQueue.length) {
+            tipBanner.hidden = true;
+            return;
+        }
+        const tip = tipQueue[0];
+        tipTitleEl.textContent = tip.title;
+        tipBodyEl.textContent = tip.body;
+        if (tip.cta_url && tip.cta_label) {
+            tipCtaLink.href = tip.cta_url;
+            tipCtaLink.textContent = tip.cta_label;
+            tipCtaLink.hidden = false;
+        } else {
+            tipCtaLink.hidden = true;
+        }
+        tipDismissBtn.hidden = !tip.dismissible;
+        tipBanner.dataset.tipId = tip.id;
+        tipBanner.hidden = false;
+    }
+
+    function renderTipAdminList(tips) {
+        if (!tipAdminList) {
+            return;
+        }
+        tipAdminList.innerHTML = '';
+        if (!tips.length) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.textContent = 'No tips yet. Create one to highlight community updates.';
+            tipAdminList.appendChild(empty);
+            return;
+        }
+        tips.forEach((tip) => {
+            const entry = document.createElement('div');
+            entry.className = 'tip-entry' + (tip.active ? '' : ' badge-inactive');
+            entry.dataset.tipId = tip.id;
+            entry.innerHTML = `
+                <div class="tip-entry-header">
+                    <div class="title">${escapeHtml(tip.title)}</div>
+                    <div class="tip-entry-actions">
+                        <button type="button" class="btn btn-secondary small" data-action="toggle-active" data-tip-id="${tip.id}">
+                            <i class="fas ${tip.active ? 'fa-pause' : 'fa-play'}"></i> ${tip.active ? 'Pause' : 'Enable'}
+                        </button>
+                        <button type="button" class="btn btn-secondary small" data-action="remove" data-tip-id="${tip.id}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="tip-body-preview">${escapeHtml(tip.body)}</div>
+                <div class="tip-entry-meta">
+                    <span>Status: ${tip.active ? 'Active' : 'Inactive'}</span>
+                    <span>Dismissible: ${tip.dismissible ? 'Yes' : 'No'}</span>
+                    <span>Priority: ${tip.priority || 0}</span>
+                </div>
+            `;
+            tipAdminList.appendChild(entry);
+        });
+    }
+
+    async function fetchTips() {
+        try {
+            const params = new URLSearchParams({
+                limit: canManageServer ? '50' : '10',
+            });
+            if (canManageServer) {
+                params.set('include_inactive', '1');
+                params.set('include_dismissed', '1');
+            }
+            const response = await fetch(`/api/servers/${serverSlug}/tips?${params.toString()}`, {
+                credentials: 'include',
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Unable to load tips');
+            }
+            const tips = Array.isArray(data.tips) ? data.tips : [];
+            tipQueue = tips.filter((tip) => tip.active && !tip.viewer_dismissed);
+            renderTipBanner();
+            if (canManageServer && tipAdminList) {
+                tipAdminData = tips;
+                renderTipAdminList(tips);
+            }
+        } catch (error) {
+            console.error('Failed to load server tips', error);
+        }
+    }
+
+    async function createServerTip() {
+        if (!tipComposer) {
+            return;
+        }
+        const title = tipTitleInput.value.trim();
+        const body = tipBodyInput.value.trim();
+        if (!title || !body) {
+            showComposerMessage('Provide a title and body for the tip.', 'warning');
+            return;
+        }
+        const payload = {
+            title,
+            body,
+            cta_label: tipCtaLabelInput.value.trim() || null,
+            cta_url: tipCtaUrlInput.value.trim() || null,
+            active: tipActiveInput.checked,
+            dismissible: tipDismissibleInput.checked,
+            priority: tipPriorityInput.value ? Number(tipPriorityInput.value) : 0,
+        };
+        saveTipButton.disabled = true;
+        try {
+            const response = await fetch(`/api/servers/${serverSlug}/tips`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to create tip');
+            }
+            tipTitleInput.value = '';
+            tipBodyInput.value = '';
+            tipCtaLabelInput.value = '';
+            tipCtaUrlInput.value = '';
+            tipPriorityInput.value = '';
+            tipComposer.hidden = true;
+            showComposerMessage('Tip published to the community.', 'info');
+            await fetchTips();
+        } catch (error) {
+            console.error('Failed to create tip', error);
+            showComposerMessage(error.message || 'Failed to create tip.', 'error');
+        } finally {
+            saveTipButton.disabled = false;
+        }
+    }
+
+    async function updateServerTip(tipId, payload) {
+        const response = await fetch(`/api/servers/${serverSlug}/tips/${tipId}`, {
+            method: 'PATCH',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to update tip');
+        }
+        await fetchTips();
+    }
+
+    async function deleteServerTip(tipId) {
+        const response = await fetch(`/api/servers/${serverSlug}/tips/${tipId}`, {
+            method: 'DELETE',
+            credentials: 'include',
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to delete tip');
+        }
+        await fetchTips();
+    }
+
+    function joinChannelRoom() {
+        if (!channelId || !wsClient.socket) {
+            return;
+        }
+        wsClient.socket.emit('channel.join', { channel_id: channelId });
+    }
+
+    function leaveChannelRoom() {
+        if (!channelId || !wsClient.socket) {
+            return;
+        }
+        wsClient.socket.emit('channel.leave', { channel_id: channelId });
+    }
+
+    addAttachmentButton.addEventListener('click', () => {
+        const link = attachmentInput.value.trim();
+        if (!link) {
+            showComposerMessage('Enter a valid URL before attaching.', 'warning');
+            return;
+        }
+        try {
+            const url = new URL(link);
+            pendingAttachmentLink = url.toString();
+            attachmentPreviewLabel.textContent = pendingAttachmentLink;
+            attachmentPreview.hidden = false;
+            attachmentInput.value = '';
+            showComposerMessage('Link attached. It will be sent with your next message.', 'info');
+        } catch (error) {
+            showComposerMessage('Please provide a valid URL.', 'warning');
+        }
+    });
+
+    clearAttachmentButton.addEventListener('click', () => {
+        clearAttachmentPreview();
+        showComposerMessage('', 'info');
+    });
+
+    if (tipDismissBtn) {
+        tipDismissBtn.addEventListener('click', async () => {
+            if (!tipQueue.length) {
+                tipBanner.hidden = true;
+                return;
+            }
+            const tip = tipQueue.shift();
+            tipBanner.hidden = true;
+            try {
+                await fetch(`/api/servers/${serverSlug}/tips/${tip.id}/dismiss`, {
+                    method: 'POST',
+                    credentials: 'include',
+                });
+            } catch (error) {
+                console.error('Failed to dismiss tip', error);
+            } finally {
+                renderTipBanner();
+            }
+        });
+    }
+
+    if (toggleTipComposerBtn) {
+        toggleTipComposerBtn.addEventListener('click', () => {
+            tipComposer.hidden = !tipComposer.hidden;
+            if (!tipComposer.hidden) {
+                tipTitleInput.focus();
+            }
+        });
+    }
+
+    if (cancelTipComposerBtn) {
+        cancelTipComposerBtn.addEventListener('click', () => {
+            tipComposer.hidden = true;
+        });
+    }
+
+    if (saveTipButton) {
+        saveTipButton.addEventListener('click', () => {
+            createServerTip();
+        });
+    }
+
+    if (tipAdminList) {
+        tipAdminList.addEventListener('click', async (event) => {
+            const button = event.target.closest('button[data-action]');
+            if (!button) {
+                return;
+            }
+            const tipId = button.dataset.tipId;
+            if (!tipId) {
+                return;
+            }
+            try {
+                if (button.dataset.action === 'toggle-active') {
+                    const tip = tipAdminData.find((item) => String(item.id) === String(tipId));
+                    const nextActive = tip ? !tip.active : true;
+                    await updateServerTip(tipId, { active: nextActive });
+                } else if (button.dataset.action === 'remove') {
+                    const confirmed = window.confirm('Remove this tip? Members will no longer see it.');
+                    if (!confirmed) {
+                        return;
+                    }
+                    await deleteServerTip(tipId);
+                }
+            } catch (error) {
+                console.error('Failed to update tip', error);
+                showComposerMessage(error.message || 'Failed to update tip.', 'error');
+            }
+        });
+    }
+
+    fetchTips();
+
+    const initialMessages = {{ messages | tojson }};
+    messageList.innerHTML = '';
+    initialMessages.forEach((msg) => {
+        renderMessage(msg, { scroll: false });
+        lastMessageId = Math.max(lastMessageId, msg.id);
+    });
+    if (DEFAULT_SLOW_MODE > 0) {
+        showSlowModeMessage(DEFAULT_SLOW_MODE);
+    }
+    renderPresenceList([]);
+    ensureTypingCleanupTimer();
+    updateTypingIndicator();
+
+    async function fetchNewMessages() {
+        try {
+            const url = lastMessageId ? `${apiUrl}?since_id=${lastMessageId}` : apiUrl;
+            const response = await fetch(url, { credentials: 'include' });
+            if (!response.ok) {
+                return;
+            }
+            const data = await response.json();
+            (data.messages || []).forEach((msg) => {
+                renderMessage(msg);
+                lastMessageId = Math.max(lastMessageId, msg.id);
+            });
+        } catch (error) {
+            console.error('Failed to fetch new messages', error);
+        }
+    }
+
+    setInterval(fetchNewMessages, 4000);
+    wsClient.on('connected', () => {
+        setConnectionStatus('online');
+        renderPresenceList([]);
+        joinChannelRoom();
+    });
+
+    wsClient.on('disconnected', () => {
+        setConnectionStatus('disconnected');
+        typingUsers.clear();
+        updateTypingIndicator();
+        renderPresenceList([]);
+    });
+
+    wsClient.on('status', (data = {}) => {
+        if (data.status === 'connected') {
+            setConnectionStatus('online');
+            joinChannelRoom();
+        } else if (data.status === 'connecting') {
+            setConnectionStatus('connecting');
+        } else if (data.status === 'disconnected') {
+            setConnectionStatus('disconnected');
+        } else if (data.status === 'error') {
+            setConnectionStatus('error', data.error);
+        }
+    });
+
+    wsClient.on('channel.presence', (data = {}) => {
+        if (Number(data.channel_id) !== channelId) {
+            return;
+        }
+        renderPresenceList(data.participants || []);
+    });
+
+    wsClient.on('channel.typing', handleChannelTypingEvent);
+
+    if (wsClient.connected) {
+        setConnectionStatus('online');
+        joinChannelRoom();
+    }
+
+    window.addEventListener('beforeunload', leaveChannelRoom);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            joinChannelRoom();
+        }
+    });
+
+    messageBody.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            messageForm.dispatchEvent(new Event('submit', { cancelable: true }));
+        }
+    });
+
+    messageBody.addEventListener('input', emitTypingSignal);
+    messageBody.addEventListener('focus', emitTypingSignal);
+
+    messageForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const body = messageBody.value.trim();
+        if (!body && !pendingAttachmentLink) {
+            return;
+        }
+
+        const payload = {
+            body,
+            message_type: body ? 'text' : 'attachment',
+        };
+
+        if (pendingAttachmentLink) {
+            payload.attachments = [
+                {
+                    storage_key: pendingAttachmentLink,
+                    type: 'link',
+                    metadata: { url: pendingAttachmentLink },
+                },
+            ];
+        }
+
+        messageBody.disabled = true;
+        setComposerDisabled(true);
+        showComposerMessage('Sending…', 'info');
+
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+
+            if (response.status === 429) {
+                const data = await response.json();
+                const match = data.error && data.error.match(/(\d+)/);
+                const waitSeconds = match ? parseInt(match[1], 10) : DEFAULT_SLOW_MODE || 5;
+                startSlowModeCountdown(waitSeconds);
+                showComposerMessage(data.error, 'warning');
+                return;
+            }
+
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                showComposerMessage(data.error || 'Unable to send message.', 'error');
+                return;
+            }
+
+            const data = await response.json();
+            if (data.message) {
+                renderMessage(data.message);
+                lastMessageId = Math.max(lastMessageId, data.message.id);
+            }
+
+            messageBody.value = '';
+            clearAttachmentPreview();
+            showComposerMessage('');
+
+            if (DEFAULT_SLOW_MODE > 0) {
+                startSlowModeCountdown(DEFAULT_SLOW_MODE);
+            }
+        } catch (error) {
+            console.error('Failed to send message', error);
+            showComposerMessage('Unable to send message. Please try again.', 'error');
+        } finally {
+            messageBody.disabled = false;
+            if (!slowModeTimer) {
+                setComposerDisabled(false);
+            }
+        }
+    });
+
+    showComposerMessage('');
+</script>
+{% endblock %}
+

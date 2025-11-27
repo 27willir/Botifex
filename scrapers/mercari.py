@@ -47,6 +47,19 @@ def _user_key(user_id):
     return re.sub(r'[^a-zA-Z0-9_-]', '_', str(user_id))
 
 
+def _flag_key(flag_name, user_id):
+    """Build a unique running flag key per user."""
+    user_key = _user_key(user_id)
+    if user_key == "global":
+        return flag_name
+    return f"{flag_name}:{user_key}"
+
+
+def get_mercari_flag_key(user_id=None, flag_name=SITE_NAME):
+    """Expose running flag keys for orchestrators."""
+    return _flag_key(flag_name, user_id)
+
+
 seen_listings = {}
 
 
@@ -268,7 +281,7 @@ def send_discord_message(title, link, price=None, image_url=None, user_id=None):
         logger.error(f"⚠️ Failed to save Mercari listing for {link}: {exc}")
 
 
-def check_mercari(flag_name=SITE_NAME, user_id=None, user_seen=None):
+def check_mercari(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None):
     settings = load_settings(username=user_id)
     keywords = settings["keywords"]
     min_price = settings["min_price"]
@@ -278,12 +291,17 @@ def check_mercari(flag_name=SITE_NAME, user_id=None, user_seen=None):
     radius = settings.get("radius", 50)
 
     results = []
+    flag_key = flag_key or _flag_key(flag_name, user_id)
     user_key = _user_key(user_id)
     if user_seen is None:
         user_seen = seen_listings.setdefault(user_key, {})
 
     with ScraperMetrics(SITE_NAME) as metrics:
         try:
+            if not running_flags.get(flag_key, True):
+                metrics.error = "stopped"
+                return []
+
             location_coords = get_location_coords(location)
             if location_coords:
                 logger.debug(f"Mercari: Searching {location} within {radius} miles")
@@ -448,6 +466,8 @@ def run_mercari_scraper(flag_name=SITE_NAME, user_id=None):
         return
 
     set_recursion_guard(SITE_NAME, True)
+    flag_key = _flag_key(flag_name, user_id)
+    running_flags.setdefault(flag_key, True)
 
     try:
         logger.info(f"Starting Mercari scraper for user {user_id}")
@@ -456,10 +476,10 @@ def run_mercari_scraper(flag_name=SITE_NAME, user_id=None):
         seen_listings[user_key] = user_seen
 
         try:
-            while running_flags.get(flag_name, True):
+            while running_flags.get(flag_key, True):
                 try:
                     logger.debug(f"Running Mercari scraper check for user {user_id}")
-                    results = check_mercari(flag_name, user_id=user_id, user_seen=user_seen)
+                    results = check_mercari(flag_name, user_id=user_id, user_seen=user_seen, flag_key=flag_key)
                     if results:
                         logger.info(f"Mercari scraper found {len(results)} new listings for user {user_id}")
                     else:
@@ -477,7 +497,7 @@ def run_mercari_scraper(flag_name=SITE_NAME, user_id=None):
 
                 settings = load_settings(username=user_id)
                 interval = settings.get("interval", 60)
-                human_delay(running_flags, flag_name, interval * 0.9, interval * 1.1)
+                human_delay(running_flags, flag_key, interval * 0.9, interval * 1.1)
 
         except KeyboardInterrupt:
             logger.info("Mercari scraper interrupted by user")

@@ -58,23 +58,40 @@
         /* SIDEBAR */
         /* ====================== */
         .sidebar {
-            width: 260px;
-            background: rgba(26, 26, 46, 0.95);
-            backdrop-filter: blur(20px);
-            border-right: 1px solid rgba(0, 123, 255, 0.2);
-            padding: 32px 24px;
+            width: 268px;
+            padding: 32px 26px 28px;
+            background: linear-gradient(195deg, rgba(17, 20, 36, 0.96) 0%, rgba(8, 10, 22, 0.94) 100%);
+            border-right: 1px solid rgba(99, 102, 241, 0.28);
+            box-shadow: 16px 0 48px rgba(8, 12, 24, 0.45);
+            border-radius: 0 28px 28px 0;
             display: flex;
             flex-direction: column;
-            gap: 24px;
-            box-shadow: 0 0 30px rgba(0, 123, 255, 0.1);
+            gap: 28px;
             position: relative;
             overflow-y: auto;
-            scrollbar-width: thin;
-            scrollbar-color: rgba(0, 191, 255, 0.3) transparent;
+            color: #e2e8f0;
+        }
+
+        .sidebar::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(120% 100% at -20% 0%, rgba(56, 189, 248, 0.36), transparent 60%);
+            pointer-events: none;
+        }
+
+        .sidebar::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border: 1px solid rgba(148, 163, 184, 0.08);
+            border-left: none;
+            border-radius: 0 28px 28px 0;
+            pointer-events: none;
         }
 
         .sidebar::-webkit-scrollbar {
-            width: 4px;
+            width: 6px;
         }
 
         .sidebar::-webkit-scrollbar-track {
@@ -82,85 +99,203 @@
         }
 
         .sidebar::-webkit-scrollbar-thumb {
-            background: rgba(0, 191, 255, 0.3);
-            border-radius: 2px;
+            background: rgba(148, 163, 184, 0.25);
+            border-radius: 3px;
         }
 
-        .logo-container {
-            margin-bottom: 32px;
-            padding-bottom: 16px;
+        .sidebar-inner {
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
             position: relative;
-            text-align: center;
+            z-index: 1;
+            flex: 1;
         }
 
-        .logo-container::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 40px;
-            height: 2px;
-            background: linear-gradient(90deg, #00bfff, transparent);
-            border-radius: 1px;
+        .sidebar-header {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            padding-bottom: 18px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.16);
         }
 
-        .logo {
-            max-width: 120px;
+        .sidebar-logo-link {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .sidebar-logo {
+            max-width: 130px;
             height: auto;
-            filter: drop-shadow(0 0 10px rgba(0, 191, 255, 0.5));
-            transition: all 0.3s ease;
+            filter: drop-shadow(0 0 18px rgba(56, 189, 248, 0.4));
+            transition: transform 0.35s ease, filter 0.35s ease;
         }
 
-        .logo:hover {
-            filter: drop-shadow(0 0 15px rgba(0, 191, 255, 0.8));
-            transform: scale(1.05);
+        .sidebar-logo-link:hover .sidebar-logo {
+            transform: translateY(-1px) scale(1.04);
+            filter: drop-shadow(0 0 24px rgba(56, 189, 248, 0.6));
         }
 
-        .sidebar a {
+        .sidebar-heading {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .sidebar-title {
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.6px;
+            color: #f8fafc;
+        }
+
+        .sidebar-tagline {
+            font-size: 12px;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            color: rgba(148, 163, 184, 0.75);
+        }
+
+        .sidebar-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 26px;
+        }
+
+        .sidebar-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .sidebar-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 1.4px;
+            text-transform: uppercase;
+            color: rgba(148, 163, 184, 0.7);
+            padding-left: 4px;
+        }
+
+        .sidebar-links {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .sidebar-link {
             display: flex;
             align-items: center;
-            padding: 14px 18px;
-            border-radius: 10px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            color: rgba(255, 255, 255, 0.85);
-            border: 1px solid transparent;
-            position: relative;
-            overflow: hidden;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            color: rgba(226, 232, 240, 0.88);
             font-weight: 500;
-            font-size: 14px;
-            letter-spacing: 0.3px;
+            letter-spacing: 0.2px;
+            border: 1px solid transparent;
+            background: rgba(255, 255, 255, 0.01);
+            position: relative;
+            transition: all 0.35s ease;
         }
 
-        .sidebar a::before {
+        .sidebar-link::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(0, 191, 255, 0.1), transparent);
-            transition: left 0.5s;
+            top: 10px;
+            bottom: 10px;
+            left: 8px;
+            width: 2px;
+            border-radius: 999px;
+            background: linear-gradient(180deg, rgba(56, 189, 248, 0.85), rgba(129, 140, 248, 0.85));
+            opacity: 0;
+            transition: opacity 0.35s ease;
         }
 
-        .sidebar a:hover::before {
-            left: 100%;
-        }
-
-        .sidebar a:hover {
-            background: rgba(0, 123, 255, 0.1);
-            border-color: rgba(0, 191, 255, 0.3);
-            transform: translateX(6px);
-            box-shadow: 0 4px 20px rgba(0, 191, 255, 0.15);
-            color: #ffffff;
-        }
-
-        .sidebar a i {
-            margin-right: 14px;
-            color: #00bfff;
+        .sidebar-link i {
             font-size: 16px;
             width: 20px;
             text-align: center;
+            color: rgba(165, 180, 252, 0.95);
+        }
+
+        .sidebar-link span {
+            flex: 1;
+        }
+
+        .sidebar-link:hover,
+        .sidebar-link:focus-visible {
+            background: linear-gradient(120deg, rgba(79, 70, 229, 0.18), rgba(14, 165, 233, 0.12));
+            border-color: rgba(99, 102, 241, 0.36);
+            color: #f8fafc;
+            transform: translateX(6px);
+            box-shadow: 0 18px 42px rgba(76, 106, 255, 0.2);
+        }
+
+        .sidebar-link:hover::before,
+        .sidebar-link:focus-visible::before,
+        .sidebar-link.active::before {
+            opacity: 1;
+        }
+
+        .sidebar-link.active {
+            background: linear-gradient(120deg, rgba(79, 70, 229, 0.28), rgba(14, 165, 233, 0.18));
+            border-color: rgba(99, 102, 241, 0.48);
+            color: #f8fafc;
+            box-shadow: 0 18px 42px rgba(76, 106, 255, 0.22);
+        }
+
+        .sidebar-link.active i {
+            color: #c7d2fe;
+        }
+
+        .sidebar-pill {
+            margin-left: auto;
+            padding: 2px 10px;
+            border-radius: 999px;
+            background: rgba(79, 70, 229, 0.32);
+            color: #c7d2fe;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .sidebar-link-external {
+            font-size: 12px;
+            margin-left: 6px;
+            color: rgba(148, 163, 184, 0.6);
+        }
+
+        .sidebar-link:hover .sidebar-link-external,
+        .sidebar-link:focus-visible .sidebar-link-external {
+            color: rgba(226, 232, 240, 0.85);
+        }
+
+        .sidebar-link.is-hidden {
+            display: none;
+        }
+
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 24px;
+            border-top: 1px solid rgba(148, 163, 184, 0.14);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .sidebar-footer .sidebar-link {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 240px;
+                padding: 28px 22px 24px;
+            }
         }
 
         /* ====================== */
@@ -186,6 +321,226 @@
         .main::-webkit-scrollbar-thumb {
             background: rgba(0, 191, 255, 0.3);
             border-radius: 3px;
+        }
+
+        .feed-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .feed-section {
+            background: rgba(16, 22, 40, 0.85);
+            border: 1px solid rgba(0, 191, 255, 0.15);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+        }
+
+        .feed-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .feed-header h2 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 20px;
+            margin: 0;
+        }
+
+        .feed-header button,
+        .feed-header select {
+            background: rgba(0, 191, 255, 0.15);
+            border: 1px solid rgba(0, 191, 255, 0.35);
+            color: #ffffff;
+            padding: 8px 14px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
+
+        .feed-header button:hover,
+        .feed-header select:hover {
+            background: rgba(0, 191, 255, 0.3);
+            border-color: rgba(0, 191, 255, 0.6);
+        }
+
+        .feed-list,
+        .notification-list {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .feed-item,
+        .notification-item {
+            display: flex;
+            gap: 16px;
+            background: rgba(9, 14, 26, 0.9);
+            border: 1px solid rgba(0, 191, 255, 0.12);
+            border-radius: 14px;
+            padding: 16px;
+            transition: border-color 0.2s ease, transform 0.2s ease;
+        }
+
+        .feed-item:hover,
+        .notification-item:hover {
+            border-color: rgba(0, 191, 255, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .feed-item-icon,
+        .notification-icon {
+            flex-shrink: 0;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            background: rgba(0, 191, 255, 0.18);
+            color: #00d8ff;
+            font-size: 18px;
+        }
+
+        .feed-item-body,
+        .notification-body {
+            flex: 1;
+        }
+
+        .feed-item-top,
+        .notification-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 12px;
+            margin-bottom: 6px;
+        }
+
+        .feed-label,
+        .notification-label {
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            color: #9be7ff;
+            text-transform: uppercase;
+            font-size: 12px;
+        }
+
+        .feed-time,
+        .notification-time {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.55);
+        }
+
+        .feed-item-content,
+        .notification-content {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .feed-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .feed-empty {
+            color: rgba(255, 255, 255, 0.5);
+            text-align: center;
+            padding: 20px 0;
+        }
+
+        .notification-group + .notification-group {
+            margin-top: 20px;
+            border-top: 1px solid rgba(0, 191, 255, 0.12);
+            padding-top: 16px;
+        }
+
+        .notification-group h4 {
+            margin-bottom: 12px;
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.7);
+            letter-spacing: 0.5px;
+        }
+
+        .notification-item.unread {
+            border-color: rgba(0, 191, 255, 0.5);
+            background: rgba(13, 22, 38, 0.92);
+        }
+
+        .notification-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .notification-actions button {
+            background: rgba(0, 191, 255, 0.18);
+            border: 1px solid rgba(0, 191, 255, 0.3);
+            color: #ffffff;
+            padding: 6px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .notification-actions button:hover {
+            background: rgba(0, 191, 255, 0.35);
+            border-color: rgba(0, 191, 255, 0.6);
+        }
+
+        .feed-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .feed-actions button {
+            background: rgba(0, 191, 255, 0.15);
+            border: 1px solid rgba(0, 191, 255, 0.4);
+            color: #ffffff;
+            padding: 6px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .feed-actions button:hover {
+            background: rgba(0, 191, 255, 0.35);
+        }
+
+        .feed-count-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 28px;
+            padding: 0 8px;
+            height: 22px;
+            border-radius: 999px;
+            font-size: 12px;
+            background: rgba(255, 87, 175, 0.4);
+            color: #ffffff;
+            border: 1px solid rgba(255, 87, 175, 0.6);
+        }
+
+        @media (max-width: 1024px) {
+            .feed-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         h2 {
@@ -531,37 +886,134 @@
     <!-- SIDEBAR -->
     <!-- ====================== -->
     <div class="sidebar">
-        <div class="logo-container">
-            <a href="{{ url_for('dashboard') }}">
-                <img src="{{ url_for('static', filename='images/botifex-logo.svg') }}" alt="Botifex" class="logo">
+        <div class="sidebar-inner">
+            <div class="sidebar-header">
+                <a href="{{ url_for('dashboard') }}" class="sidebar-logo-link">
+                    <img src="{{ url_for('static', filename='images/botifex-logo.svg') }}" alt="Botifex" class="sidebar-logo">
+                </a>
+                <div class="sidebar-heading">
+                    <span class="sidebar-title">Control Center</span>
+                    <span class="sidebar-tagline">Monitor • Discover • Act faster</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="sidebar-section">
+                    <p class="sidebar-section-title">Overview</p>
+                    <div class="sidebar-links">
+                        <a href="{{ url_for('dashboard') }}" class="sidebar-link"><i class="fas fa-home"></i><span>Dashboard</span></a>
+                        <a href="#settings" class="sidebar-link"><i class="fas fa-cog"></i><span>Quick Settings</span></a>
+                        <a href="{{ url_for('profile_page') }}" class="sidebar-link"><i class="fas fa-user"></i><span>Profile</span></a>
+                        <a href="{{ url_for('favorites_page') }}" class="sidebar-link"><i class="fas fa-star"></i><span>Favorites</span></a>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <p class="sidebar-section-title">Engagement</p>
+                    <div class="sidebar-links">
+                        <a href="{{ url_for('messages_page') }}" class="sidebar-link"><i class="fas fa-comments"></i><span>Messages</span></a>
+                        <a href="#activity-feed" class="sidebar-link"><i class="fas fa-stream"></i><span>Activity Feed</span></a>
+                        <a href="#server-highlights" class="sidebar-link"><i class="fas fa-fire"></i><span>Server Highlights</span></a>
+                        <a href="#notification-center" class="sidebar-link"><i class="fas fa-rss"></i><span>Notifications</span></a>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <p class="sidebar-section-title">Growth</p>
+                    <div class="sidebar-links">
+                        <a href="{{ url_for('servers_discover_page') }}" class="sidebar-link"><i class="fas fa-users"></i><span>Community Servers</span></a>
+                        <a href="{{ url_for('servers_create_page') }}" class="sidebar-link"><i class="fas fa-plus-circle"></i><span>Create Server</span></a>
+                        <a href="{{ url_for('alerts_page') }}" class="sidebar-link"><i class="fas fa-bell"></i><span>Price Alerts</span></a>
+                        <a href="/analytics" class="sidebar-link"><i class="fas fa-chart-line"></i><span>Analytics</span></a>
+                        <a href="/selling" class="sidebar-link"><i class="fas fa-dollar-sign"></i><span>Sell Items</span></a>
+                        <a href="#bot-control" class="sidebar-link"><i class="fas fa-play-circle"></i><span>Bot Control</span></a>
+                        <a href="#recent-listings" class="sidebar-link"><i class="fas fa-list"></i><span>Recent Listings</span></a>
+                        <a href="/api-docs" target="_blank" rel="noopener" class="sidebar-link"><i class="fas fa-book"></i><span>API Docs <i class="fas fa-arrow-up-right-from-square sidebar-link-external"></i></span></a>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <p class="sidebar-section-title">Management</p>
+                    <div class="sidebar-links">
+                        <a href="{{ url_for('updates_page') }}" class="sidebar-link"><i class="fas fa-newspaper"></i><span>Updates</span></a>
+                        {% if current_user.is_authenticated %}
+                            {% set user_data = None %}
+                            {% for u in [current_user.id] %}
+                                <!-- Check if user is admin -->
+                            {% endfor %}
+                        {% endif %}
+                        <a href="/admin" id="admin-link" class="sidebar-link" style="display: none;"><i class="fas fa-user-shield"></i><span>Admin Panel</span></a>
+                    </div>
+                </div>
+            </nav>
+        </div>
+
+        <div class="sidebar-footer">
+            <a href="/subscription" class="sidebar-link">
+                <i class="fas fa-crown"></i>
+                <span>Subscription</span>
+                <span class="sidebar-pill">{{ user_tier|upper }}</span>
+            </a>
+            <a href="/logout" class="sidebar-link">
+                <i class="fas fa-sign-out-alt"></i>
+                <span>Logout</span>
             </a>
         </div>
-        <a href="{{ url_for('dashboard') }}"><i class="fas fa-home"></i> Dashboard</a>
-        <a href="#settings"><i class="fas fa-cog"></i> Settings</a>
-        <a href="{{ url_for('profile_page') }}"><i class="fas fa-user"></i> Profile</a>
-        <a href="{{ url_for('favorites_page') }}"><i class="fas fa-star"></i> Favorites</a>
-        <a href="{{ url_for('alerts_page') }}"><i class="fas fa-bell"></i> Price Alerts</a>
-        <a href="/analytics"><i class="fas fa-chart-line"></i> Analytics</a>
-        <a href="/selling"><i class="fas fa-dollar-sign"></i> Sell Items</a>
-        <a href="{{ url_for('updates_page') }}"><i class="fas fa-newspaper"></i> Updates</a>
-        <a href="#bot-control"><i class="fas fa-play-circle"></i> Bot Control</a>
-        <a href="#recent-listings"><i class="fas fa-list"></i> Recent Listings</a>
-        <a href="/api-docs" target="_blank"><i class="fas fa-book"></i> API Docs</a>
-        {% if current_user.is_authenticated %}
-            {% set user_data = None %}
-            {% for u in [current_user.id] %}
-                <!-- Check if user is admin -->
-            {% endfor %}
-        {% endif %}
-        <a href="/admin" id="admin-link" style="display: none;"><i class="fas fa-user-shield"></i> Admin Panel</a>
-        <a href="/subscription"><i class="fas fa-crown"></i> Subscription <span style="background: #667eea; padding: 2px 8px; border-radius: 10px; font-size: 0.8em; margin-left: 5px;">{{ user_tier|upper }}</span></a>
-        <a href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a>
     </div>
 
     <!-- ====================== -->
     <!-- MAIN CONTENT -->
     <!-- ====================== -->
     <div class="main">
+        <div class="feed-grid">
+            <div id="activity-feed" class="feed-section">
+                <div class="feed-header">
+                    <h2><i class="fas fa-stream"></i> Activity Feed</h2>
+                    <div class="feed-actions">
+                        <button id="refresh-home-feed" type="button"><i class="fas fa-sync"></i> Refresh</button>
+                    </div>
+                </div>
+                <div id="activity-feed-list" class="feed-list">
+                    <p class="feed-empty">Loading activity feed…</p>
+                </div>
+            </div>
+            <div id="server-highlights" class="feed-section">
+                <div class="feed-header">
+                    <h2><i class="fas fa-fire"></i> Server Highlights</h2>
+                    <div class="feed-actions">
+                        <select id="server-feed-selector">
+                            <option value="">Select a server</option>
+                        </select>
+                        <button id="refresh-server-feed" type="button"><i class="fas fa-sync"></i> Refresh</button>
+                    </div>
+                </div>
+                <div id="server-feed-list" class="feed-list">
+                    <p class="feed-empty">Join a server to see highlights.</p>
+                </div>
+            </div>
+            <div id="notification-center" class="feed-section">
+                <div class="feed-header">
+                    <h2><i class="fas fa-rss"></i> Notification Center <span id="notifications-count" class="feed-count-badge">0</span></h2>
+                    <div class="feed-actions">
+                        <button id="notifications-refresh" type="button"><i class="fas fa-sync"></i> Refresh</button>
+                        <button id="notifications-mark-all" type="button"><i class="fas fa-check"></i> Mark All Read</button>
+                    </div>
+                </div>
+                <div id="notification-groups">
+                    <div class="notification-group">
+                        <h4>Today</h4>
+                        <div id="notifications-today" class="notification-list">
+                            <p class="feed-empty">Loading notifications…</p>
+                        </div>
+                    </div>
+                    <div class="notification-group">
+                        <h4>Earlier</h4>
+                        <div id="notifications-earlier" class="notification-list"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- SETTINGS CARD -->
         <!-- SETTINGS CARD (merged into main page) -->
 <div id="settings" class="card">
@@ -737,6 +1189,10 @@
         // Store interval IDs for cleanup
         let statusInterval = null;
         let listingsInterval = null;
+        const feedState = {
+            servers: [],
+            selectedServer: null,
+        };
 
         // Function to update bot status with health information
         function updateStatus() {
@@ -971,6 +1427,396 @@
             return div.innerHTML;
         }
 
+        const FEED_TYPE_META = {
+            listing_alert: { icon: 'fa-tags', label: 'Listing Alert' },
+            server_announcement: { icon: 'fa-bullhorn', label: 'Server Announcement' },
+            server_hot_thread: { icon: 'fa-fire', label: 'Hot Thread' },
+            server_marketplace_drop: { icon: 'fa-store', label: 'Marketplace Drop' },
+            home_server_highlight: { icon: 'fa-star', label: 'Server Highlight' },
+            server_created: { icon: 'fa-sun', label: 'New Server' },
+            server_launched: { icon: 'fa-sun', label: 'Server Launch' },
+            server_member_joined: { icon: 'fa-user-plus', label: 'New Member' },
+            dm_message: { icon: 'fa-envelope-open-text', label: 'Direct Message' },
+        };
+
+        const NOTIFICATION_TYPE_META = {
+            dm_message: { icon: 'fa-envelope', label: 'Direct Message' },
+            server_member_joined: { icon: 'fa-user-plus', label: 'Server Member Joined' },
+        };
+
+        function formatTimestamp(value) {
+            if (!value) {
+                return '';
+            }
+            if (value instanceof Date) {
+                return value.toLocaleString();
+            }
+            const normalized = typeof value === 'string' ? value.replace(' ', 'T') : value;
+            const date = new Date(normalized);
+            if (Number.isNaN(date.getTime())) {
+                return String(value);
+            }
+            return date.toLocaleString();
+        }
+
+        function renderFeedItem(event) {
+            if (!event || typeof event !== 'object') {
+                return '';
+            }
+            const meta = FEED_TYPE_META[event.event_type] || {
+                icon: 'fa-bolt',
+                label: (event.event_type || 'Update').replace(/_/g, ' '),
+            };
+            const createdAt = escapeHtml(formatTimestamp(event.created_at));
+            const payload = event.payload || {};
+            let content = '';
+
+            switch (event.event_type) {
+                case 'listing_alert': {
+                    const priceRaw = payload.price;
+                    let priceDisplay = 'New listing';
+                    if (priceRaw !== undefined && priceRaw !== null && priceRaw !== '') {
+                        const priceNumber = Number(priceRaw);
+                        priceDisplay = Number.isFinite(priceNumber)
+                            ? `$${priceNumber.toLocaleString()}`
+                            : String(priceRaw);
+                    }
+                    content = `
+                        <strong>${escapeHtml(payload.title || 'New listing')}</strong>
+                        <div class="feed-meta">
+                            <span>${escapeHtml(priceDisplay)}</span>
+                            ${payload.source ? `<span>${escapeHtml(String(payload.source).toUpperCase())}</span>` : ''}
+                        </div>
+                        ${payload.link ? `<a href="${escapeHtml(payload.link)}" target="_blank" rel="noopener noreferrer">View listing</a>` : ''}
+                    `;
+                    break;
+                }
+                case 'server_member_joined': {
+                    const serverName = payload.server ? (payload.server.name || payload.server.slug || '') : '';
+                    const memberName = payload.member ? (payload.member.display_name || payload.member.username || '') : '';
+                    content = `
+                        <strong>${escapeHtml(memberName || 'New member')}</strong>
+                        ${serverName ? `<div class="feed-meta"><span>${escapeHtml(serverName)}</span></div>` : ''}
+                    `;
+                    break;
+                }
+                case 'dm_message': {
+                    const senderName = payload.sender_display || payload.sender || event.actor_username || 'Direct message';
+                    const preview = payload.preview || '';
+                    content = `
+                        <strong>${escapeHtml(senderName)}</strong>
+                        ${preview ? `<p>${escapeHtml(preview)}</p>` : ''}
+                    `;
+                    break;
+                }
+                default: {
+                    const serverName = payload.server ? (payload.server.name || payload.server.slug || '') : '';
+                    const channelName = payload.channel ? (payload.channel.name || payload.channel.slug || '') : '';
+                    const messageSnippet = payload.message ? (payload.message.snippet || payload.message.preview || '') : '';
+                    const metaBits = [];
+                    if (channelName) {
+                        metaBits.push(`<span>${escapeHtml(channelName)}</span>`);
+                    }
+                    if (payload.message && payload.message.type && payload.message.type !== 'text') {
+                        metaBits.push(`<span>${escapeHtml(String(payload.message.type).replace(/_/g, ' '))}</span>`);
+                    }
+                    content = `
+                        ${serverName ? `<strong>${escapeHtml(serverName)}</strong>` : ''}
+                        ${messageSnippet ? `<p>${escapeHtml(messageSnippet)}</p>` : ''}
+                        ${metaBits.length ? `<div class="feed-meta">${metaBits.join('')}</div>` : ''}
+                    `;
+                    break;
+                }
+            }
+
+            const actorLine = event.actor_username
+                ? `<div class="feed-meta">by ${escapeHtml(event.actor_username)}</div>`
+                : '';
+
+            return `
+                <div class="feed-item">
+                    <div class="feed-item-icon"><i class="fas ${meta.icon}"></i></div>
+                    <div class="feed-item-body">
+                        <div class="feed-item-top">
+                            <span class="feed-label">${escapeHtml(meta.label)}</span>
+                            <span class="feed-time">${createdAt}</span>
+                        </div>
+                        <div class="feed-item-content">
+                            ${content}
+                        </div>
+                        ${actorLine}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderHomeFeed(events) {
+            const container = document.getElementById('activity-feed-list');
+            if (!container) {
+                return;
+            }
+            if (!events || !events.length) {
+                container.innerHTML = '<p class="feed-empty">No recent activity yet.</p>';
+                return;
+            }
+            container.innerHTML = events.map(renderFeedItem).join('');
+        }
+
+        async function loadHomeFeed() {
+            const container = document.getElementById('activity-feed-list');
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '<p class="feed-empty">Loading activity feed…</p>';
+            try {
+                const response = await fetch('/api/feed/home?limit=25');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = await response.json();
+                renderHomeFeed(data.events || []);
+            } catch (error) {
+                console.error('Home feed error:', error);
+                container.innerHTML = '<p class="feed-empty">Unable to load activity feed.</p>';
+            }
+        }
+
+        function renderServerFeed(events) {
+            const container = document.getElementById('server-feed-list');
+            if (!container) {
+                return;
+            }
+            if (!events || !events.length) {
+                container.innerHTML = '<p class="feed-empty">No highlights yet.</p>';
+                return;
+            }
+            container.innerHTML = events.map(renderFeedItem).join('');
+        }
+
+        async function loadServerOptions() {
+            const selector = document.getElementById('server-feed-selector');
+            if (!selector) {
+                return;
+            }
+            selector.innerHTML = '<option value="">Loading servers…</option>';
+            try {
+                const response = await fetch('/api/servers?status=active&limit=100');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = await response.json();
+                const servers = Array.isArray(data.servers) ? data.servers : [];
+                feedState.servers = servers;
+
+                if (!servers.length) {
+                    feedState.selectedServer = null;
+                    selector.innerHTML = '<option value="">Join a server to unlock highlights</option>';
+                    const container = document.getElementById('server-feed-list');
+                    if (container) {
+                        container.innerHTML = '<p class="feed-empty">Join a server to see highlights here.</p>';
+                    }
+                    return;
+                }
+
+                selector.innerHTML = '<option value="">Select a server</option>' + servers.map(server => {
+                    const slugValue = server.slug || (server.id ? String(server.id) : '');
+                    const labelValue = server.name || server.slug || `Server ${server.id || ''}`;
+                    return `<option value="${escapeHtml(slugValue)}">${escapeHtml(labelValue)}</option>`;
+                }).join('');
+
+                const firstServer = servers[0];
+                if (firstServer) {
+                    const slugValue = firstServer.slug || (firstServer.id ? String(firstServer.id) : '');
+                    feedState.selectedServer = slugValue;
+                    selector.value = slugValue;
+                    await loadServerFeed(slugValue);
+                }
+            } catch (error) {
+                console.error('Server list error:', error);
+                selector.innerHTML = '<option value="">Unable to load servers</option>';
+            }
+        }
+
+        async function loadServerFeed(slug) {
+            const container = document.getElementById('server-feed-list');
+            if (!container) {
+                return;
+            }
+            if (!slug) {
+                container.innerHTML = '<p class="feed-empty">Select a server to see highlights.</p>';
+                return;
+            }
+
+            container.innerHTML = '<p class="feed-empty">Loading server highlights…</p>';
+            try {
+                const response = await fetch(`/api/feed/servers/${encodeURIComponent(slug)}?limit=25`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = await response.json();
+                renderServerFeed(data.events || []);
+            } catch (error) {
+                console.error('Server feed error:', error);
+                container.innerHTML = '<p class="feed-empty">Unable to load server highlights.</p>';
+            }
+        }
+
+        function renderNotifications(data) {
+            const todayContainer = document.getElementById('notifications-today');
+            const earlierContainer = document.getElementById('notifications-earlier');
+            if (!todayContainer || !earlierContainer) {
+                return;
+            }
+
+            const grouped = data && data.grouped ? data.grouped : { today: [], earlier: [] };
+            const todayList = Array.isArray(grouped.today) ? grouped.today : [];
+            const earlierList = Array.isArray(grouped.earlier) ? grouped.earlier : [];
+
+            if (!todayList.length) {
+                todayContainer.innerHTML = '<p class="feed-empty">No notifications yet.</p>';
+            } else {
+                todayContainer.innerHTML = todayList.map(renderNotificationItem).join('');
+            }
+
+            if (!earlierList.length) {
+                earlierContainer.innerHTML = '<p class="feed-empty">You\'re all caught up.</p>';
+            } else {
+                earlierContainer.innerHTML = earlierList.map(renderNotificationItem).join('');
+            }
+
+            const countElement = document.getElementById('notifications-count');
+            if (countElement) {
+                const unreadCount = data && typeof data.unread_total === 'number' ? data.unread_total : 0;
+                countElement.textContent = unreadCount;
+            }
+        }
+
+        async function loadNotifications() {
+            const todayContainer = document.getElementById('notifications-today');
+            if (todayContainer) {
+                todayContainer.innerHTML = '<p class="feed-empty">Loading notifications…</p>';
+            }
+            const earlierContainer = document.getElementById('notifications-earlier');
+            if (earlierContainer) {
+                earlierContainer.innerHTML = '';
+            }
+            try {
+                const response = await fetch('/api/notifications?limit=50');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = await response.json();
+                renderNotifications(data);
+            } catch (error) {
+                console.error('Notifications error:', error);
+                if (todayContainer) {
+                    todayContainer.innerHTML = '<p class="feed-empty">Unable to load notifications.</p>';
+                }
+            }
+        }
+
+        function renderNotificationItem(notification) {
+            if (!notification || typeof notification !== 'object') {
+                return '';
+            }
+            const meta = NOTIFICATION_TYPE_META[notification.notification_type] || {
+                icon: 'fa-bell',
+                label: (notification.notification_type || 'Notification').replace(/_/g, ' '),
+            };
+            const payload = notification.payload || {};
+            let content = '';
+
+            if (notification.notification_type === 'dm_message') {
+                const senderName = payload.sender_display || payload.sender || 'Direct message';
+                const preview = payload.preview || '';
+                content = `
+                    <strong>${escapeHtml(senderName)}</strong>
+                    ${preview ? `<p>${escapeHtml(preview)}</p>` : ''}
+                `;
+            } else if (notification.notification_type === 'server_member_joined') {
+                const serverName = payload.server ? (payload.server.name || payload.server.slug || '') : '';
+                const memberName = payload.member ? (payload.member.display_name || payload.member.username || '') : '';
+                content = `
+                    <strong>${escapeHtml(memberName || 'New member')}</strong>
+                    ${serverName ? `<div class="feed-meta"><span>${escapeHtml(serverName)}</span></div>` : ''}
+                `;
+            } else {
+                content = `<p>${escapeHtml('You have a new notification.')}</p>`;
+            }
+
+            const unreadClass = notification.read_at ? '' : ' unread';
+            const createdAt = escapeHtml(formatTimestamp(notification.created_at));
+            const notificationId = escapeHtml(String(notification.id));
+            const actions = [];
+            if (!notification.read_at) {
+                actions.push('<button data-action="read">Mark Read</button>');
+            }
+            actions.push('<button data-action="dismiss">Dismiss</button>');
+
+            return `
+                <div class="notification-item${unreadClass}" data-id="${notificationId}">
+                    <div class="notification-icon"><i class="fas ${meta.icon}"></i></div>
+                    <div class="notification-body">
+                        <div class="notification-header">
+                            <span class="notification-label">${escapeHtml(meta.label)}</span>
+                            <span class="notification-time">${createdAt}</span>
+                        </div>
+                        <div class="notification-content">
+                            ${content}
+                        </div>
+                        <div class="notification-actions">
+                            ${actions.join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function markNotificationRead(id) {
+            if (!id) {
+                return;
+            }
+            try {
+                await fetch('/api/notifications/mark-read', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: [Number(id)] }),
+                });
+                await loadNotifications();
+            } catch (error) {
+                console.error('Failed to mark notification read:', error);
+            }
+        }
+
+        async function dismissNotification(id) {
+            if (!id) {
+                return;
+            }
+            try {
+                await fetch('/api/notifications/dismiss', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: Number(id) }),
+                });
+                await loadNotifications();
+            } catch (error) {
+                console.error('Failed to dismiss notification:', error);
+            }
+        }
+
+        async function markAllNotificationsRead() {
+            try {
+                await fetch('/api/notifications/mark-read', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ all: true }),
+                });
+                await loadNotifications();
+            } catch (error) {
+                console.error('Failed to mark all notifications read:', error);
+            }
+        }
+
         // Function to show notifications
         function showNotification(message, type = 'info') {
             // Create notification element
@@ -1194,12 +2040,92 @@
         document.addEventListener('DOMContentLoaded', function() {
             startPolling();
             loadSavedSearches();
-            
-            // Add event listeners for favorite buttons
+            loadHomeFeed();
+            loadServerOptions();
+            loadNotifications();
+
+            const refreshHomeBtn = document.getElementById('refresh-home-feed');
+            if (refreshHomeBtn) {
+                refreshHomeBtn.addEventListener('click', async function() {
+                    refreshHomeBtn.disabled = true;
+                    try {
+                        await loadHomeFeed();
+                    } finally {
+                        refreshHomeBtn.disabled = false;
+                    }
+                });
+            }
+
+            const refreshServerBtn = document.getElementById('refresh-server-feed');
+            if (refreshServerBtn) {
+                refreshServerBtn.addEventListener('click', async function() {
+                    if (!feedState.selectedServer) {
+                        await loadServerOptions();
+                        return;
+                    }
+                    refreshServerBtn.disabled = true;
+                    try {
+                        await loadServerFeed(feedState.selectedServer);
+                    } finally {
+                        refreshServerBtn.disabled = false;
+                    }
+                });
+            }
+
+            const serverSelector = document.getElementById('server-feed-selector');
+            if (serverSelector) {
+                serverSelector.addEventListener('change', function(event) {
+                    const selected = event.target.value;
+                    feedState.selectedServer = selected;
+                    loadServerFeed(selected);
+                });
+            }
+
+            const refreshNotificationsBtn = document.getElementById('notifications-refresh');
+            if (refreshNotificationsBtn) {
+                refreshNotificationsBtn.addEventListener('click', async function() {
+                    refreshNotificationsBtn.disabled = true;
+                    try {
+                        await loadNotifications();
+                    } finally {
+                        refreshNotificationsBtn.disabled = false;
+                    }
+                });
+            }
+
+            const markAllBtn = document.getElementById('notifications-mark-all');
+            if (markAllBtn) {
+                markAllBtn.addEventListener('click', async function() {
+                    markAllBtn.disabled = true;
+                    try {
+                        await markAllNotificationsRead();
+                    } finally {
+                        markAllBtn.disabled = false;
+                    }
+                });
+            }
+
             document.addEventListener('click', function(e) {
-                if (e.target.closest('.favorite-btn')) {
+                const favoriteButton = e.target.closest('.favorite-btn');
+                if (favoriteButton) {
                     e.preventDefault();
                     toggleFavorite();
+                    return;
+                }
+                const notificationButton = e.target.closest('.notification-actions button');
+                if (notificationButton) {
+                    e.preventDefault();
+                    const action = notificationButton.dataset.action;
+                    const notificationItem = notificationButton.closest('.notification-item');
+                    if (!notificationItem) {
+                        return;
+                    }
+                    const notificationId = notificationItem.getAttribute('data-id');
+                    if (action === 'read') {
+                        markNotificationRead(notificationId);
+                    } else if (action === 'dismiss') {
+                        dismissNotification(notificationId);
+                    }
                 }
             });
         });

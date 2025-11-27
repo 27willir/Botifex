@@ -1,0 +1,350 @@
+{% extends "base.html" %}
+
+{% block title %}Create Community Server{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    body {
+        font-family: "Inter", sans-serif;
+        background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #16213e 100%);
+        background-attachment: fixed;
+        color: #ffffff;
+        min-height: 100vh;
+    }
+
+    a {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .server-create-page {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 48px 20px 72px;
+    }
+
+    .page-header {
+        margin-bottom: 32px;
+        text-align: center;
+    }
+
+    .page-header h1 {
+        font-size: 2.6rem;
+        letter-spacing: -0.03em;
+        margin-bottom: 10px;
+        background: linear-gradient(135deg, #00d4ff, #4285ff);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .page-header p {
+        color: #9ca3af;
+        font-size: 1.05rem;
+    }
+
+.nav-links {
+        text-align: center;
+        margin-bottom: 32px;
+        display: flex;
+        justify-content: center;
+        gap: 18px;
+        flex-wrap: wrap;
+    }
+
+    .nav-links a {
+        color: #00d4ff;
+        font-weight: 500;
+        transition: color 0.3s ease;
+    }
+
+    .nav-links a:hover {
+        color: #00ff88;
+    }
+
+    .flash-messages {
+        margin-bottom: 24px;
+    }
+
+    .alert {
+        padding: 14px 18px;
+        border-radius: 12px;
+        margin-bottom: 12px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border: 1px solid transparent;
+    }
+
+    .alert.error {
+        background: rgba(239, 68, 68, 0.18);
+        border-color: rgba(248, 113, 113, 0.45);
+        color: #fecaca;
+    }
+
+    .alert.success {
+        background: rgba(34, 197, 94, 0.18);
+        border-color: rgba(134, 239, 172, 0.45);
+        color: #bbf7d0;
+    }
+
+    form {
+        background: rgba(17, 24, 39, 0.92);
+        border-radius: 20px;
+        padding: 32px;
+        border: 1px solid rgba(59, 130, 246, 0.32);
+        box-shadow: 0 22px 55px rgba(37, 99, 235, 0.18);
+        display: grid;
+        gap: 28px;
+    }
+
+    .form-section {
+        display: grid;
+        gap: 20px;
+    }
+
+    .section-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: #bae6fd;
+        font-size: 1.1rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .section-header i {
+        color: #38bdf8;
+    }
+
+    .field-group {
+        display: grid;
+        gap: 10px;
+    }
+
+    label {
+        font-weight: 600;
+        color: #d1d5db;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    textarea,
+    select {
+        width: 100%;
+        padding: 14px 16px;
+        border-radius: 12px;
+        border: 1px solid rgba(59, 130, 246, 0.38);
+        background: rgba(10, 15, 30, 0.74);
+        color: #ffffff;
+        font-size: 1rem;
+        transition: border 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    input[type="text"]::placeholder,
+    input[type="number"]::placeholder,
+    textarea::placeholder {
+        color: rgba(226, 232, 240, 0.45);
+    }
+
+    input[type="text"]:focus,
+    input[type="number"]:focus,
+    textarea:focus,
+    select:focus {
+        outline: none;
+        border-color: rgba(56, 189, 248, 0.8);
+        box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+        background: rgba(10, 15, 30, 0.9);
+    }
+
+    textarea {
+        min-height: 120px;
+        resize: vertical;
+    }
+
+    .field-hint {
+        color: #94a3b8;
+        font-size: 0.9rem;
+    }
+
+    .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 14px;
+        flex-wrap: wrap;
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 24px;
+        border-radius: 999px;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+        border: none;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #2563eb, #06b6d4);
+        color: #ffffff;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 14px 32px rgba(37, 99, 235, 0.35);
+    }
+
+    .btn-secondary {
+        background: rgba(59, 130, 246, 0.18);
+        border: 1px solid rgba(59, 130, 246, 0.4);
+        color: #cbd5f5;
+        text-decoration: none;
+    }
+
+    .btn-secondary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 26px rgba(59, 130, 246, 0.22);
+    }
+
+    @media (max-width: 720px) {
+        form {
+            padding: 24px;
+        }
+
+        .form-actions {
+            justify-content: center;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<main class="server-create-page">
+    <div class="page-header">
+        <h1>Create a Community Server</h1>
+        <p>Set the foundation for your community with a clear identity, onboarding experience, and moderation defaults.</p>
+    </div>
+
+    <nav class="nav-links">
+        <a href="{{ url_for('servers_discover_page') }}"><i class="fas fa-compass"></i> Discover</a>
+        <a href="{{ url_for('servers_directory_page') }}"><i class="fas fa-list-ul"></i> All Servers</a>
+        <a href="{{ url_for('dashboard') }}"><i class="fas fa-home"></i> Dashboard</a>
+    </nav>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+                <div class="alert {{ category }}">
+                    {% if category == 'error' %}<i class="fas fa-exclamation-triangle"></i>{% elif category == 'success' %}<i class="fas fa-check-circle"></i>{% endif %}
+                    <span>{{ message }}</span>
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <section class="form-section">
+            <div class="section-header">
+                <i class="fas fa-id-card-alt"></i>
+                <span>Identity</span>
+            </div>
+            <div class="field-group">
+                <label for="name">Server Name *</label>
+                <input id="name" name="name" type="text" value="{{ form_data.get('name', '') }}" placeholder="e.g. Salt Lake Electric Rides" required>
+                <p class="field-hint">This appears in discovery, invites, and browser tabs. Keep it clear and descriptive.</p>
+            </div>
+            <div class="field-group">
+                <label for="slug">Custom URL Slug</label>
+                <input id="slug" name="slug" type="text" value="{{ form_data.get('slug', '') }}" placeholder="optional-short-url">
+                <p class="field-hint">Optional vanity path. Leave blank to generate automatically.</p>
+            </div>
+            <div class="field-group">
+                <label for="description">About This Server *</label>
+                <textarea id="description" name="description" placeholder="Tell members what to expect, who it's for, and how to get value.">{{ form_data.get('description', '') }}</textarea>
+            </div>
+        </section>
+
+        <section class="form-section">
+            <div class="section-header">
+                <i class="fas fa-tags"></i>
+                <span>Discovery</span>
+            </div>
+            <div class="field-group">
+                <label for="topic_tags">Topic Tags</label>
+                <textarea id="topic_tags" name="topic_tags" placeholder="vintage trucks, off-road builds, utah, meetups">{{ form_data.get('topic_tags', '') }}</textarea>
+                <p class="field-hint">Comma-separated keywords used for discovery and personalization.</p>
+            </div>
+            <div class="field-group">
+                <label for="visibility">Visibility</label>
+                <select id="visibility" name="visibility">
+                    {% for option in visibility_options %}
+                        <option value="{{ option }}" {% if form_data.get('visibility') == option %}selected{% endif %}>{{ option|capitalize }}</option>
+                    {% endfor %}
+                </select>
+                <p class="field-hint">
+                    Public servers are searchable by everyone, unlisted require an invite link, and private servers rely on join approvals.
+                </p>
+            </div>
+        </section>
+
+        <section class="form-section">
+            <div class="section-header">
+                <i class="fas fa-image"></i>
+                <span>Branding</span>
+            </div>
+            <div class="field-group">
+                <label for="icon_url">Icon URL</label>
+                <input id="icon_url" name="icon_url" type="text" value="{{ form_data.get('icon_url', '') }}" placeholder="https://cdn.example.com/server-icon.png">
+                <p class="field-hint">Square image works best (min 256×256). Use an absolute URL.</p>
+            </div>
+            <div class="field-group">
+                <label for="banner_url">Banner URL</label>
+                <input id="banner_url" name="banner_url" type="text" value="{{ form_data.get('banner_url', '') }}" placeholder="https://cdn.example.com/server-banner.jpg">
+                <p class="field-hint">Displayed on server headers (1600×400 recommended).</p>
+            </div>
+        </section>
+
+        <section class="form-section">
+            <div class="section-header">
+                <i class="fas fa-sliders-h"></i>
+                <span>Defaults & Moderation</span>
+            </div>
+            <div class="field-group">
+                <label for="default_slow_mode">Default Slow-Mode (seconds)</label>
+                <input id="default_slow_mode" name="default_slow_mode" type="number" min="0" max="21600" value="{{ form_data.get('default_slow_mode', '') }}" placeholder="e.g. 10">
+                <p class="field-hint">Optional cooldown applied to new text channels to prevent spam.</p>
+            </div>
+            <div class="field-group">
+                <label for="welcome_message">Welcome Message</label>
+                <textarea id="welcome_message" name="welcome_message" placeholder="Share onboarding tips, rules, or first steps.">{{ form_data.get('welcome_message', '') }}</textarea>
+            </div>
+            <div class="field-group">
+                <label for="keyword_filters">Keyword Filters (one per line)</label>
+                <textarea id="keyword_filters" name="keyword_filters" placeholder="scam&#10;wire transfer&#10;crypto pump">{{ form_data.get('keyword_filters', '') }}</textarea>
+                <p class="field-hint">Auto-flag or filter messages containing these phrases. You can adjust severity later.</p>
+            </div>
+        </section>
+
+        <div class="form-actions">
+            <a class="btn btn-secondary" href="{{ url_for('servers_discover_page') }}"><i class="fas fa-arrow-left"></i> Cancel</a>
+            <button class="btn btn-primary" type="submit"><i class="fas fa-rocket"></i> Launch Server</button>
+        </div>
+    </form>
+</main>
+{% endblock %}
+

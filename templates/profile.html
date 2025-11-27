@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <title>Profile - Botifex</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
             box-sizing: border-box;
@@ -12,12 +14,16 @@
         }
 
         body {
-            font-family: "Inter", "Poppins", sans-serif;
+            font-family: "Inter", sans-serif;
             background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #16213e 100%);
             background-attachment: fixed;
             color: #ffffff;
             min-height: 100vh;
             padding: 20px;
+        }
+
+        a {
+            color: inherit;
         }
 
         .container {
@@ -41,6 +47,13 @@
             margin-bottom: 30px;
         }
 
+        .header-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
         .nav {
             text-align: center;
             margin-bottom: 30px;
@@ -61,7 +74,6 @@
             display: grid;
             grid-template-columns: 1fr 2fr;
             gap: 20px;
-            margin-top: 20px;
         }
 
         .card {
@@ -69,6 +81,7 @@
             border-radius: 15px;
             padding: 25px;
             border: 1px solid rgba(0, 123, 255, 0.3);
+            margin-bottom: 20px;
         }
 
         .card h2 {
@@ -125,22 +138,178 @@
             border: none;
         }
 
-        .activity-list {
-            max-height: 400px;
-            overflow-y: auto;
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
         }
 
-        .activity-item {
-            padding: 12px;
-            margin-bottom: 10px;
-            background: rgba(0, 123, 255, 0.05);
-            border-left: 3px solid #007bff;
-            border-radius: 5px;
+        .streak-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 14px;
+            margin-top: 10px;
+        }
+
+        .streak-item {
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid rgba(34, 197, 94, 0.25);
+            border-radius: 12px;
+            padding: 14px;
+            text-align: center;
+        }
+
+        .streak-item.cooldown {
+            background: rgba(255, 193, 7, 0.12);
+            border-color: rgba(255, 193, 7, 0.35);
+        }
+
+        .streak-item .number {
+            font-size: 1.8em;
+            font-weight: 700;
+            color: #86efac;
+        }
+
+        .streak-item.cooldown .number {
+            color: #facc15;
+        }
+
+        .streak-item .label {
+            color: #bbf7d0;
+            font-size: 0.9em;
+        }
+
+        .streak-item.cooldown .label {
+            color: #fcd34d;
+        }
+
+        .streak-note {
+            margin-top: 14px;
+            font-size: 0.9em;
+            color: #cbd5f5;
+        }
+
+        .referral-code-box,
+        .referral-link-box {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(59, 130, 246, 0.12);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-bottom: 12px;
+        }
+
+        .referral-code-box code {
+            font-size: 1.4em;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            color: #bfdbfe;
+        }
+
+        .referral-link-box input {
+            flex: 1;
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(59, 130, 246, 0.35);
+            border-radius: 10px;
+            padding: 10px 12px;
+            color: #e0f2ff;
+            font-size: 0.95em;
+        }
+
+        .referral-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 14px;
+            margin: 18px 0;
+        }
+
+        .referral-landing-list {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .referral-landing-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.25);
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 0.9em;
+            color: #cbd5f5;
+        }
+
+        .referral-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .stat-box {
+            background: rgba(0, 123, 255, 0.1);
+            padding: 18px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-box .number {
+            font-size: 1.8em;
+            color: #00d4ff;
+            font-weight: 700;
+        }
+
+        .stat-box .label {
+            color: #aaa;
+            font-size: 0.9em;
+        }
+
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(0, 123, 255, 0.15);
+            border: 1px solid rgba(0, 123, 255, 0.3);
+            color: #e0f7ff;
+            font-size: 0.9em;
+        }
+
+        .chip button {
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.7);
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+
+        .activity-list, .showcase-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .activity-item, .showcase-item {
+            padding: 16px;
+            border-radius: 12px;
+            background: rgba(0, 123, 255, 0.1);
+            border: 1px solid rgba(0, 123, 255, 0.15);
         }
 
         .activity-item .action {
             color: #00d4ff;
             font-weight: 600;
+            margin-bottom: 6px;
         }
 
         .activity-item .details {
@@ -153,29 +322,13 @@
             font-size: 0.8em;
         }
 
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .stat-box {
-            background: rgba(0, 123, 255, 0.1);
-            padding: 20px;
-            border-radius: 10px;
+        .empty-state {
+            color: #888;
             text-align: center;
-        }
-
-        .stat-box .number {
-            font-size: 2em;
-            color: #00d4ff;
-            font-weight: 700;
-        }
-
-        .stat-box .label {
-            color: #aaa;
-            font-size: 0.9em;
+            padding: 20px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px dashed rgba(255, 255, 255, 0.2);
         }
 
         .btn {
@@ -183,11 +336,14 @@
             border-radius: 8px;
             border: none;
             cursor: pointer;
-            font-family: "Inter", "Poppins", sans-serif;
-            transition: all 0.3s;
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
             text-decoration: none;
-            margin: 5px;
+            margin: 5px 0;
+            font-weight: 600;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
 
         .btn-primary {
@@ -195,12 +351,460 @@
             color: white;
         }
 
+        .btn-secondary {
+            background: rgba(0, 123, 255, 0.2);
+            color: #fff;
+            border: 1px solid rgba(0, 123, 255, 0.4);
+        }
+
+        .btn.small {
+            padding: 6px 12px;
+            font-size: 0.85em;
+        }
+
         .btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 20px rgba(0, 212, 255, 0.4);
         }
 
-        @media (max-width: 768px) {
+        .hidden {
+            display: none !important;
+        }
+
+        .form-grid {
+            display: grid;
+            gap: 15px;
+        }
+
+        .form-grid label {
+            font-size: 0.9em;
+            color: #bbb;
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .form-grid input[type="text"],
+        .form-grid textarea {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1px solid rgba(0, 123, 255, 0.35);
+            background: rgba(15, 18, 36, 0.9);
+            color: #f5f7ff;
+            font-size: 1em;
+        }
+
+        .form-grid textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .media-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+        }
+
+        .upload-dropzone {
+            position: relative;
+            border: 2px dashed rgba(0, 212, 255, 0.4);
+            border-radius: 14px;
+            background: rgba(0, 212, 255, 0.05);
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: border 0.2s ease, background 0.2s ease;
+        }
+
+        .upload-dropzone.dragover {
+            border-color: #00ff88;
+            background: rgba(0, 255, 136, 0.08);
+        }
+
+        .upload-dropzone img {
+            max-width: 100%;
+            max-height: 200px;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            object-fit: cover;
+        }
+
+        .upload-instructions {
+            color: #9fbbe7;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+
+        .visibility-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }
+
+        .visibility-field {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 14px;
+            border: 1px solid rgba(0, 123, 255, 0.2);
+        }
+
+        .visibility-field label {
+            font-size: 0.85em;
+            color: #9fbbe7;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .visibility-field select {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            background: rgba(10, 14, 28, 0.85);
+            color: #f3f6ff;
+            border: 1px solid rgba(0, 123, 255, 0.35);
+        }
+
+        .visibility-actions {
+            margin-top: 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .collection-editor h3 {
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }
+
+        .collection-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .collection-controls select,
+        .collection-controls input[type="text"] {
+            flex: 1 1 220px;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 123, 255, 0.3);
+            background: rgba(10, 14, 28, 0.85);
+            color: #fff;
+        }
+
+        .collection-list {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .collection-item {
+            border-radius: 10px;
+            border: 1px solid rgba(0, 123, 255, 0.25);
+            background: rgba(0, 123, 255, 0.08);
+            padding: 10px 12px;
+        }
+
+        .collection-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .collection-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        .collection-actions button {
+            background: rgba(255, 255, 255, 0.08);
+            border: none;
+            color: #e0f4ff;
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85em;
+        }
+
+        .collection-note-input {
+            width: 100%;
+            margin-top: 8px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(0, 123, 255, 0.25);
+            background: rgba(12, 16, 32, 0.85);
+            color: #f5f7ff;
+            font-size: 0.9em;
+        }
+
+        .connections-section {
+            margin-top: 18px;
+        }
+
+        .connections-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.85em;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            color: #9fbbe7;
+        }
+
+        .count-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 0.75em;
+            font-weight: 600;
+            background: rgba(0, 212, 255, 0.16);
+            color: #9ee6ff;
+            border: 1px solid rgba(0, 212, 255, 0.35);
+        }
+
+        .connections-list {
+            display: grid;
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .connection-item {
+            display: flex;
+            gap: 12px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: rgba(0, 123, 255, 0.08);
+            border: 1px solid rgba(0, 123, 255, 0.2);
+            align-items: flex-start;
+        }
+
+        .connection-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(0, 123, 255, 0.2);
+            border: 1px solid rgba(0, 123, 255, 0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: #bcd7ff;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        .connection-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .connection-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .connection-item .connection-name {
+            font-weight: 600;
+            color: #eff7ff;
+        }
+
+        .connection-item .connection-meta {
+            font-size: 0.85em;
+            color: #94a9c9;
+            margin-top: 4px;
+            word-break: break-word;
+        }
+
+        .connection-submeta {
+            font-size: 0.8em;
+            color: #7fa1d4;
+            margin-top: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .connection-preview {
+            font-size: 0.78em;
+            color: #6f8dbc;
+            margin-top: 2px;
+        }
+
+        .connection-preview span {
+            background: rgba(0, 123, 255, 0.18);
+            border: 1px solid rgba(0, 123, 255, 0.25);
+            border-radius: 12px;
+            padding: 2px 8px;
+            margin-right: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .connection-message {
+            font-size: 0.9em;
+            color: #c6d9f6;
+            margin-top: 6px;
+            line-height: 1.4;
+        }
+
+        .connection-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            justify-content: flex-end;
+        }
+
+        .empty-state.small {
+            font-size: 0.85em;
+            padding: 12px;
+        }
+
+        .toast-container {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 999;
+        }
+
+        .toast {
+            min-width: 240px;
+            padding: 14px 18px;
+            border-radius: 16px;
+            font-weight: 500;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.25);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            backdrop-filter: blur(12px);
+            transition: opacity 0.2s ease;
+        }
+
+        .toast.success {
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid rgba(34, 197, 94, 0.4);
+            color: #bbf7d0;
+        }
+
+        .toast.error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #fecaca;
+        }
+
+        .onboarding-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(8, 12, 28, 0.82);
+            backdrop-filter: blur(6px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 950;
+        }
+
+        .onboarding-backdrop.active {
+            display: flex;
+        }
+
+        .onboarding-card {
+            position: relative;
+            width: min(520px, 92%);
+            background: linear-gradient(160deg, rgba(16, 26, 52, 0.95), rgba(13, 20, 40, 0.95));
+            border-radius: 18px;
+            padding: 28px 32px;
+            border: 1px solid rgba(0, 212, 255, 0.25);
+            box-shadow: 0 25px 50px rgba(5, 9, 25, 0.45);
+        }
+
+        .onboarding-card h3 {
+            font-size: 1.6em;
+            margin-bottom: 12px;
+            color: #00d4ff;
+        }
+
+        .onboarding-card p {
+            color: #b5c7ec;
+            margin-bottom: 18px;
+        }
+
+        .onboarding-steps {
+            list-style: none;
+            display: grid;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .onboarding-steps li {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: rgba(0, 123, 255, 0.12);
+            border: 1px solid rgba(0, 123, 255, 0.2);
+            color: #e4f2ff;
+            font-size: 0.95em;
+        }
+
+        .onboarding-steps li.done {
+            opacity: 0.6;
+            background: rgba(34, 197, 94, 0.12);
+            border-color: rgba(34, 197, 94, 0.28);
+        }
+
+        .onboarding-steps li .icon {
+            width: 30px;
+            height: 30px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: rgba(0, 212, 255, 0.18);
+            color: #00d4ff;
+            flex-shrink: 0;
+        }
+
+        .onboarding-steps li.done .icon {
+            background: rgba(34, 197, 94, 0.2);
+            color: #34d399;
+        }
+
+        .onboarding-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .onboarding-close {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            border: none;
+            background: rgba(255, 255, 255, 0.08);
+            color: #cdd9f4;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .onboarding-close:hover {
+            background: rgba(255, 255, 255, 0.16);
+        }
+
+        @media (max-width: 900px) {
             .profile-grid {
                 grid-template-columns: 1fr;
             }
@@ -208,9 +812,35 @@
     </style>
 </head>
 <body>
+    <div id="onboardingModal" class="onboarding-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+        <div class="onboarding-card">
+            <button type="button" class="onboarding-close" id="onboardingCloseBtn" aria-label="Dismiss onboarding">
+                <i class="fas fa-xmark"></i>
+            </button>
+            <h3 id="onboardingTitle"><i class="fas fa-magic"></i> Let's complete your profile</h3>
+            <p>Finish these quick steps so friends and communities can recognize you instantly.</p>
+            <ul class="onboarding-steps" id="onboardingChecklist"></ul>
+            <div class="onboarding-actions">
+                <button type="button" class="btn btn-secondary small" id="onboardingDismissBtn">
+                    Maybe later
+                </button>
+                <button type="button" class="btn btn-primary" id="onboardingStartBtn">
+                    <i class="fas fa-pen-to-square"></i> Customize now
+                </button>
+            </div>
+        </div>
+    </div>
     <div class="container">
         <h1><i class="fas fa-user-circle"></i> My Profile</h1>
-        <p class="subtitle">Manage your account & view activity</p>
+        <p class="subtitle">Review and manage your account, visibility, and community presence</p>
+
+        <div class="header-actions">
+            <button id="editProfileBtn" class="btn btn-primary"><i class="fas fa-pen"></i> Edit Profile</button>
+            <button id="cancelEditBtn" class="btn btn-secondary hidden"><i class="fas fa-xmark"></i> Cancel</button>
+            {% if account.username != profile.username %}
+            <button id="reportProfileBtn" class="btn btn-secondary"><i class="fas fa-flag"></i> Report Profile</button>
+            {% endif %}
+        </div>
 
         <div class="nav">
             <a href="{{ url_for('dashboard') }}"><i class="fas fa-home"></i> Dashboard</a>
@@ -219,65 +849,136 @@
             <a href="{{ url_for('subscription_page') }}"><i class="fas fa-crown"></i> Subscription</a>
         </div>
 
+        <div id="profileViewMode">
         <div class="profile-grid">
-            <!-- Left Column: Profile Info -->
             <div>
                 <div class="card">
-                    <h2><i class="fas fa-user"></i> Account Info</h2>
-                    
+                        <h2><i class="fas fa-id-card"></i> Account Info</h2>
+                        <div class="profile-info">
+                            <label>Display Name</label>
+                            <div class="value" id="viewDisplayName">{{ profile.display_name }}</div>
+                        </div>
+                    {% if profile.pronouns %}
+                    <div class="profile-info">
+                        <label>Pronouns</label>
+                        <div class="value" id="viewPronouns">{{ profile.pronouns }}</div>
+                    </div>
+                    {% endif %}
+                    {% if profile.gender %}
+                    <div class="profile-info">
+                        <label>Gender</label>
+                        <div class="value" id="viewGender">{{ profile.gender }}</div>
+                    </div>
+                    {% endif %}
                     <div class="profile-info">
                         <label>Username</label>
-                        <div class="value">{{ profile.username }}</div>
+                            <div class="value">{{ account.username }}</div>
                     </div>
-
                     <div class="profile-info">
                         <label>Email</label>
                         <div class="value">
-                            {{ profile.email }}
-                            {% if profile.verified %}
+                                {{ account.email }}
+                                {% if account.verified %}
                                 <span class="badge badge-success"><i class="fas fa-check-circle"></i> Verified</span>
                             {% else %}
                                 <span class="badge badge-warning"><i class="fas fa-exclamation-circle"></i> Unverified</span>
                             {% endif %}
                         </div>
                     </div>
-
+                        {% if profile.location %}
+                        <div class="profile-info">
+                            <label>Location</label>
+                            <div class="value" id="viewLocation">{{ profile.location }}</div>
+                        </div>
+                        {% endif %}
                     <div class="profile-info">
                         <label>Role</label>
                         <div class="value">
-                            {% if profile.role == 'admin' %}
+                                {% if account.role == 'admin' %}
                                 <span class="badge badge-premium"><i class="fas fa-crown"></i> Admin</span>
                             {% else %}
                                 <span class="badge badge-info">User</span>
                             {% endif %}
                         </div>
                     </div>
-
                     <div class="profile-info">
                         <label>Member Since</label>
-                        <div class="value">{{ profile.created_at }}</div>
+                            <div class="value">{{ account.created_at }}</div>
                     </div>
-
                     <div class="profile-info">
                         <label>Last Login</label>
-                        <div class="value">{{ profile.last_login or 'Never' }}</div>
+                            <div class="value">{{ account.last_login or 'Never' }}</div>
                     </div>
                 </div>
 
-                <div class="card" style="margin-top: 20px;">
-                    <h2><i class="fas fa-chart-bar"></i> Statistics</h2>
-                    
-                    <div class="stats-grid">
+                    <div class="card">
+                        <h2><i class="fas fa-chart-bar"></i> Snapshot</h2>
+                        <div class="stats-grid" id="statsGrid">
                         <div class="stat-box">
-                            <div class="number">{{ profile.login_count or 0 }}</div>
+                                <div class="number">{{ account.login_count or 0 }}</div>
                             <div class="label">Logins</div>
                         </div>
+                            <div class="stat-box">
+                                <div class="number">{{ saved_searches|length }}</div>
+                                <div class="label">Saved Searches</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="number">{{ favorite_listings|length }}</div>
+                                <div class="label">Favorite Listings</div>
+                            </div>
                     </div>
                 </div>
 
-                <div class="card" style="margin-top: 20px;">
+                    <div class="card" id="streakCard">
+                        <h2><i class="fas fa-fire"></i> Engagement Streak</h2>
+                        <div class="streak-metrics">
+                            <div class="streak-item" id="streakCurrentCard">
+                                <div class="number" id="streakCurrentValue">0</div>
+                                <div class="label">Current Days</div>
+                            </div>
+                            <div class="streak-item" id="streakBestCard">
+                                <div class="number" id="streakBestValue">0</div>
+                                <div class="label">Longest Streak</div>
+                            </div>
+                        </div>
+                        <p class="streak-note" id="streakNote">Share something new today to keep the momentum going.</p>
+                    </div>
+
+                    <div class="card" id="referralCard">
+                        <h2><i class="fas fa-user-plus"></i> Referral Program</h2>
+                        <p style="color:#a5b4fc; font-size:0.9em; margin-bottom:14px;">Share your invite link to grow the community and track your impact.</p>
+                        <div class="referral-code-box">
+                            <code id="referralCodeValue">— — — —</code>
+                            <button class="btn btn-secondary small" id="copyReferralCodeBtn"><i class="fas fa-copy"></i> Copy Code</button>
+                        </div>
+                        <div class="referral-link-box">
+                            <input type="text" id="referralShareLink" readonly value="Preparing link…">
+                            <button class="btn btn-secondary small" id="copyReferralLinkBtn"><i class="fas fa-link"></i> Copy Link</button>
+                        </div>
+                        <div class="referral-stats-grid">
+                            <div class="stat-box">
+                                <div class="number" id="referralHitsCount">0</div>
+                                <div class="label">Landing Visits</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="number" id="referralConversionsCount">0</div>
+                                <div class="label">Confirmed Joins</div>
+                            </div>
+                        </div>
+                        <div class="referral-landing-list" id="referralLandingList">
+                            <div class="referral-landing-item" data-empty="true">
+                                <span>No referral traffic yet.</span>
+                                <span>—</span>
+                            </div>
+                        </div>
+                        <div class="referral-actions">
+                            <button class="btn btn-secondary small" id="refreshReferralBtn"><i class="fas fa-rotate"></i> Refresh</button>
+                            <button class="btn btn-secondary small" id="regenerateReferralBtn"><i class="fas fa-wand-magic-sparkles"></i> Rotate Code</button>
+                        </div>
+                    </div>
+
+                    <div class="card">
                     <h2><i class="fas fa-crown"></i> Subscription</h2>
-                    
                     <div class="profile-info">
                         <label>Current Plan</label>
                         <div class="value">
@@ -290,84 +991,1801 @@
                             {% endif %}
                         </div>
                     </div>
-
                     <a href="{{ url_for('subscription_plans') }}" class="btn btn-primary" style="width: 100%; margin-top: 15px;">
                         <i class="fas fa-arrow-up"></i> Upgrade Plan
                     </a>
                 </div>
 
-                {% if profile.role == 'admin' %}
-                <div class="card" style="margin-top: 20px;">
-                    <h2><i class="fas fa-user-shield"></i> Admin Panel</h2>
-                    <p style="color: #aaa; font-size: 0.9em; margin-bottom: 15px;">Access the admin dashboard</p>
-                    
-                    <a href="{{ url_for('admin.dashboard') }}" class="btn btn-primary" style="width: 100%; background: linear-gradient(135deg, #d32f2f, #f44336);">
-                        <i class="fas fa-cog"></i> Admin Dashboard
+                    {% if account.role == 'admin' %}
+                    <div class="card">
+                        <h2><i class="fas fa-user-shield"></i> Admin Tools</h2>
+                        <p style="color: #aaa; font-size: 0.9em; margin-bottom: 15px;">Access the admin dashboard for moderation and management.</p>
+                        <a href="{{ url_for('admin.dashboard') }}" class="btn btn-secondary" style="width: 100%;">
+                            <i class="fas fa-toolbox"></i> Open Admin Dashboard
                     </a>
                 </div>
                 {% endif %}
 
-                <div class="card" style="margin-top: 20px;">
+                    <div class="card">
                     <h2><i class="fas fa-download"></i> Export Data</h2>
-                    <p style="color: #aaa; font-size: 0.9em; margin-bottom: 15px;">Download all your data (GDPR compliance)</p>
-                    
+                        <p style="color: #aaa; font-size: 0.9em; margin-bottom: 15px;">Download a copy of your information anytime.</p>
                     <a href="/api/export/user-data" class="btn btn-primary" style="width: 100%;" download>
                         <i class="fas fa-file-download"></i> Download Complete Data (JSON)
                     </a>
-                    
                     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
                         <p style="color: #aaa; font-size: 0.9em; margin-bottom: 10px;"><strong>Specialized Exports:</strong></p>
-                        
-                        <a href="/api/export/seller-listings?format=csv" class="btn btn-primary" style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #6B46C1 0%, #8B5CF6 100%);" download>
-                            <i class="fas fa-store"></i> Export Seller Listings (CSV)
+                            <a href="/api/export/seller-listings?format=csv" class="btn btn-secondary" style="width: 100%; margin-top: 10px;" download>
+                                <i class="fas fa-store"></i> Seller Listings (CSV)
                         </a>
-                        
-                        <a href="/api/export/seller-listings" class="btn btn-primary" style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #6B46C1 0%, #8B5CF6 100%);" download>
-                            <i class="fas fa-store"></i> Export Seller Listings (JSON)
+                            <a href="/api/export/seller-listings" class="btn btn-secondary" style="width: 100%; margin-top: 10px;" download>
+                                <i class="fas fa-store"></i> Seller Listings (JSON)
                         </a>
-                        
-                        <a href="/api/export/selling-analytics" class="btn btn-primary" style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #22d389 0%, #28a745 100%);" download>
-                            <i class="fas fa-chart-pie"></i> Export Selling Analytics (JSON)
+                            <a href="/api/export/selling-analytics" class="btn btn-secondary" style="width: 100%; margin-top: 10px;" download>
+                                <i class="fas fa-chart-pie"></i> Selling Analytics (JSON)
                         </a>
-                        
-                        <a href="/api/export/market-analytics?days=30" class="btn btn-primary" style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);" download>
-                            <i class="fas fa-chart-line"></i> Export Market Analytics (JSON)
+                            <a href="/api/export/market-analytics?days=30" class="btn btn-secondary" style="width: 100%; margin-top: 10px;" download>
+                                <i class="fas fa-chart-line"></i> Market Analytics (JSON)
                         </a>
-                        
-                        <a href="/api/export/favorites?format=csv" class="btn btn-primary" style="width: 100%; margin-top: 10px;" download>
-                            <i class="fas fa-file-csv"></i> Export Favorites (CSV)
+                            <a href="/api/export/favorites?format=csv" class="btn btn-secondary" style="width: 100%; margin-top: 10px;" download>
+                                <i class="fas fa-file-csv"></i> Favorites (CSV)
                         </a>
                     </div>
                 </div>
             </div>
 
-            <!-- Right Column: Activity Log -->
             <div>
                 <div class="card">
-                    <h2><i class="fas fa-history"></i> Recent Activity</h2>
-                    
-                    <div class="activity-list">
-                        {% if activity and activity|length > 0 %}
-                            {% for act in activity %}
-                                <div class="activity-item">
-                                    <div class="action">
-                                        <i class="fas fa-circle" style="font-size: 0.6em; color: #007bff;"></i>
-                                        {{ act.action|replace('_', ' ')|title }}
+                        <h2><i class="fas fa-sparkles"></i> Profile Highlights</h2>
+                        <div class="profile-info">
+                            <label>Bio</label>
+                            {% if profile.bio %}
+                                <div class="value" id="viewBio">{{ profile.bio }}</div>
+                            {% else %}
+                                <div class="empty-state">No bio added yet.</div>
+                            {% endif %}
+                        </div>
+                        <div class="profile-info" style="margin-top: 15px;">
+                            <label>Search Interests</label>
+                            {% if profile.search_interests %}
+                                <div class="chips" id="viewInterests">
+                                    {% for interest in profile.search_interests %}
+                                        <span class="chip">{{ interest.label or interest.id }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <div class="empty-state" style="padding: 12px;">No interests saved yet.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="card connections-card" id="connectionsCard">
+                        <h2><i class="fas fa-user-group"></i> Connections</h2>
+                        <div class="connections-section">
+                            <div class="connections-section-header">
+                                <span>Friends</span>
+                                <span class="count-pill" id="friendCountBadge">0</span>
+                            </div>
+                            <div class="connections-list" id="friendsList"></div>
+                            <div class="connections-actions">
+                                <button id="loadMoreFriends" class="btn btn-secondary small" style="display:none;">
+                                    <i class="fas fa-chevron-down"></i> Load more friends
+                                </button>
+                                <div id="friendsError" class="empty-state small" style="display:none;"></div>
+                            </div>
+                        </div>
+                        <div class="connections-section">
+                            <div class="connections-section-header">
+                                <span>Incoming Requests</span>
+                                <span class="count-pill" id="incomingCountBadge">0</span>
+                            </div>
+                            <div class="connections-list" id="incomingRequestsList"></div>
+                        </div>
+                        <div class="connections-section">
+                            <div class="connections-section-header">
+                                <span>Outgoing Requests</span>
+                                <span class="count-pill" id="outgoingCountBadge">0</span>
+                            </div>
+                            <div class="connections-list" id="outgoingRequestsList"></div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h2><i class="fas fa-display"></i> Showcase Collections</h2>
+                        {% set has_showcase = (showcase.favorite_searches or showcase.featured_listings or showcase.servers_joined) %}
+                        {% if has_showcase %}
+                            <div class="showcase-list" id="viewShowcase">
+                                {% if showcase.favorite_searches %}
+                                    <div class="showcase-item">
+                                        <div class="activity-item action"><i class="fas fa-search"></i> Favorite Searches</div>
+                                        <ul style="list-style:none; margin-top:8px;">
+                                            {% for item in showcase.favorite_searches %}
+                                                <li style="margin-bottom:6px;">
+                                                    <strong>{{ item.label or ('Search #' ~ item.entity_id) }}</strong>
+                                                    {% if item.metadata and item.metadata.note %}
+                                                        <div class="details">{{ item.metadata.note }}</div>
+                                                    {% endif %}
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
                                     </div>
+                                {% endif %}
+                                {% if showcase.featured_listings %}
+                                    <div class="showcase-item">
+                                        <div class="activity-item action"><i class="fas fa-box"></i> Featured Listings</div>
+                                        <ul style="list-style:none; margin-top:8px;">
+                                            {% for item in showcase.featured_listings %}
+                                                <li style="margin-bottom:6px;">
+                                                    <strong>{{ item.label or ('Listing #' ~ item.entity_id) }}</strong>
+                                                    {% if item.metadata and item.metadata.note %}
+                                                        <div class="details">{{ item.metadata.note }}</div>
+                                                    {% endif %}
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                {% endif %}
+                                {% if showcase.servers_joined %}
+                                    <div class="showcase-item">
+                                        <div class="activity-item action"><i class="fas fa-people-roof"></i> Servers Joined</div>
+                                        <ul style="list-style:none; margin-top:8px;">
+                                            {% for item in showcase.servers_joined %}
+                                                <li style="margin-bottom:6px;">
+                                                    <strong>{{ item.label or ('Server #' ~ item.entity_id) }}</strong>
+                                                    {% if item.metadata and item.metadata.note %}
+                                                        <div class="details">{{ item.metadata.note }}</div>
+                                                    {% endif %}
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% else %}
+                            <div class="empty-state">No showcase items selected yet.</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="card">
+                        <h2><i class="fas fa-clock-rotate-left"></i> Recent Profile Activity</h2>
+                        {% if profile_activity %}
+                            <div class="activity-list" id="viewProfileActivity">
+                                {% for item in profile_activity %}
+                                <div class="activity-item">
+                                        <div class="action">{{ item.activity_type.replace('_', ' ')|title }}</div>
+                                        {% if item.metadata and item.metadata.note %}
+                                            <div class="details">{{ item.metadata.note }}</div>
+                                        {% elif item.metadata and item.metadata.fields %}
+                                            <div class="details">Fields updated: {{ item.metadata.fields|join(', ') }}</div>
+                                        {% endif %}
+                                        <div class="timestamp"><i class="fas fa-calendar-day"></i> {{ item.occurred_at }}</div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <div class="empty-state">No recent profile updates to show.</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="card">
+                        <h2><i class="fas fa-history"></i> Account Activity Log</h2>
+                        {% if account_activity %}
+                            <div class="activity-list" id="viewAccountActivity">
+                                {% for act in account_activity %}
+                                    <div class="activity-item">
+                                        <div class="action">{{ act.action|replace('_', ' ')|title }}</div>
                                     {% if act.details %}
                                         <div class="details">{{ act.details }}</div>
                                     {% endif %}
-                                    <div class="timestamp">{{ act.timestamp }}</div>
+                                        <div class="timestamp">
+                                            <i class="fas fa-calendar"></i> {{ act.timestamp }}
+                                            {% if act.ip_address %}
+                                                &nbsp;|&nbsp; <i class="fas fa-network-wired"></i> {{ act.ip_address }}
+                                            {% endif %}
+                                        </div>
                                 </div>
                             {% endfor %}
+                            </div>
                         {% else %}
-                            <p style="color: #aaa; text-align: center; padding: 20px;">No recent activity</p>
+                            <div class="empty-state">No account activity recorded.</div>
                         {% endif %}
                     </div>
                 </div>
             </div>
         </div>
+
+        <div id="profileEditMode" class="hidden">
+            <div class="card">
+                <h2><i class="fas fa-user-edit"></i> Profile Basics & Interests</h2>
+                <div class="form-grid">
+                    <div>
+                        <label for="editDisplayName">Display Name</label>
+                        <input type="text" id="editDisplayName" maxlength="40" placeholder="Display name">
     </div>
+                    <div>
+                        <label for="editLocation">Location</label>
+                        <input type="text" id="editLocation" maxlength="120" placeholder="City, Country">
+                    </div>
+                    <div>
+                        <label for="editPronouns">Pronouns</label>
+                        <input type="text" id="editPronouns" maxlength="30" placeholder="e.g., they/them">
+                    </div>
+                    <div>
+                        <label for="editGender">Gender</label>
+                        <input type="text" id="editGender" maxlength="30" placeholder="Optional">
+                    </div>
+                    <div>
+                        <label for="editBio">Bio</label>
+                        <textarea id="editBio" maxlength="280" placeholder="Share a short introduction."></textarea>
+                    </div>
+                    <div>
+                        <label>Search Interests</label>
+                        <div class="chips" id="editInterestChips"></div>
+                        <div class="collection-controls" style="margin-top:10px;">
+                            <input type="text" id="interestText" placeholder="Add an interest (e.g., Vintage cars)">
+                            <button id="addInterestBtn" class="btn btn-secondary"><i class="fas fa-plus"></i> Add</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><i class="fas fa-image"></i> Profile Photos</h2>
+                <div class="media-grid">
+                    <div>
+                        <label style="display:block; margin-bottom:8px; color:#9fbbe7;">Avatar</label>
+                        <div class="upload-dropzone" id="avatarDropzone">
+                            <img id="avatarPreview" alt="Avatar preview" style="display:none;">
+                            <div class="upload-instructions">Drag & Drop an image here or use Browse</div>
+                            <button type="button" class="btn btn-secondary small" id="avatarBrowseBtn"><i class="fas fa-folder-open"></i> Browse</button>
+                            <input type="file" id="avatarInput" accept="image/*" hidden>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="display:block; margin-bottom:8px; color:#9fbbe7;">Banner</label>
+                        <div class="upload-dropzone" id="bannerDropzone" style="min-height: 220px;">
+                            <img id="bannerPreview" alt="Banner preview" style="display:none; width:100%; max-height:220px; object-fit:cover;">
+                            <div class="upload-instructions">Drag & Drop a banner image or use Browse</div>
+                            <button type="button" class="btn btn-secondary small" id="bannerBrowseBtn"><i class="fas fa-folder-open"></i> Browse</button>
+                            <input type="file" id="bannerInput" accept="image/*" hidden>
+                        </div>
+                    </div>
+                </div>
+                <p style="color:#6fa4d9; font-size:0.85em; margin-top:12px;">Tip: Images are stored securely and optimized for your profile.</p>
+            </div>
+
+            <div class="card">
+                <h2><i class="fas fa-eye"></i> Visibility Settings</h2>
+                <div class="visibility-grid">
+                    {% set visibility_fields = {
+                        'display_name': 'Display Name',
+                        'avatar_url': 'Avatar',
+                        'banner_url': 'Banner',
+                        'bio': 'Bio',
+                        'pronouns': 'Pronouns',
+                        'gender': 'Gender',
+                        'location': 'Location',
+                        'search_interests': 'Search Interests',
+                        'showcase': 'Showcase',
+                        'recent_activity': 'Recent Activity',
+                        'friends': 'Friends List'
+                    } %}
+                    {% for key, label in visibility_fields.items() %}
+                        <div class="visibility-field">
+                            <label for="visibility-{{ key }}">{{ label }}</label>
+                            <select class="visibility-select" id="visibility-{{ key }}" data-field="{{ key }}">
+                                <option value="public">Public</option>
+                                <option value="connections">Connections</option>
+                                <option value="private">Only Me</option>
+                            </select>
+                        </div>
+                    {% endfor %}
+                </div>
+                <div class="visibility-actions">
+                    <button type="button" class="btn btn-secondary small" id="hideProfileBtn">
+                        <i class="fas fa-user-shield"></i> Hide Entire Profile
+                    </button>
+                    <button type="button" class="btn btn-secondary small" id="connectionsProfileBtn">
+                        <i class="fas fa-user-friends"></i> Share With Connections
+                    </button>
+                    <button type="button" class="btn btn-secondary small" id="publicProfileBtn">
+                        <i class="fas fa-globe"></i> Make Fields Public
+                    </button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><i class="fas fa-display"></i> Showcase Collections</h2>
+                <div class="collection-editor">
+                    <div style="margin-bottom:24px;">
+                        <h3><i class="fas fa-search"></i> Favorite Searches</h3>
+                        <div class="collection-list" data-collection="favorite_searches"></div>
+                        <div class="collection-controls">
+                            <select id="favoriteSearchSelect">
+                                <option value="">Select saved search…</option>
+                                {% for search in saved_searches %}
+                                    <option value="{{ search.id }}">{{ search.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <button type="button" class="btn btn-secondary small" data-action="add" data-collection="favorite_searches"><i class="fas fa-plus"></i> Add</button>
+                            <button type="button" class="btn btn-primary small" data-action="save" data-collection="favorite_searches"><i class="fas fa-cloud-arrow-up"></i> Save Favorites</button>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom:24px;">
+                        <h3><i class="fas fa-box-open"></i> Featured Listings</h3>
+                        <div class="collection-list" data-collection="featured_listings"></div>
+                        <div class="collection-controls">
+                            <select id="featuredListingSelect">
+                                <option value="">Select favorite listing…</option>
+                                {% for listing in favorite_listings %}
+                                    <option value="{{ listing.id }}">{{ listing.title }}</option>
+                                {% endfor %}
+                            </select>
+                            <button type="button" class="btn btn-secondary small" data-action="add" data-collection="featured_listings"><i class="fas fa-plus"></i> Add</button>
+                            <button type="button" class="btn btn-primary small" data-action="save" data-collection="featured_listings"><i class="fas fa-cloud-arrow-up"></i> Save Listings</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3><i class="fas fa-people-roof"></i> Servers Joined</h3>
+                        <div class="collection-list" data-collection="servers_joined"></div>
+                        <div class="collection-controls">
+                            <select id="joinedServersSelect">
+                                <option value="">Select a server…</option>
+                            </select>
+                            <button type="button" class="btn btn-secondary small" data-action="add" data-collection="servers_joined"><i class="fas fa-plus"></i> Add</button>
+                            <button type="button" class="btn btn-primary small" data-action="save" data-collection="servers_joined"><i class="fas fa-cloud-arrow-up"></i> Save Servers</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="text-align:right;">
+                <button id="saveBasicsBtn" class="btn btn-primary"><i class="fas fa-floppy-disk"></i> Save Profile</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        const csrfTokenEl = document.querySelector('meta[name="csrf-token"]');
+        const csrfToken = csrfTokenEl ? csrfTokenEl.getAttribute('content') : '';
+
+        const profileState = {
+            profile: {{ profile | tojson }},
+            visibility: {{ visibility | tojson }},
+            showcase: {{ showcase | tojson }},
+            profile_activity: {{ profile_activity | tojson }},
+            account_activity: {{ account_activity | tojson }},
+            saved_searches: {{ saved_searches | tojson }},
+            favorite_listings: {{ favorite_listings | tojson }},
+            connections: {{ friend_overview | tojson }},
+            streak: {{ streak | tojson }},
+            referral: {{ referral_overview | tojson }},
+        };
+
+        const toastContainer = document.getElementById('toastContainer');
+        const viewMode = document.getElementById('profileViewMode');
+        const editMode = document.getElementById('profileEditMode');
+        const editBtn = document.getElementById('editProfileBtn');
+        const cancelBtn = document.getElementById('cancelEditBtn');
+        const saveBasicsBtn = document.getElementById('saveBasicsBtn');
+
+        const displayInput = document.getElementById('editDisplayName');
+        const locationInput = document.getElementById('editLocation');
+        const pronounsInput = document.getElementById('editPronouns');
+        const genderInput = document.getElementById('editGender');
+        const bioInput = document.getElementById('editBio');
+        const interestInput = document.getElementById('interestText');
+        const interestChipsContainer = document.getElementById('editInterestChips');
+        const messagesPageUrl = "{{ url_for('messages_page') }}";
+        const connectionsCard = document.getElementById('connectionsCard');
+        const friendsListEl = document.getElementById('friendsList');
+        const incomingListEl = document.getElementById('incomingRequestsList');
+        const outgoingListEl = document.getElementById('outgoingRequestsList');
+        const friendCountBadge = document.getElementById('friendCountBadge');
+        const incomingCountBadge = document.getElementById('incomingCountBadge');
+        const outgoingCountBadge = document.getElementById('outgoingCountBadge');
+
+        const avatarDropzone = document.getElementById('avatarDropzone');
+        const avatarInput = document.getElementById('avatarInput');
+        const avatarBrowseBtn = document.getElementById('avatarBrowseBtn');
+        const avatarPreview = document.getElementById('avatarPreview');
+        const bannerDropzone = document.getElementById('bannerDropzone');
+        const bannerInput = document.getElementById('bannerInput');
+        const bannerBrowseBtn = document.getElementById('bannerBrowseBtn');
+        const bannerPreview = document.getElementById('bannerPreview');
+        const hideProfileBtn = document.getElementById('hideProfileBtn');
+        const connectionsProfileBtn = document.getElementById('connectionsProfileBtn');
+        const publicProfileBtn = document.getElementById('publicProfileBtn');
+        const streakCardEl = document.getElementById('streakCard');
+        const streakCurrentValue = document.getElementById('streakCurrentValue');
+        const streakBestValue = document.getElementById('streakBestValue');
+        const streakNote = document.getElementById('streakNote');
+        const streakCurrentCard = document.getElementById('streakCurrentCard');
+        const streakBestCard = document.getElementById('streakBestCard');
+        const referralCardEl = document.getElementById('referralCard');
+        const referralCodeValue = document.getElementById('referralCodeValue');
+        const referralShareLinkInput = document.getElementById('referralShareLink');
+        const referralHitsCount = document.getElementById('referralHitsCount');
+        const referralConversionsCount = document.getElementById('referralConversionsCount');
+        const referralLandingList = document.getElementById('referralLandingList');
+        const copyReferralCodeBtn = document.getElementById('copyReferralCodeBtn');
+        const copyReferralLinkBtn = document.getElementById('copyReferralLinkBtn');
+        const refreshReferralBtn = document.getElementById('refreshReferralBtn');
+        const regenerateReferralBtn = document.getElementById('regenerateReferralBtn');
+
+        let interestDraft = [];
+        let showcaseDraft = {
+            favorite_searches: [],
+            featured_listings: [],
+            servers_joined: [],
+        };
+        let serversCache = [];
+        let pendingAvatarUrl = null;
+        let pendingBannerUrl = null;
+        let connectionsState = profileState.connections || {
+            friends: [],
+            incoming_requests: [],
+            outgoing_requests: [],
+            counts: { friends: 0, incoming: 0, outgoing: 0 },
+            next_cursor: null,
+            is_complete: false,
+        };
+
+        const loadMoreFriendsBtn = document.getElementById('loadMoreFriends');
+        const friendsErrorEl = document.getElementById('friendsError');
+        const reportProfileBtn = document.getElementById('reportProfileBtn');
+        const profileUsername = "{{ profile.username }}";
+        const onboardingModal = document.getElementById('onboardingModal');
+        const onboardingChecklist = document.getElementById('onboardingChecklist');
+        const onboardingStartBtn = document.getElementById('onboardingStartBtn');
+        const onboardingDismissBtn = document.getElementById('onboardingDismissBtn');
+        const onboardingCloseBtn = document.getElementById('onboardingCloseBtn');
+        const onboardingDismissKey = profileUsername ? `profile_onboarding_dismissed:${profileUsername}` : null;
+
+        function showToast(message, variant = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${variant}`;
+            toast.innerHTML = `<i class="fas ${variant === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}"></i><span>${message}</span>`;
+            toastContainer.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 250);
+            }, 2500);
+        }
+
+        function parseDateOnly(value) {
+            if (!value) return null;
+            try {
+                const dt = new Date(value);
+                if (Number.isNaN(dt.getTime())) return null;
+                return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+            } catch (error) {
+                return null;
+            }
+        }
+
+        function updateStreakCard(streak) {
+            if (!streakCardEl) {
+                return;
+            }
+            const current = Number(streak?.current_streak || 0);
+            const longest = Number(streak?.longest_streak || 0);
+            streakCurrentValue.textContent = current;
+            streakBestValue.textContent = longest;
+
+            const lastDate = parseDateOnly(streak?.last_engaged_date);
+            const today = parseDateOnly(new Date());
+            let note = 'Share something new today to keep the momentum going.';
+            if (lastDate && today) {
+                const diff = today.getTime() - lastDate.getTime();
+                const dayDiff = Math.floor(diff / (1000 * 60 * 60 * 24));
+                if (dayDiff === 0) {
+                    note = '🔥 You contributed today—keep it going!';
+                } else if (dayDiff === 1) {
+                    note = 'You have until tonight to continue the streak.';
+                } else {
+                    note = 'Your streak reset. Jump back in to start a new run!';
+                }
+            } else if (current <= 0) {
+                note = 'Start your first streak by posting, reacting, or updating your profile today.';
+            }
+            streakNote.textContent = note;
+
+            const isActive = current > 0;
+            streakCurrentCard.classList.toggle('cooldown', !isActive);
+            streakBestCard.classList.toggle('cooldown', !isActive);
+        }
+
+        function buildReferralLink(code) {
+            if (!code) {
+                return '';
+            }
+            try {
+                return `${window.location.origin}/?ref=${encodeURIComponent(code)}`;
+            } catch (error) {
+                return `/?ref=${encodeURIComponent(code)}`;
+            }
+        }
+
+        function renderReferralLandingSummary(items) {
+            if (!referralLandingList) {
+                return;
+            }
+            referralLandingList.innerHTML = '';
+            if (!items || !items.length) {
+                const empty = document.createElement('div');
+                empty.className = 'referral-landing-item';
+                empty.innerHTML = '<span>No referral traffic yet.</span><span>—</span>';
+                referralLandingList.appendChild(empty);
+                return;
+            }
+            items.forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'referral-landing-item';
+                const page = (item.landing_page || 'Direct').replace(/^https?:\/\/[^/]+/i, '');
+                row.innerHTML = `<span>${page || '/'}</span><span>${item.hits || 0}</span>`;
+                referralLandingList.appendChild(row);
+            });
+        }
+
+        function renderReferralOverview(data) {
+            if (!referralCardEl) {
+                return;
+            }
+            const referral = data?.referral || {};
+            const metrics = data?.metrics || {};
+            const code = referral.code || '';
+            const link = buildReferralLink(code);
+            referralCodeValue.textContent = code || '— — — —';
+            referralShareLinkInput.value = link || 'Generate a link to start inviting friends.';
+            referralHitsCount.textContent = metrics.total_hits ?? 0;
+            referralConversionsCount.textContent = metrics.total_conversions ?? 0;
+            renderReferralLandingSummary(metrics.landing_summary || []);
+        }
+
+        async function copyText(value, successMessage = 'Copied to clipboard.') {
+            if (!value) {
+                return;
+            }
+            try {
+                await navigator.clipboard.writeText(value);
+                showToast(successMessage, 'success');
+            } catch (error) {
+                const buffer = document.createElement('textarea');
+                buffer.value = value;
+                buffer.style.position = 'fixed';
+                buffer.style.opacity = '0';
+                document.body.appendChild(buffer);
+                buffer.focus();
+                buffer.select();
+                try {
+                    document.execCommand('copy');
+                    showToast(successMessage, 'success');
+                } catch (execError) {
+                    console.error('Clipboard copy failed', execError);
+                    showToast('Unable to copy value. Please copy manually.', 'error');
+                } finally {
+                    document.body.removeChild(buffer);
+                }
+            }
+        }
+
+        async function loadReferralOverview(options = {}) {
+            if (!referralCardEl) {
+                return;
+            }
+            const regenerate = Boolean(options.regenerate);
+            if (regenerate) {
+                regenerateReferralBtn?.classList.add('loading');
+                regenerateReferralBtn && (regenerateReferralBtn.disabled = true);
+            } else {
+                refreshReferralBtn?.classList.add('loading');
+                refreshReferralBtn && (refreshReferralBtn.disabled = true);
+            }
+            try {
+                let response;
+                if (regenerate) {
+                    response = await fetch('/api/referrals', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
+                        },
+                        body: JSON.stringify({ regenerate: true }),
+                    });
+                } else {
+                    response = await fetch('/api/referrals', {
+                        method: 'GET',
+                        credentials: 'include',
+                    });
+                }
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Unable to load referral overview');
+                }
+                profileState.referral = data;
+                renderReferralOverview(data);
+                if (regenerate) {
+                    showToast('Referral code rotated.', 'success');
+                }
+            } catch (error) {
+                console.error('Failed to load referral overview', error);
+                showToast(error.message || 'Failed to load referral stats.', 'error');
+            } finally {
+                if (regenerate) {
+                    regenerateReferralBtn?.classList.remove('loading');
+                    regenerateReferralBtn && (regenerateReferralBtn.disabled = false);
+                } else {
+                    refreshReferralBtn?.classList.remove('loading');
+                    refreshReferralBtn && (refreshReferralBtn.disabled = false);
+                }
+            }
+        }
+
+        function slugify(value) {
+            return (value || '')
+                .toString()
+                .trim()
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '') || (value || '').trim();
+        }
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatDate(value) {
+            if (!value) {
+                return '';
+            }
+            const parsed = new Date(value);
+            if (Number.isNaN(parsed.getTime())) {
+                return escapeHtml(value);
+            }
+            return escapeHtml(parsed.toLocaleDateString());
+        }
+
+        function ensureConnectionsState() {
+            if (!connectionsState || typeof connectionsState !== 'object') {
+                connectionsState = {
+                    friends: [],
+                    incoming_requests: [],
+                    outgoing_requests: [],
+                    counts: { friends: 0, incoming: 0, outgoing: 0 },
+                    next_cursor: null,
+                    is_complete: false,
+                };
+            }
+            connectionsState.friends = Array.isArray(connectionsState.friends) ? connectionsState.friends : [];
+            connectionsState.incoming_requests = Array.isArray(connectionsState.incoming_requests) ? connectionsState.incoming_requests : [];
+            connectionsState.outgoing_requests = Array.isArray(connectionsState.outgoing_requests) ? connectionsState.outgoing_requests : [];
+            connectionsState.counts = connectionsState.counts || {
+                friends: connectionsState.friends.length,
+                incoming: connectionsState.incoming_requests.length,
+                outgoing: connectionsState.outgoing_requests.length,
+            };
+        }
+
+        function renderInterestChips() {
+            interestChipsContainer.innerHTML = '';
+            if (!interestDraft.length) {
+                const empty = document.createElement('div');
+                empty.className = 'empty-state';
+                empty.textContent = 'No interests selected yet.';
+                interestChipsContainer.appendChild(empty);
+                return;
+            }
+            interestDraft.forEach((item, index) => {
+                const chip = document.createElement('span');
+                chip.className = 'chip';
+                chip.innerHTML = `<span>${item.label}</span><button type="button" data-index="${index}" title="Remove">&times;</button>`;
+                chip.querySelector('button').addEventListener('click', () => {
+                    interestDraft.splice(index, 1);
+                    renderInterestChips();
+                });
+                interestChipsContainer.appendChild(chip);
+            });
+        }
+
+        function renderFriendsList() {
+            ensureConnectionsState();
+            const friends = connectionsState.friends || [];
+            const totalFriends = connectionsState.counts?.friends ?? friends.length;
+            if (friendCountBadge) {
+                friendCountBadge.textContent = totalFriends;
+            }
+            if (!friendsListEl) {
+                return;
+            }
+            if (friendsErrorEl) {
+                friendsErrorEl.style.display = 'none';
+            }
+            if (!friends.length) {
+                friendsListEl.innerHTML = '<div class="empty-state small">No friends yet.</div>';
+                if (loadMoreFriendsBtn) {
+                    loadMoreFriendsBtn.style.display = 'none';
+                }
+                return;
+            }
+            friendsListEl.innerHTML = friends.map(friend => {
+                const username = escapeHtml(friend.username || '');
+                const displayName = escapeHtml(friend.display_name || friend.username || '');
+                const initials = displayName ? displayName[0].toUpperCase() : (username[0] || '?').toUpperCase();
+                const avatarUrl = friend.avatar_url ? escapeHtml(friend.avatar_url) : '';
+                const since = formatDate(friend.created_at);
+                const lastActive = friend.last_active_at ? formatDate(friend.last_active_at) : '';
+                const metaParts = [`@${username}`];
+                if (since) {
+                    metaParts.push(`Friends since ${since}`);
+                }
+                if (lastActive) {
+                    metaParts.push(`Active ${lastActive}`);
+                }
+
+                const mutualFriendCount = Number(friend.mutual_friend_count || 0);
+                const mutualServerCount = Number(friend.mutual_server_count || 0);
+                const mutualSummary = [];
+                if (mutualFriendCount) {
+                    mutualSummary.push(`<i class="fas fa-user-group"></i> ${mutualFriendCount} mutual friend${mutualFriendCount === 1 ? '' : 's'}`);
+                }
+                if (mutualServerCount) {
+                    mutualSummary.push(`<i class="fas fa-people-roof"></i> ${mutualServerCount} shared server${mutualServerCount === 1 ? '' : 's'}`);
+                }
+                const mutualSummaryHtml = mutualSummary.length ? `<div class="connection-submeta">${mutualSummary.join(' · ')}</div>` : '';
+
+                const mutualFriendPreview = Array.isArray(friend.mutual_friend_preview) ? friend.mutual_friend_preview.slice(0, 3) : [];
+                const mutualServerPreview = Array.isArray(friend.mutual_server_preview) ? friend.mutual_server_preview.slice(0, 3) : [];
+
+                const friendPreviewHtml = mutualFriendPreview.length
+                    ? `<div class="connection-preview">${mutualFriendPreview.map(item => `<span><i class="fas fa-user"></i> ${escapeHtml(item.display_name || item.username || '')}</span>`).join('')}</div>`
+                    : '';
+                const serverPreviewHtml = mutualServerPreview.length
+                    ? `<div class="connection-preview">${mutualServerPreview.map(item => `<span><i class="fas fa-hashtag"></i> ${escapeHtml(item.name || item.slug || '')}</span>`).join('')}</div>`
+                    : '';
+
+                const avatarHtml = avatarUrl
+                    ? `<img src="${avatarUrl}" alt="${displayName}">`
+                    : `<span>${escapeHtml(initials)}</span>`;
+
+                return `
+                    <div class="connection-item" data-username="${username}">
+                        <div class="connection-avatar">${avatarHtml}</div>
+                        <div class="connection-body">
+                            <div class="connection-name">${displayName}</div>
+                            <div class="connection-meta">${metaParts.join(' · ')}</div>
+                            ${mutualSummaryHtml}
+                            ${friendPreviewHtml}
+                            ${serverPreviewHtml}
+                        </div>
+                        <div class="connection-actions">
+                            <button class="btn btn-secondary small" data-action="open-chat" data-username="${username}">
+                                <i class="fas fa-message"></i> Message
+                            </button>
+                            <button class="btn btn-secondary small" data-action="view-profile" data-username="${username}">
+                                <i class="fas fa-id-card"></i> View
+                            </button>
+                            <button class="btn btn-secondary small" data-action="remove-friend" data-username="${username}">
+                                <i class="fas fa-user-minus"></i> Remove
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            if (loadMoreFriendsBtn) {
+                if (connectionsState.next_cursor && !connectionsState.is_complete) {
+                    loadMoreFriendsBtn.style.display = 'block';
+                    loadMoreFriendsBtn.disabled = false;
+                } else {
+                    loadMoreFriendsBtn.style.display = 'none';
+                }
+            }
+        }
+
+        function renderIncomingRequests() {
+            ensureConnectionsState();
+            const requests = connectionsState.incoming_requests || [];
+            const totalIncoming = connectionsState.counts?.incoming ?? requests.length;
+            if (incomingCountBadge) {
+                incomingCountBadge.textContent = totalIncoming;
+            }
+            if (!incomingListEl) {
+                return;
+            }
+            if (!requests.length) {
+                incomingListEl.innerHTML = '<div class="empty-state small">No pending requests.</div>';
+                return;
+            }
+            incomingListEl.innerHTML = requests.map(request => {
+                const username = escapeHtml(request.other_user?.username || request.requester_username || '');
+                const displayName = escapeHtml(request.other_user?.display_name || username);
+                const created = formatDate(request.created_at);
+                const message = request.message ? `<div class="connection-message">"${escapeHtml(request.message)}"</div>` : '';
+                const avatarUrl = request.other_user?.avatar_url ? escapeHtml(request.other_user.avatar_url) : '';
+                const initials = displayName ? displayName[0].toUpperCase() : (username[0] || '?').toUpperCase();
+
+                const mutualFriendCount = Number(request.mutual_friend_count || 0);
+                const mutualServerCount = Number(request.mutual_server_count || 0);
+                const mutualSummary = [];
+                if (mutualFriendCount) {
+                    mutualSummary.push(`<i class="fas fa-user-group"></i> ${mutualFriendCount} mutual friend${mutualFriendCount === 1 ? '' : 's'}`);
+                }
+                if (mutualServerCount) {
+                    mutualSummary.push(`<i class="fas fa-people-roof"></i> ${mutualServerCount} shared server${mutualServerCount === 1 ? '' : 's'}`);
+                }
+                const mutualSummaryHtml = mutualSummary.length ? `<div class="connection-submeta">${mutualSummary.join(' · ')}</div>` : '';
+
+                const mutualFriendPreview = Array.isArray(request.mutual_friend_preview) ? request.mutual_friend_preview.slice(0, 3) : [];
+                const mutualServerPreview = Array.isArray(request.mutual_server_preview) ? request.mutual_server_preview.slice(0, 3) : [];
+
+                const friendPreviewHtml = mutualFriendPreview.length
+                    ? `<div class="connection-preview">${mutualFriendPreview.map(item => `<span><i class="fas fa-user"></i> ${escapeHtml(item.display_name || item.username || '')}</span>`).join('')}</div>`
+                    : '';
+                const serverPreviewHtml = mutualServerPreview.length
+                    ? `<div class="connection-preview">${mutualServerPreview.map(item => `<span><i class="fas fa-hashtag"></i> ${escapeHtml(item.name || item.slug || '')}</span>`).join('')}</div>`
+                    : '';
+
+                const avatarHtml = avatarUrl
+                    ? `<img src="${avatarUrl}" alt="${displayName}">`
+                    : `<span>${escapeHtml(initials)}</span>`;
+
+                return `
+                    <div class="connection-item" data-request-id="${request.id}">
+                        <div class="connection-avatar">${avatarHtml}</div>
+                        <div class="connection-body">
+                            <div class="connection-name">${displayName}</div>
+                            <div class="connection-meta">@${username}${created ? ` · Requested ${created}` : ''}</div>
+                            ${message}
+                            ${mutualSummaryHtml}
+                            ${friendPreviewHtml}
+                            ${serverPreviewHtml}
+                        </div>
+                        <div class="connection-actions">
+                            <button class="btn btn-primary small" data-action="accept-request" data-request-id="${request.id}" data-username="${username}">
+                                <i class="fas fa-user-check"></i> Accept
+                            </button>
+                            <button class="btn btn-secondary small" data-action="decline-request" data-request-id="${request.id}" data-username="${username}">
+                                <i class="fas fa-xmark"></i> Decline
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderOutgoingRequests() {
+            ensureConnectionsState();
+            const requests = connectionsState.outgoing_requests || [];
+            const totalOutgoing = connectionsState.counts?.outgoing ?? requests.length;
+            if (outgoingCountBadge) {
+                outgoingCountBadge.textContent = totalOutgoing;
+            }
+            if (!outgoingListEl) {
+                return;
+            }
+            if (!requests.length) {
+                outgoingListEl.innerHTML = '<div class="empty-state small">No outgoing requests.</div>';
+                return;
+            }
+            outgoingListEl.innerHTML = requests.map(request => {
+                const username = escapeHtml(request.other_user?.username || request.recipient_username || '');
+                const displayName = escapeHtml(request.other_user?.display_name || username);
+                const created = formatDate(request.created_at);
+                const message = request.message ? `<div class="connection-message">"${escapeHtml(request.message)}"</div>` : '';
+                const avatarUrl = request.other_user?.avatar_url ? escapeHtml(request.other_user.avatar_url) : '';
+                const initials = displayName ? displayName[0].toUpperCase() : (username[0] || '?').toUpperCase();
+
+                const mutualFriendCount = Number(request.mutual_friend_count || 0);
+                const mutualServerCount = Number(request.mutual_server_count || 0);
+                const mutualSummary = [];
+                if (mutualFriendCount) {
+                    mutualSummary.push(`<i class="fas fa-user-group"></i> ${mutualFriendCount} mutual friend${mutualFriendCount === 1 ? '' : 's'}`);
+                }
+                if (mutualServerCount) {
+                    mutualSummary.push(`<i class="fas fa-people-roof"></i> ${mutualServerCount} shared server${mutualServerCount === 1 ? '' : 's'}`);
+                }
+                const mutualSummaryHtml = mutualSummary.length ? `<div class="connection-submeta">${mutualSummary.join(' · ')}</div>` : '';
+
+                const mutualFriendPreview = Array.isArray(request.mutual_friend_preview) ? request.mutual_friend_preview.slice(0, 3) : [];
+                const mutualServerPreview = Array.isArray(request.mutual_server_preview) ? request.mutual_server_preview.slice(0, 3) : [];
+
+                const friendPreviewHtml = mutualFriendPreview.length
+                    ? `<div class="connection-preview">${mutualFriendPreview.map(item => `<span><i class="fas fa-user"></i> ${escapeHtml(item.display_name || item.username || '')}</span>`).join('')}</div>`
+                    : '';
+                const serverPreviewHtml = mutualServerPreview.length
+                    ? `<div class="connection-preview">${mutualServerPreview.map(item => `<span><i class="fas fa-hashtag"></i> ${escapeHtml(item.name || item.slug || '')}</span>`).join('')}</div>`
+                    : '';
+
+                const avatarHtml = avatarUrl
+                    ? `<img src="${avatarUrl}" alt="${displayName}">`
+                    : `<span>${escapeHtml(initials)}</span>`;
+
+               return `
+                    <div class="connection-item" data-request-id="${request.id}">
+                        <div class="connection-avatar">${avatarHtml}</div>
+                        <div class="connection-body">
+                            <div class="connection-name">${displayName}</div>
+                            <div class="connection-meta">@${username}${created ? ` · Sent ${created}` : ''}</div>
+                            ${message}
+                            ${mutualSummaryHtml}
+                            ${friendPreviewHtml}
+                            ${serverPreviewHtml}
+                        </div>
+                        <div class="connection-actions">
+                            <button class="btn btn-secondary small" data-action="cancel-request" data-request-id="${request.id}" data-username="${username}">
+                                <i class="fas fa-ban"></i> Cancel
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderConnections() {
+            renderFriendsList();
+            renderIncomingRequests();
+            renderOutgoingRequests();
+        }
+
+        async function reportProfile() {
+            const reason = window.prompt('Help our moderators understand the issue. Why are you reporting this profile?');
+            if (reason === null) {
+                return;
+            }
+            const trimmed = reason.trim();
+            if (!trimmed) {
+                showToast('Report cancelled. Please provide a reason.', 'error');
+                return;
+            }
+            try {
+                const response = await fetch('/api/reports', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        target_type: 'profile',
+                        target_id: profileUsername,
+                        context: {
+                            reason: trimmed,
+                            reported_at: new Date().toISOString(),
+                        },
+                    }),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(data.error || 'Unable to submit report.');
+                }
+                showToast('Thank you for the report. Our moderators will review it shortly.');
+            } catch (error) {
+                console.error('Failed to report profile', error);
+                showToast(error.message || 'Unable to submit report.', 'error');
+            }
+        }
+
+        function updateConnectionsState(nextState) {
+            connectionsState.friends = Array.isArray(nextState.friends) ? nextState.friends : connectionsState.friends;
+            connectionsState.incoming_requests = Array.isArray(nextState.incoming_requests) ? nextState.incoming_requests : connectionsState.incoming_requests;
+            connectionsState.outgoing_requests = Array.isArray(nextState.outgoing_requests) ? nextState.outgoing_requests : connectionsState.outgoing_requests;
+            connectionsState.counts = nextState.counts || connectionsState.counts;
+            connectionsState.next_cursor = nextState.next_cursor ?? connectionsState.next_cursor ?? null;
+            connectionsState.is_complete = Boolean(typeof nextState.is_complete === 'boolean' ? nextState.is_complete : connectionsState.is_complete);
+            renderFriendsList();
+            renderIncomingRequests();
+            renderOutgoingRequests();
+        }
+
+        async function refreshConnections(limit = 24) {
+            try {
+                const response = await fetch(`/api/friends/overview?limit=${encodeURIComponent(limit)}`);
+                if (!response.ok) {
+                    throw new Error('Unable to load connections.');
+                }
+                const data = await response.json();
+                updateConnectionsState({
+                    friends: data.overview?.friends || [],
+                    incoming_requests: data.overview?.incoming_requests || data.overview?.incoming || [],
+                    outgoing_requests: data.overview?.outgoing_requests || data.overview?.outgoing || [],
+                    counts: data.overview?.counts || connectionsState.counts,
+                    next_cursor: data.overview?.next_cursor ?? null,
+                    is_complete: !data.overview?.next_cursor,
+                });
+            } catch (error) {
+                console.error('Failed to refresh connections', error);
+                showToast('Unable to load connections right now.', 'error');
+            }
+        }
+
+        async function withButtonLoading(button, callback) {
+            const originalHtml = button ? button.innerHTML : '';
+            if (button) {
+                button.disabled = true;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            }
+            try {
+                return await callback();
+            } finally {
+                if (button && document.body.contains(button)) {
+                    button.disabled = false;
+                    button.innerHTML = originalHtml;
+                }
+            }
+        }
+
+        async function respondToRequest(requestId, action, button) {
+            await withButtonLoading(button, async () => {
+                const response = await fetch(`/api/friends/requests/${requestId}/respond`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({ action }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Unable to update friend request.');
+                }
+                if (data.overview) {
+                    updateConnectionsState(data.overview);
+                } else {
+                    await refreshConnections();
+                }
+                if (action === 'accept') {
+                    showToast('Friend request accepted.');
+                } else {
+                    showToast('Friend request declined.', 'success');
+                }
+            });
+        }
+
+        async function cancelOutgoingRequest(requestId, button) {
+            await withButtonLoading(button, async () => {
+                const response = await fetch(`/api/friends/requests/${requestId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-CSRFToken': csrfToken,
+                    },
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Unable to cancel request.');
+                }
+                if (data.overview) {
+                    updateConnectionsState(data.overview);
+                } else {
+                    await refreshConnections();
+                }
+                showToast('Friend request cancelled.', 'success');
+            });
+        }
+
+        async function removeFriend(username, button) {
+            await withButtonLoading(button, async () => {
+                const response = await fetch(`/api/friends/${encodeURIComponent(username)}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-CSRFToken': csrfToken,
+                    },
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Unable to remove friend.');
+                }
+                if (data.overview) {
+                    updateConnectionsState(data.overview);
+                } else {
+                    await refreshConnections();
+                }
+                showToast('Friend removed.', 'success');
+            });
+        }
+
+        async function openConversation(username, button) {
+            await withButtonLoading(button, async () => {
+                const response = await fetch(`/api/profile/connections/${encodeURIComponent(username)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({}),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Unable to open conversation.');
+                }
+                showToast('Conversation ready. Redirecting...', 'success');
+                setTimeout(() => {
+                    window.location.href = messagesPageUrl;
+                }, 600);
+            });
+        }
+
+
+        function updateMediaPreview(kind, url) {
+            if (kind === 'avatar') {
+                if (url) {
+                    avatarPreview.src = url;
+                    avatarPreview.style.display = 'block';
+                } else {
+                    avatarPreview.src = '';
+                    avatarPreview.style.display = 'none';
+                }
+            } else {
+                if (url) {
+                    bannerPreview.src = url;
+                    bannerPreview.style.display = 'block';
+                } else {
+                    bannerPreview.src = '';
+                    bannerPreview.style.display = 'none';
+                }
+            }
+        }
+
+        function cloneShowcaseCollection(key) {
+            const source = profileState.showcase && profileState.showcase[key] ? profileState.showcase[key] : [];
+            return source.map(item => ({
+                id: item.id,
+                entity_id: String(item.entity_id),
+                label: item.label || '',
+                note: item.metadata && item.metadata.note ? item.metadata.note : '',
+            }));
+        }
+
+        function enterEditMode() {
+            viewMode.classList.add('hidden');
+            editMode.classList.remove('hidden');
+            editBtn.classList.add('hidden');
+            cancelBtn.classList.remove('hidden');
+
+            displayInput.value = profileState.profile.display_name || '';
+            locationInput.value = profileState.profile.location || '';
+            pronounsInput.value = profileState.profile.pronouns || '';
+            genderInput.value = profileState.profile.gender || '';
+            bioInput.value = profileState.profile.bio || '';
+
+            interestDraft = (profileState.profile.search_interests || []).map(item => ({
+                id: item.id || slugify(item.label || item.id || ''),
+                label: item.label || item.id || '',
+                category: item.category || null,
+            }));
+            renderInterestChips();
+
+            pendingAvatarUrl = null;
+            pendingBannerUrl = null;
+            updateMediaPreview('avatar', profileState.profile.avatar_url);
+            updateMediaPreview('banner', profileState.profile.banner_url);
+
+            showcaseDraft = {
+                favorite_searches: cloneShowcaseCollection('favorite_searches'),
+                featured_listings: cloneShowcaseCollection('featured_listings'),
+                servers_joined: cloneShowcaseCollection('servers_joined'),
+            };
+            renderAllCollections();
+            renderVisibilitySelects();
+            if (!serversCache.length) {
+                fetchJoinedServers();
+            }
+        }
+
+        function exitEditMode() {
+            editMode.classList.add('hidden');
+            viewMode.classList.remove('hidden');
+            editBtn.classList.remove('hidden');
+            cancelBtn.classList.add('hidden');
+            pendingAvatarUrl = null;
+            pendingBannerUrl = null;
+        }
+
+        function renderVisibilitySelects() {
+            document.querySelectorAll('.visibility-select').forEach(select => {
+                const field = select.dataset.field;
+                const value = profileState.visibility && profileState.visibility[field] ? profileState.visibility[field] : 'public';
+                select.value = value;
+            });
+        }
+
+        async function updateVisibility(field, visibilityValue) {
+            try {
+                const response = await fetch('/api/profile/me/visibility', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({ visibility: { [field]: visibilityValue } }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || (data.errors && data.errors.join(', ')) || 'Unable to update visibility');
+                }
+                profileState.visibility = data.visibility || profileState.visibility;
+                showToast('Visibility updated.', 'success');
+            } catch (error) {
+                showToast(error.message || 'Failed to update visibility.', 'error');
+            }
+        }
+
+        async function setAllVisibility(value, triggerButton = null) {
+            const selects = Array.from(document.querySelectorAll('.visibility-select'));
+            if (!selects.length) {
+                return;
+            }
+            const payload = {};
+            selects.forEach(select => {
+                const field = select.dataset.field;
+                if (field) {
+                    payload[field] = value;
+                }
+            });
+            if (!Object.keys(payload).length) {
+                return;
+            }
+            if (triggerButton) {
+                triggerButton.disabled = true;
+            }
+            try {
+                const response = await fetch('/api/profile/me/visibility', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({ visibility: payload }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || (data.errors && data.errors.join(', ')) || 'Unable to update visibility');
+                }
+                profileState.visibility = data.visibility || profileState.visibility;
+                renderVisibilitySelects();
+                showToast('Visibility preferences updated.', 'success');
+            } catch (error) {
+                showToast(error.message || 'Failed to update visibility.', 'error');
+            } finally {
+                if (triggerButton) {
+                    triggerButton.disabled = false;
+                }
+            }
+        }
+
+        function openOnboardingModal() {
+            if (!onboardingModal) {
+                return;
+            }
+            onboardingModal.classList.add('active');
+            onboardingModal.classList.remove('hidden');
+        }
+
+        function closeOnboardingModal(persist = false) {
+            if (!onboardingModal) {
+                return;
+            }
+            onboardingModal.classList.remove('active');
+            onboardingModal.classList.add('hidden');
+            if (persist && onboardingDismissKey) {
+                try {
+                    sessionStorage.setItem(onboardingDismissKey, '1');
+                } catch (error) {
+                    // Ignore storage errors (private mode, etc.)
+                }
+            }
+        }
+
+        function buildOnboardingSteps() {
+            const profile = profileState.profile || {};
+            return [
+                {
+                    id: 'display_name',
+                    label: 'Add a display name',
+                    done: !!profile.display_name && profile.display_name !== profile.username,
+                },
+                {
+                    id: 'avatar',
+                    label: 'Upload a profile photo',
+                    done: !!profile.avatar_url,
+                },
+                {
+                    id: 'bio',
+                    label: 'Write a short bio',
+                    done: !!profile.bio,
+                },
+                {
+                    id: 'pronouns',
+                    label: 'Set pronouns',
+                    done: !!profile.pronouns,
+                },
+                {
+                    id: 'interests',
+                    label: 'Add at least one interest',
+                    done: Array.isArray(profile.search_interests) && profile.search_interests.length > 0,
+                },
+            ];
+        }
+
+        function renderOnboardingSteps(steps) {
+            if (!onboardingChecklist) {
+                return;
+            }
+            onboardingChecklist.innerHTML = steps.map(step => `
+                <li class="${step.done ? 'done' : ''}">
+                    <span class="icon"><i class="fas ${step.done ? 'fa-circle-check' : 'fa-circle'}"></i></span>
+                    <span>${step.label}</span>
+                </li>
+            `).join('');
+        }
+
+        function evaluateOnboarding() {
+            if (!onboardingModal || !onboardingChecklist) {
+                return;
+            }
+            if (onboardingDismissKey && sessionStorage.getItem(onboardingDismissKey)) {
+                return;
+            }
+            const steps = buildOnboardingSteps();
+            renderOnboardingSteps(steps);
+            const pending = steps.filter(step => !step.done);
+            if (pending.length) {
+                openOnboardingModal();
+            }
+        }
+
+        function renderCollection(collection) {
+            const container = document.querySelector(`.collection-list[data-collection="${collection}"]`);
+            if (!container) return;
+            container.innerHTML = '';
+            const items = showcaseDraft[collection] || [];
+            if (!items.length) {
+                const empty = document.createElement('div');
+                empty.className = 'empty-state';
+                empty.textContent = 'No items selected.';
+                container.appendChild(empty);
+                return;
+            }
+            items.forEach((item, index) => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'collection-item';
+                wrapper.dataset.collection = collection;
+                wrapper.dataset.index = index;
+                wrapper.innerHTML = `
+                    <div class="collection-item-header">
+                        <div class="collection-label">${item.label || item.entity_id}</div>
+                        <div class="collection-actions">
+                            <button type="button" data-action="up" title="Move Up"><i class="fas fa-chevron-up"></i></button>
+                            <button type="button" data-action="down" title="Move Down"><i class="fas fa-chevron-down"></i></button>
+                            <button type="button" data-action="remove" title="Remove"><i class="fas fa-xmark"></i></button>
+                        </div>
+                    </div>
+                    <input type="text" class="collection-note-input" placeholder="Add a note (optional)" value="${item.note || ''}">
+                `;
+                container.appendChild(wrapper);
+            });
+        }
+
+        function renderAllCollections() {
+            renderCollection('favorite_searches');
+            renderCollection('featured_listings');
+            renderCollection('servers_joined');
+        }
+
+        function addCollectionItem(collection, entityId, label, note = '') {
+            if (!entityId) return;
+            const items = showcaseDraft[collection];
+            if (items.some(item => item.entity_id === String(entityId))) {
+                showToast('Item already added.', 'error');
+                return;
+            }
+            items.push({ id: null, entity_id: String(entityId), label: label || String(entityId), note: note || '' });
+            renderCollection(collection);
+        }
+
+        function moveCollectionItem(collection, index, direction) {
+            const items = showcaseDraft[collection];
+            const newIndex = index + direction;
+            if (newIndex < 0 || newIndex >= items.length) return;
+            const [item] = items.splice(index, 1);
+            items.splice(newIndex, 0, item);
+            renderCollection(collection);
+        }
+
+        function removeCollectionItem(collection, index) {
+            showcaseDraft[collection].splice(index, 1);
+            renderCollection(collection);
+        }
+
+        async function saveCollection(collection) {
+            const payload = showcaseDraft[collection].map(item => ({
+                entity_id: item.entity_id,
+                label: item.label,
+                note: item.note || null,
+            }));
+            try {
+                const response = await fetch(`/api/profile/me/showcase/${collection}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({ items: payload }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || (data.errors && data.errors.join(', ')) || 'Failed to save showcase');
+                }
+                showToast('Showcase updated.', 'success');
+                setTimeout(() => window.location.reload(), 700);
+            } catch (error) {
+                showToast(error.message || 'Failed to save showcase.', 'error');
+            }
+        }
+
+        async function saveProfileBasics() {
+            const payload = {
+                display_name: displayInput.value.trim(),
+                location: locationInput.value.trim() || null,
+                pronouns: pronounsInput.value.trim() || null,
+                gender: genderInput.value.trim() || null,
+                bio: bioInput.value.trim() || null,
+                search_interests: interestDraft.map(item => ({
+                    id: item.id || slugify(item.label),
+                    label: item.label,
+                    category: item.category || null,
+                })),
+            };
+            if (pendingAvatarUrl) {
+                payload.avatar_url = pendingAvatarUrl;
+            }
+            if (pendingBannerUrl) {
+                payload.banner_url = pendingBannerUrl;
+            }
+
+            try {
+                const response = await fetch('/api/profile/me', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify(payload),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || (data.errors && data.errors.join(', ')) || 'Failed to update profile');
+                }
+                showToast('Profile updated successfully.', 'success');
+                setTimeout(() => window.location.reload(), 800);
+            } catch (error) {
+                showToast(error.message || 'Failed to update profile.', 'error');
+            }
+        }
+
+        async function uploadProfileMedia(kind, file) {
+            const formData = new FormData();
+            formData.append(kind, file);
+            const headers = csrfToken ? { 'X-CSRFToken': csrfToken } : {};
+            const response = await fetch('/api/profile/media/upload', {
+                method: 'POST',
+                headers,
+                body: formData,
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || (data.errors && data.errors.join(', ')) || 'Upload failed');
+            }
+            if (kind === 'avatar' && data.avatar_url) {
+                pendingAvatarUrl = data.avatar_url;
+                updateMediaPreview('avatar', data.avatar_url);
+            }
+            if (kind === 'banner' && data.banner_url) {
+                pendingBannerUrl = data.banner_url;
+                updateMediaPreview('banner', data.banner_url);
+            }
+            if (data.warnings && data.warnings.length) {
+                showToast(data.warnings.join(', '), 'error');
+            } else {
+                showToast('Image uploaded.', 'success');
+            }
+        }
+
+        function handleDropzone(dropzone, input, kind) {
+            dropzone.addEventListener('dragover', event => {
+                event.preventDefault();
+                dropzone.classList.add('dragover');
+            });
+            dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+            dropzone.addEventListener('drop', event => {
+                event.preventDefault();
+                dropzone.classList.remove('dragover');
+                const file = event.dataTransfer.files && event.dataTransfer.files[0];
+                if (file) {
+                    uploadProfileMedia(kind, file).catch(err => showToast(err.message, 'error'));
+                }
+            });
+            dropzone.addEventListener('click', () => input.click());
+            input.addEventListener('change', () => {
+                const file = input.files && input.files[0];
+                if (file) {
+                    uploadProfileMedia(kind, file).catch(err => showToast(err.message, 'error'));
+                }
+            });
+        }
+
+        async function fetchJoinedServers() {
+            try {
+                const response = await fetch('/api/servers?status=active', {
+                    headers: { 'Accept': 'application/json' },
+                });
+                if (!response.ok) {
+                    throw new Error('Unable to load servers');
+                }
+                const data = await response.json();
+                serversCache = data.servers || [];
+                renderJoinedServerOptions();
+            } catch (error) {
+                serversCache = [];
+                renderJoinedServerOptions();
+            }
+        }
+
+        function renderJoinedServerOptions() {
+            const select = document.getElementById('joinedServersSelect');
+            if (!select) return;
+            const previous = select.value;
+            select.innerHTML = '<option value="">Select a server…</option>';
+            serversCache.forEach(server => {
+                if (server.slug) {
+                    const option = document.createElement('option');
+                    option.value = server.slug;
+                    option.textContent = server.name || server.slug;
+                    select.appendChild(option);
+                }
+            });
+            if (previous) {
+                select.value = previous;
+            }
+        }
+
+        editBtn.addEventListener('click', enterEditMode);
+        cancelBtn.addEventListener('click', exitEditMode);
+        saveBasicsBtn.addEventListener('click', saveProfileBasics);
+        interestInput.addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                document.getElementById('addInterestBtn').click();
+            }
+        });
+        document.getElementById('addInterestBtn').addEventListener('click', () => {
+            const value = interestInput.value.trim();
+            if (!value) return;
+            interestDraft.push({ id: slugify(value), label: value, category: null });
+            interestInput.value = '';
+            renderInterestChips();
+        });
+
+        if (hideProfileBtn) {
+            hideProfileBtn.addEventListener('click', () => setAllVisibility('private', hideProfileBtn));
+        }
+        if (connectionsProfileBtn) {
+            connectionsProfileBtn.addEventListener('click', () => setAllVisibility('connections', connectionsProfileBtn));
+        }
+        if (publicProfileBtn) {
+            publicProfileBtn.addEventListener('click', () => setAllVisibility('public', publicProfileBtn));
+        }
+
+        if (onboardingStartBtn) {
+            onboardingStartBtn.addEventListener('click', () => {
+                closeOnboardingModal(true);
+                enterEditMode();
+            });
+        }
+        if (onboardingDismissBtn) {
+            onboardingDismissBtn.addEventListener('click', () => closeOnboardingModal(true));
+        }
+        if (onboardingCloseBtn) {
+            onboardingCloseBtn.addEventListener('click', () => closeOnboardingModal(true));
+        }
+
+        renderConnections();
+        evaluateOnboarding();
+
+        if (reportProfileBtn) {
+            reportProfileBtn.addEventListener('click', reportProfile);
+        }
+
+        if (loadMoreFriendsBtn) {
+            loadMoreFriendsBtn.addEventListener('click', async () => {
+                if (!connectionsState.next_cursor) {
+                    return;
+                }
+                loadMoreFriendsBtn.disabled = true;
+                try {
+                    const cursor = connectionsState.next_cursor;
+                    const response = await fetch(`/api/profile/${encodeURIComponent('{{ profile.username }}')}/friends?cursor=${encodeURIComponent(cursor)}`);
+                    if (!response.ok) {
+                        throw new Error('Unable to load more friends.');
+                    }
+                    const data = await response.json();
+                    const merged = (connectionsState.friends || []).concat(data.friends || []);
+                    updateConnectionsState({
+                        friends: merged,
+                        counts: { ...connectionsState.counts, friends: data.count ?? merged.length },
+                        next_cursor: data.next_cursor ?? null,
+                        is_complete: !data.next_cursor,
+                    });
+                } catch (error) {
+                    console.error('Failed to load more friends', error);
+                    if (friendsErrorEl) {
+                        friendsErrorEl.style.display = 'block';
+                        friendsErrorEl.textContent = 'Unable to load more friends. Please try again later.';
+                    }
+                } finally {
+                    loadMoreFriendsBtn.disabled = false;
+                }
+            });
+        }
+
+        if (connectionsCard) {
+            connectionsCard.addEventListener('click', async event => {
+                const button = event.target.closest('button[data-action]');
+                if (!button) {
+                    return;
+                }
+                const action = button.dataset.action;
+                const requestId = Number(button.dataset.requestId);
+                const username = button.dataset.username;
+                try {
+                    if (action === 'accept-request') {
+                        await respondToRequest(requestId, 'accept', button);
+                    } else if (action === 'decline-request') {
+                        await respondToRequest(requestId, 'decline', button);
+                    } else if (action === 'cancel-request') {
+                        await cancelOutgoingRequest(requestId, button);
+                    } else if (action === 'remove-friend') {
+                        if (!username) return;
+                        const confirmed = window.confirm(`Remove ${username} from your friends?`);
+                        if (!confirmed) return;
+                        await removeFriend(username, button);
+                    } else if (action === 'open-chat') {
+                        if (!username) return;
+                        await openConversation(username, button);
+                    } else if (action === 'view-profile') {
+                        if (!username) return;
+                        window.open(`/profiles/${encodeURIComponent(username)}`, '_blank', 'noopener');
+                    }
+                } catch (error) {
+                    showToast(error.message || 'Operation failed.', 'error');
+                }
+            });
+        }
+
+        document.querySelectorAll('.visibility-select').forEach(select => {
+            select.addEventListener('change', event => {
+                const field = event.target.dataset.field;
+                const val = event.target.value;
+                updateVisibility(field, val);
+            });
+        });
+
+        document.querySelectorAll('.collection-list').forEach(list => {
+            list.addEventListener('click', event => {
+                const button = event.target.closest('button');
+                if (!button) return;
+                const action = button.dataset.action;
+                const itemEl = button.closest('.collection-item');
+                if (!itemEl) return;
+                const collection = itemEl.dataset.collection;
+                const index = Number(itemEl.dataset.index);
+                if (action === 'up') {
+                    moveCollectionItem(collection, index, -1);
+                } else if (action === 'down') {
+                    moveCollectionItem(collection, index, 1);
+                } else if (action === 'remove') {
+                    removeCollectionItem(collection, index);
+                }
+            });
+            list.addEventListener('input', event => {
+                if (event.target.classList.contains('collection-note-input')) {
+                    const itemEl = event.target.closest('.collection-item');
+                    const collection = itemEl.dataset.collection;
+                    const index = Number(itemEl.dataset.index);
+                    showcaseDraft[collection][index].note = event.target.value;
+                }
+            });
+        });
+
+        updateStreakCard(profileState.streak || {});
+
+        if (referralCardEl) {
+            renderReferralOverview(profileState.referral || {});
+            loadReferralOverview();
+
+            if (copyReferralCodeBtn) {
+                copyReferralCodeBtn.addEventListener('click', () => {
+                    const code = (profileState?.referral?.referral?.code || referralCodeValue.textContent || '').replace(/\s+/g, '');
+                    if (!code || code.includes('—')) {
+                        showToast('Generate a referral code first.', 'error');
+                        return;
+                    }
+                    copyText(code, 'Referral code copied.');
+                });
+            }
+
+            if (copyReferralLinkBtn) {
+                copyReferralLinkBtn.addEventListener('click', () => {
+                    const link = referralShareLinkInput?.value || '';
+                    if (!link || link.toLowerCase().includes('generate')) {
+                        showToast('Link not ready yet. Refresh to generate.', 'error');
+                        return;
+                    }
+                    copyText(link, 'Referral link copied.');
+                });
+            }
+
+            if (refreshReferralBtn) {
+                refreshReferralBtn.addEventListener('click', () => {
+                    loadReferralOverview();
+                });
+            }
+
+            if (regenerateReferralBtn) {
+                regenerateReferralBtn.addEventListener('click', () => {
+                    loadReferralOverview({ regenerate: true });
+                });
+            }
+        }
+
+        document.querySelectorAll('button[data-action="add"]').forEach(button => {
+            button.addEventListener('click', () => {
+                const collection = button.dataset.collection;
+                if (collection === 'favorite_searches') {
+                    const select = document.getElementById('favoriteSearchSelect');
+                    const id = select.value;
+                    if (!id) return;
+                    const search = profileState.saved_searches.find(item => String(item.id) === String(id));
+                    addCollectionItem(collection, id, search ? search.name : id);
+                } else if (collection === 'featured_listings') {
+                    const select = document.getElementById('featuredListingSelect');
+                    const id = select.value;
+                    if (!id) return;
+                    const listing = profileState.favorite_listings.find(item => String(item.id) === String(id));
+                    addCollectionItem(collection, id, listing ? listing.title : id);
+                } else if (collection === 'servers_joined') {
+                    const select = document.getElementById('joinedServersSelect');
+                    const slug = select.value;
+                    if (!slug) return;
+                    const server = serversCache.find(item => item.slug === slug);
+                    addCollectionItem(collection, slug, server ? server.name : slug);
+                }
+            });
+        });
+
+        document.querySelectorAll('button[data-action="save"]').forEach(button => {
+            button.addEventListener('click', () => {
+                const collection = button.dataset.collection;
+                saveCollection(collection);
+            });
+        });
+
+        avatarBrowseBtn.addEventListener('click', () => avatarInput.click());
+        bannerBrowseBtn.addEventListener('click', () => bannerInput.click());
+        handleDropzone(avatarDropzone, avatarInput, 'avatar');
+        handleDropzone(bannerDropzone, bannerInput, 'banner');
+
+        updateMediaPreview('avatar', profileState.profile.avatar_url);
+        updateMediaPreview('banner', profileState.profile.banner_url);
+    </script>
 </body>
 </html>
-

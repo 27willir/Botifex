@@ -51,100 +51,245 @@
             color: inherit; 
         }
         
-        .sidebar { 
-            width: 220px; 
-            background: rgba(26, 26, 46, 0.95);
-            backdrop-filter: blur(20px);
-            border-right: 1px solid rgba(0, 123, 255, 0.2);
-            padding: 20px; 
-            display: flex; 
-            flex-direction: column; 
-            gap: 20px;
-            box-shadow: 0 0 30px rgba(0, 123, 255, 0.1);
-        }
-        
-        .sidebar h1 { 
-            font-size: 22px; 
-            color: #00bfff; 
-            margin-bottom: 20px; 
-            text-shadow: 0 0 10px rgba(0, 191, 255, 0.5);
-            font-weight: 700;
-        }
-        
-        .sidebar a { 
-            display: flex; 
-            align-items: center; 
-            padding: 12px 15px; 
-            border-radius: 8px; 
-            transition: all 0.3s ease; 
-            color: #ffffff; 
-            border: 1px solid transparent;
+        .sidebar {
+            width: 268px;
+            padding: 32px 26px 28px;
+            background: linear-gradient(195deg, rgba(17, 20, 36, 0.94) 0%, rgba(8, 10, 22, 0.9) 100%);
+            border-right: 1px solid rgba(99, 102, 241, 0.18);
+            box-shadow: 12px 0 36px rgba(8, 12, 24, 0.28);
+            border-radius: 0 28px 28px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
             position: relative;
-            overflow: hidden;
+            overflow-y: auto;
+            color: rgba(226, 232, 240, 0.94);
         }
 
-        .sidebar a::before {
+        .sidebar::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(0, 191, 255, 0.1), transparent);
-            transition: left 0.5s;
+            inset: 0;
+            background: radial-gradient(120% 100% at -20% 0%, rgba(56, 189, 248, 0.18), transparent 60%);
+            pointer-events: none;
         }
 
-        .sidebar a:hover::before {
-            left: 100%;
-        }
-        
-        .sidebar a:hover { 
-            background: rgba(0, 123, 255, 0.1);
-            border-color: rgba(0, 191, 255, 0.3);
-            transform: translateX(5px);
-            box-shadow: 0 0 15px rgba(0, 191, 255, 0.2);
-        }
-        
-        .sidebar a i { 
-            margin-right: 12px; 
-            color: #00bfff;
-        }
-
-        .sidebar a.active {
-            background: rgba(0, 123, 255, 0.15);
-            border-color: rgba(0, 191, 255, 0.4);
-            color: #00bfff;
-        }
-
-        .logo-container {
-            margin-bottom: 32px;
-            padding-bottom: 16px;
-            border-bottom: 1px solid rgba(0, 191, 255, 0.2);
-            position: relative;
-        }
-
-        .logo-container::after {
+        .sidebar::after {
             content: '';
             position: absolute;
-            bottom: -1px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 60px;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, #00bfff, transparent);
+            inset: 0;
+            border: 1px solid rgba(148, 163, 184, 0.05);
+            border-left: none;
+            border-radius: 0 28px 28px 0;
+            pointer-events: none;
         }
 
-        .logo {
-            max-width: 120px;
+        .sidebar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .sidebar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .sidebar::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.18);
+            border-radius: 3px;
+        }
+
+        .sidebar-inner {
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+            position: relative;
+            z-index: 1;
+            flex: 1;
+        }
+
+        .sidebar-header {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            padding-bottom: 18px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+        }
+
+        .sidebar-logo-link {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .sidebar-logo {
+            max-width: 130px;
             height: auto;
-            transition: all 0.3s ease;
-            display: block;
-            margin: 0 auto;
+            filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.24));
+            transition: transform 0.35s ease, filter 0.35s ease;
         }
 
-        .logo:hover {
-            filter: drop-shadow(0 0 15px rgba(0, 191, 255, 0.8));
-            transform: scale(1.05);
+        .sidebar-logo-link:hover .sidebar-logo {
+            transform: translateY(-1px) scale(1.04);
+            filter: drop-shadow(0 0 16px rgba(56, 189, 248, 0.36));
+        }
+
+        .sidebar-heading {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .sidebar-title {
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.6px;
+            color: rgba(248, 250, 252, 0.92);
+        }
+
+        .sidebar-tagline {
+            font-size: 12px;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            color: rgba(148, 163, 184, 0.6);
+        }
+
+        .sidebar-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 26px;
+        }
+
+        .sidebar-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .sidebar-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 1.4px;
+            text-transform: uppercase;
+            color: rgba(148, 163, 184, 0.52);
+            padding-left: 4px;
+        }
+
+        .sidebar-links {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            color: rgba(226, 232, 240, 0.88);
+            font-weight: 500;
+            letter-spacing: 0.2px;
+            border: 1px solid transparent;
+            background: rgba(255, 255, 255, 0.008);
+            position: relative;
+            transition: all 0.35s ease;
+        }
+
+        .sidebar-link::before {
+            content: '';
+            position: absolute;
+            top: 10px;
+            bottom: 10px;
+            left: 8px;
+            width: 2px;
+            border-radius: 999px;
+            background: linear-gradient(180deg, rgba(56, 189, 248, 0.55), rgba(129, 140, 248, 0.55));
+            opacity: 0;
+            transition: opacity 0.35s ease;
+        }
+
+        .sidebar-link i {
+            font-size: 16px;
+            width: 20px;
+            text-align: center;
+            color: rgba(165, 180, 252, 0.68);
+        }
+
+        .sidebar-link span {
+            flex: 1;
+        }
+
+        .sidebar-link:hover,
+        .sidebar-link:focus-visible {
+            background: linear-gradient(120deg, rgba(79, 70, 229, 0.12), rgba(14, 165, 233, 0.08));
+            border-color: rgba(99, 102, 241, 0.22);
+            color: rgba(248, 250, 252, 0.95);
+            transform: translateX(6px);
+            box-shadow: 0 14px 32px rgba(76, 106, 255, 0.14);
+        }
+
+        .sidebar-link:hover::before,
+        .sidebar-link:focus-visible::before,
+        .sidebar-link.active::before {
+            opacity: 1;
+        }
+
+        .sidebar-link.active {
+            background: linear-gradient(120deg, rgba(79, 70, 229, 0.2), rgba(14, 165, 233, 0.12));
+            border-color: rgba(99, 102, 241, 0.32);
+            color: rgba(248, 250, 252, 0.98);
+            box-shadow: 0 14px 32px rgba(76, 106, 255, 0.16);
+        }
+
+        .sidebar-link.active i {
+            color: rgba(199, 210, 254, 0.82);
+        }
+
+        .sidebar-pill {
+            margin-left: auto;
+            padding: 2px 10px;
+            border-radius: 999px;
+            background: rgba(79, 70, 229, 0.22);
+            color: rgba(199, 210, 254, 0.9);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .sidebar-link-external {
+            font-size: 12px;
+            margin-left: 6px;
+            color: rgba(148, 163, 184, 0.5);
+        }
+
+        .sidebar-link:hover .sidebar-link-external,
+        .sidebar-link:focus-visible .sidebar-link-external {
+            color: rgba(226, 232, 240, 0.7);
+        }
+
+        .sidebar-link.is-hidden {
+            display: none;
+        }
+
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 24px;
+            border-top: 1px solid rgba(148, 163, 184, 0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .sidebar-footer .sidebar-link {
+            background: rgba(255, 255, 255, 0.015);
+        }
+
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 240px;
+                padding: 28px 22px 24px;
+            }
         }
         
         .main { 
@@ -353,28 +498,79 @@
 <body>
     <!-- SIDEBAR -->
     <div class="sidebar">
-        <div class="logo-container">
-            <a href="{{ url_for('dashboard') }}">
-                <img src="{{ url_for('static', filename='images/botifex-logo.svg') }}" alt="Botifex" class="logo" onerror="this.style.display='none'">
+        <div class="sidebar-inner">
+            <div class="sidebar-header">
+                <a href="{{ url_for('dashboard') }}" class="sidebar-logo-link">
+                    <img src="{{ url_for('static', filename='images/botifex-logo.svg') }}" alt="Botifex" class="sidebar-logo" onerror="this.style.display='none'">
+                </a>
+                <div class="sidebar-heading">
+                    <span class="sidebar-title">Release Radar</span>
+                    <span class="sidebar-tagline">Stay ahead of platform changes</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="sidebar-section">
+                    <p class="sidebar-section-title">Overview</p>
+                    <div class="sidebar-links">
+                        <a href="{{ url_for('dashboard') }}" class="sidebar-link"><i class="fas fa-home"></i><span>Dashboard</span></a>
+                        <a href="{{ url_for('settings') }}" class="sidebar-link"><i class="fas fa-cog"></i><span>Settings</span></a>
+                        <a href="{{ url_for('profile_page') }}" class="sidebar-link"><i class="fas fa-user"></i><span>Profile</span></a>
+                        <a href="{{ url_for('favorites_page') }}" class="sidebar-link"><i class="fas fa-star"></i><span>Favorites</span></a>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <p class="sidebar-section-title">Insights</p>
+                    <div class="sidebar-links">
+                        <a href="{{ url_for('alerts_page') }}" class="sidebar-link"><i class="fas fa-bell"></i><span>Price Alerts</span></a>
+                        <a href="/analytics" class="sidebar-link"><i class="fas fa-chart-line"></i><span>Analytics</span></a>
+                        <a href="/selling" class="sidebar-link"><i class="fas fa-dollar-sign"></i><span>Sell Items</span></a>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <p class="sidebar-section-title">Community</p>
+                    <div class="sidebar-links">
+                        <a href="{{ url_for('servers_discover_page') }}" class="sidebar-link"><i class="fas fa-users"></i><span>Community Servers</span></a>
+                        <a href="{{ url_for('messages_page') }}" class="sidebar-link"><i class="fas fa-comments"></i><span>Messages</span></a>
+                        <a href="/api-docs" target="_blank" rel="noopener" class="sidebar-link"><i class="fas fa-book"></i><span>API Docs <i class="fas fa-arrow-up-right-from-square sidebar-link-external"></i></span></a>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <p class="sidebar-section-title">Updates</p>
+                    <div class="sidebar-links">
+                        <a href="{{ url_for('updates_page') }}" class="sidebar-link active"><i class="fas fa-newspaper"></i><span>Release Notes</span></a>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <p class="sidebar-section-title">Management</p>
+                    <div class="sidebar-links">
+                        {% if current_user.is_authenticated %}
+                            {% set user_data = None %}
+                            {% for u in [current_user.id] %}
+                                <!-- Check if user is admin -->
+                            {% endfor %}
+                        {% endif %}
+                        <a href="/admin" id="admin-link" class="sidebar-link is-hidden" style="display: none;"><i class="fas fa-user-shield"></i><span>Admin Panel</span></a>
+                    </div>
+                </div>
+            </nav>
+        </div>
+
+        <div class="sidebar-footer">
+            <a href="/subscription" class="sidebar-link">
+                <i class="fas fa-crown"></i>
+                <span>Subscription</span>
+                <span class="sidebar-pill">{{ user_tier|upper }}</span>
+            </a>
+            <a href="/logout" class="sidebar-link">
+                <i class="fas fa-sign-out-alt"></i>
+                <span>Logout</span>
             </a>
         </div>
-        <a href="{{ url_for('dashboard') }}"><i class="fas fa-home"></i> Dashboard</a>
-        <a href="#settings"><i class="fas fa-cog"></i> Settings</a>
-        <a href="{{ url_for('profile_page') }}"><i class="fas fa-user"></i> Profile</a>
-        <a href="{{ url_for('favorites_page') }}"><i class="fas fa-star"></i> Favorites</a>
-        <a href="{{ url_for('alerts_page') }}"><i class="fas fa-bell"></i> Price Alerts</a>
-        <a href="/analytics"><i class="fas fa-chart-line"></i> Analytics</a>
-        <a href="/selling"><i class="fas fa-dollar-sign"></i> Sell Items</a>
-        <a href="{{ url_for('updates_page') }}" class="active"><i class="fas fa-newspaper"></i> Updates</a>
-        {% if current_user.is_authenticated %}
-            {% set user_data = None %}
-            {% for u in [current_user.id] %}
-                <!-- Check if user is admin -->
-            {% endfor %}
-        {% endif %}
-        <a href="/admin" id="admin-link" style="display: none;"><i class="fas fa-user-shield"></i> Admin Panel</a>
-        <a href="/subscription"><i class="fas fa-crown"></i> Subscription <span style="background: #667eea; padding: 2px 8px; border-radius: 10px; font-size: 0.8em; margin-left: 5px;">{{ user_tier|upper }}</span></a>
-        <a href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a>
     </div>
 
     <!-- MAIN CONTENT -->
