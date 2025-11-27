@@ -4311,7 +4311,7 @@ def _bootstrap_server_roles(cursor, server_id: int, timestamp: datetime) -> Dict
             server_id,
             blueprint["name"],
             _dump_json(blueprint["permissions"]),
-            1 if blueprint.get("is_default") else 0,
+            bool(blueprint.get("is_default")),
             blueprint.get("sort_order", 0),
             timestamp,
         ))

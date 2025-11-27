@@ -2296,7 +2296,7 @@ def api_referrals():
     code = referral.get("code")
     share_url = None
     if code:
-        share_url = f"{request.host_url.rstrip('/')}/?ref={code}"
+        share_url = f"{request.host_url.rstrip('/')}/register?ref={code}"
     referral["share_url"] = share_url
     overview["referral"] = referral
     return jsonify(overview), 201 if request.method == "POST" else 200
@@ -2338,7 +2338,7 @@ def api_referrals_redeem():
     referral = overview.get("referral") or {}
     share_url = None
     if referral.get("code"):
-        share_url = f"{request.host_url.rstrip('/')}/?ref={referral['code']}"
+        share_url = f"{request.host_url.rstrip('/')}/register?ref={referral['code']}"
     referral["share_url"] = share_url
     overview["referral"] = referral
     return jsonify(overview)
