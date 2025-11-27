@@ -136,19 +136,25 @@ def check_role():
     # Get fresh user data from database
     user_data = db_enhanced.get_user_by_username(current_user.id)
     
+    db_role = user_data.get('role') if user_data else None
+
     debug_info = {
         'current_user_id': current_user.id,
         'current_user_has_role_attr': hasattr(current_user, 'role'),
         'current_user_role': getattr(current_user, 'role', 'NO ROLE ATTRIBUTE'),
         'db_user_data': str(user_data) if user_data else 'NO USER DATA',
-        'db_role': user_data[4] if user_data else 'NO USER DATA',
+        'db_role': db_role if db_role is not None else 'NO USER DATA',
         'cache_cleared': True,
         'message': 'If roles mismatch, please log out and log back in to refresh your session.'
     }
     
     # Clear any cached user data so next request loads fresh role from DB
     cache_user_data(current_user.id)
-    logger.info(f"Cleared cache for user {current_user.id}. Session role: {getattr(current_user, 'role', 'NONE')}, DB role: {user_data[4] if user_data else 'NONE'}")
+    logger.info(
+        f"Cleared cache for user {current_user.id}. "
+        f"Session role: {getattr(current_user, 'role', 'NONE')}, "
+        f"DB role: {db_role if db_role is not None else 'NONE'}"
+    )
     
     return jsonify(debug_info)
 
@@ -164,7 +170,7 @@ def admin_required(f):
         # Always revalidate role against the database to avoid stale session cache
         try:
             user_data = db_enhanced.get_user_by_username(current_user.id)
-            db_role = user_data[4] if user_data else None
+            db_role = user_data.get('role') if user_data else None
         except Exception as e:
             logger.error(f"Failed to fetch user role for {current_user.id}: {e}")
             flash("Access denied. Admin privileges required.", "error")
@@ -309,13 +315,13 @@ def user_detail(username):
         listing_count = db_enhanced.get_listing_count(user_id=username)
         
         user_data = {
-            'username': user[0],
-            'email': user[1],
-            'role': user[4],
-            'active': user[5],
-            'created_at': _format_timestamp(user[6], mode='datetime_minutes'),
-            'last_login': _format_timestamp(user[7], mode='datetime_minutes'),
-            'login_count': user[8],
+            'username': user.get('username'),
+            'email': user.get('email'),
+            'role': user.get('role'),
+            'active': user.get('active'),
+            'created_at': _format_timestamp(user.get('created_at'), mode='datetime_minutes'),
+            'last_login': _format_timestamp(user.get('last_login'), mode='datetime_minutes'),
+            'login_count': user.get('login_count'),
             'listing_count': listing_count,
         }
         
