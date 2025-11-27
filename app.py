@@ -315,25 +315,25 @@ def check_suspicious_login_activity(username, ip_address):
 
 @log_errors()
 def create_user(username, password, email):
-    """Create a new user using database with security validation"""
+    """Create a new user using database with security validation."""
     try:
         # Validate username
         is_valid_username, username_error = SecurityConfig.validate_username(username)
         if not is_valid_username:
             logger.warning(f"Invalid username during registration: {username_error}")
-            return False, username_error
+            return False, username_error, 400
         
         # Validate email
         is_valid_email, email_error = SecurityConfig.validate_email(email)
         if not is_valid_email:
             logger.warning(f"Invalid email during registration: {email_error}")
-            return False, email_error
+            return False, email_error, 400
         
         # Validate password strength
         is_valid_password, password_error = SecurityConfig.validate_password(password)
         if not is_valid_password:
             logger.warning(f"Weak password during registration: {password_error}")
-            return False, password_error
+            return False, password_error, 400
         
         # Sanitize inputs
         username = SecurityConfig.sanitize_input(username)
@@ -343,13 +343,13 @@ def create_user(username, password, email):
         existing_user = ErrorHandler.handle_database_error(db_enhanced.get_user_by_username, username)
         if existing_user:
             logger.warning(f"Registration attempt with existing username: {username}")
-            return False, "Username already exists"
+            return False, "Username already exists", 400
         
         # Check if email already exists
         existing_email = ErrorHandler.handle_database_error(db_enhanced.get_user_by_email, email)
         if existing_email:
             logger.warning(f"Registration attempt with existing email: {email}")
-            return False, "Email already registered"
+            return False, "Email already registered", 400
         
         # Hash password securely
         hashed = SecurityConfig.hash_password(password)
@@ -358,14 +358,14 @@ def create_user(username, password, email):
             logger.info(f"User created successfully: {username}")
             # Log the registration
             db_enhanced.log_user_activity(username, 'register', 'User registered', request.remote_addr, request.headers.get('User-Agent'))
-            return True, "User created successfully"
+            return True, "User created successfully", 201
         else:
             logger.error(f"Failed to create user in database: {username}")
-            return False, "Failed to create user"
+            return False, "Failed to create user", 500
     
     except Exception as e:
         logger.error(f"Unexpected error during user creation: {e}")
-        return False, "An unexpected error occurred during registration"
+        return False, "An unexpected error occurred during registration", 500
 
 @login_manager.user_loader
 @log_errors()
@@ -1283,7 +1283,7 @@ def register():
             flash("You must agree to the Terms of Service to create an account.", "error")
             return render_template("register.html", error_field="terms")
         
-        success, msg = create_user(username, password, email)
+        success, msg, status_code = create_user(username, password, email)
         if success:
             # Record ToS agreement
             try:
@@ -1320,6 +1320,7 @@ def register():
             return redirect(url_for("login"))
         else:
             flash(msg, "error")
+            return render_template("register.html"), status_code
     
     return render_template("register.html")
 

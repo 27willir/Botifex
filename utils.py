@@ -1,5 +1,5 @@
 # utils.py
-import os, json, logging, sys, shutil, platform
+import os, json, logging, sys, shutil, platform, io
 import ipaddress
 from typing import Optional
 from pathlib import Path
@@ -14,6 +14,38 @@ from webdriver_manager.chrome import ChromeDriverManager
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
+
+def _ensure_utf8_stream(stream, name: str):
+    """Ensure standard streams can emit UTF-8 characters without errors."""
+    if stream is None:
+        return stream
+
+    try:
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+            return stream
+    except Exception:
+        # If reconfigure isn't available or fails, fall through to wrapper logic
+        pass
+
+    buffer = getattr(stream, "buffer", None)
+    if buffer is not None:
+        try:
+            wrapper = io.TextIOWrapper(
+                buffer,
+                encoding="utf-8",
+                errors="replace",
+                newline="\n",
+                line_buffering=True,
+            )
+            setattr(sys, name, wrapper)
+            return wrapper
+        except Exception:
+            return stream
+
+    return stream
+
+
 def setup_logger(name="superbot", level=logging.INFO):
     """Setup logger with recursion protection and fail-safe design"""
     logger = logging.getLogger(name)
@@ -25,18 +57,22 @@ def setup_logger(name="superbot", level=logging.INFO):
     logger.setLevel(level)
     
     # Use a simpler format to reduce complexity
-    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", 
-                           datefmt="%Y-%m-%d %H:%M:%S")
-    
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
+                            datefmt="%Y-%m-%d %H:%M:%S")
+
+    # Ensure stdout/stderr can handle UTF-8 output (important on Windows consoles)
+    stdout = _ensure_utf8_stream(sys.stdout, "stdout")
+    stderr = _ensure_utf8_stream(sys.stderr, "stderr")
+
     # Add stream handler with error handling - fail silently
     try:
-        sh = logging.StreamHandler(sys.stdout)
+        sh = logging.StreamHandler(stdout)
         sh.setFormatter(fmt)
         sh.setLevel(level)
         logger.addHandler(sh)
     except Exception as e:
         # Don't use logger here - would cause recursion
-        print(f"Warning: Could not setup stream handler: {e}", file=sys.stderr, flush=True)
+        print(f"Warning: Could not setup stream handler: {e}", file=stderr, flush=True)
     
     # Add file handler with error handling - fail silently
     try:
@@ -47,7 +83,7 @@ def setup_logger(name="superbot", level=logging.INFO):
         logger.addHandler(fh)
     except Exception as e:
         # Don't use logger here - would cause recursion
-        print(f"Warning: Could not setup file handler: {e}", file=sys.stderr, flush=True)
+        print(f"Warning: Could not setup file handler: {e}", file=stderr, flush=True)
     
     return logger
 
