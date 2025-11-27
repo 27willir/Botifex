@@ -832,9 +832,16 @@ def readiness_check():
 @app.route("/")
 def landing():
     """Public landing page"""
-    if current_user.is_authenticated:
+    preview_requested = request.args.get("preview", "").lower() in {"1", "true", "yes"}
+    if current_user.is_authenticated and not preview_requested:
         return redirect(url_for('dashboard'))
     return render_template("landing.html")
+
+@app.route("/ai-automation")
+def ai_automation():
+    """AI automation services landing page"""
+    current_year = datetime.now().year
+    return render_template("ai_automation.html", current_year=current_year)
 
 @app.route("/dashboard")
 @login_required

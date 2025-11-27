@@ -60,23 +60,23 @@
         .sidebar {
             width: 268px;
             padding: 32px 26px 28px;
-            background: linear-gradient(195deg, rgba(17, 20, 36, 0.96) 0%, rgba(8, 10, 22, 0.94) 100%);
-            border-right: 1px solid rgba(99, 102, 241, 0.28);
-            box-shadow: 16px 0 48px rgba(8, 12, 24, 0.45);
+            background: linear-gradient(195deg, rgba(17, 20, 36, 0.94) 0%, rgba(8, 10, 22, 0.9) 100%);
+            border-right: 1px solid rgba(99, 102, 241, 0.18);
+            box-shadow: 12px 0 36px rgba(8, 12, 24, 0.28);
             border-radius: 0 28px 28px 0;
             display: flex;
             flex-direction: column;
             gap: 28px;
             position: relative;
             overflow-y: auto;
-            color: #e2e8f0;
+            color: rgba(226, 232, 240, 0.94);
         }
 
         .sidebar::before {
             content: '';
             position: absolute;
             inset: 0;
-            background: radial-gradient(120% 100% at -20% 0%, rgba(56, 189, 248, 0.36), transparent 60%);
+            background: radial-gradient(120% 100% at -20% 0%, rgba(56, 189, 248, 0.18), transparent 60%);
             pointer-events: none;
         }
 
@@ -84,7 +84,7 @@
             content: '';
             position: absolute;
             inset: 0;
-            border: 1px solid rgba(148, 163, 184, 0.08);
+            border: 1px solid rgba(148, 163, 184, 0.05);
             border-left: none;
             border-radius: 0 28px 28px 0;
             pointer-events: none;
@@ -99,7 +99,7 @@
         }
 
         .sidebar::-webkit-scrollbar-thumb {
-            background: rgba(148, 163, 184, 0.25);
+            background: rgba(148, 163, 184, 0.18);
             border-radius: 3px;
         }
 
@@ -117,7 +117,7 @@
             flex-direction: column;
             gap: 14px;
             padding-bottom: 18px;
-            border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
         }
 
         .sidebar-logo-link {
@@ -129,13 +129,13 @@
         .sidebar-logo {
             max-width: 130px;
             height: auto;
-            filter: drop-shadow(0 0 18px rgba(56, 189, 248, 0.4));
+            filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.24));
             transition: transform 0.35s ease, filter 0.35s ease;
         }
 
         .sidebar-logo-link:hover .sidebar-logo {
             transform: translateY(-1px) scale(1.04);
-            filter: drop-shadow(0 0 24px rgba(56, 189, 248, 0.6));
+            filter: drop-shadow(0 0 16px rgba(56, 189, 248, 0.36));
         }
 
         .sidebar-heading {
@@ -148,14 +148,14 @@
             font-size: 16px;
             font-weight: 600;
             letter-spacing: 0.6px;
-            color: #f8fafc;
+            color: rgba(248, 250, 252, 0.92);
         }
 
         .sidebar-tagline {
             font-size: 12px;
             letter-spacing: 0.4px;
             text-transform: uppercase;
-            color: rgba(148, 163, 184, 0.75);
+            color: rgba(148, 163, 184, 0.6);
         }
 
         .sidebar-nav {
@@ -175,7 +175,7 @@
             font-weight: 600;
             letter-spacing: 1.4px;
             text-transform: uppercase;
-            color: rgba(148, 163, 184, 0.7);
+            color: rgba(148, 163, 184, 0.52);
             padding-left: 4px;
         }
 
@@ -195,7 +195,7 @@
             font-weight: 500;
             letter-spacing: 0.2px;
             border: 1px solid transparent;
-            background: rgba(255, 255, 255, 0.01);
+            background: rgba(255, 255, 255, 0.008);
             position: relative;
             transition: all 0.35s ease;
         }
@@ -208,7 +208,7 @@
             left: 8px;
             width: 2px;
             border-radius: 999px;
-            background: linear-gradient(180deg, rgba(56, 189, 248, 0.85), rgba(129, 140, 248, 0.85));
+            background: linear-gradient(180deg, rgba(56, 189, 248, 0.55), rgba(129, 140, 248, 0.55));
             opacity: 0;
             transition: opacity 0.35s ease;
         }
@@ -217,7 +217,7 @@
             font-size: 16px;
             width: 20px;
             text-align: center;
-            color: rgba(165, 180, 252, 0.95);
+            color: rgba(165, 180, 252, 0.68);
         }
 
         .sidebar-link span {
@@ -226,11 +226,11 @@
 
         .sidebar-link:hover,
         .sidebar-link:focus-visible {
-            background: linear-gradient(120deg, rgba(79, 70, 229, 0.18), rgba(14, 165, 233, 0.12));
-            border-color: rgba(99, 102, 241, 0.36);
-            color: #f8fafc;
+            background: linear-gradient(120deg, rgba(79, 70, 229, 0.12), rgba(14, 165, 233, 0.08));
+            border-color: rgba(99, 102, 241, 0.22);
+            color: rgba(248, 250, 252, 0.95);
             transform: translateX(6px);
-            box-shadow: 0 18px 42px rgba(76, 106, 255, 0.2);
+            box-shadow: 0 14px 32px rgba(76, 106, 255, 0.14);
         }
 
         .sidebar-link:hover::before,
@@ -240,22 +240,22 @@
         }
 
         .sidebar-link.active {
-            background: linear-gradient(120deg, rgba(79, 70, 229, 0.28), rgba(14, 165, 233, 0.18));
-            border-color: rgba(99, 102, 241, 0.48);
-            color: #f8fafc;
-            box-shadow: 0 18px 42px rgba(76, 106, 255, 0.22);
+            background: linear-gradient(120deg, rgba(79, 70, 229, 0.2), rgba(14, 165, 233, 0.12));
+            border-color: rgba(99, 102, 241, 0.32);
+            color: rgba(248, 250, 252, 0.98);
+            box-shadow: 0 14px 32px rgba(76, 106, 255, 0.16);
         }
 
         .sidebar-link.active i {
-            color: #c7d2fe;
+            color: rgba(199, 210, 254, 0.82);
         }
 
         .sidebar-pill {
             margin-left: auto;
             padding: 2px 10px;
             border-radius: 999px;
-            background: rgba(79, 70, 229, 0.32);
-            color: #c7d2fe;
+            background: rgba(79, 70, 229, 0.22);
+            color: rgba(199, 210, 254, 0.9);
             font-size: 11px;
             font-weight: 700;
             letter-spacing: 0.5px;
@@ -264,12 +264,12 @@
         .sidebar-link-external {
             font-size: 12px;
             margin-left: 6px;
-            color: rgba(148, 163, 184, 0.6);
+            color: rgba(148, 163, 184, 0.5);
         }
 
         .sidebar-link:hover .sidebar-link-external,
         .sidebar-link:focus-visible .sidebar-link-external {
-            color: rgba(226, 232, 240, 0.85);
+            color: rgba(226, 232, 240, 0.7);
         }
 
         .sidebar-link.is-hidden {
@@ -279,7 +279,7 @@
         .sidebar-footer {
             margin-top: auto;
             padding-top: 24px;
-            border-top: 1px solid rgba(148, 163, 184, 0.14);
+            border-top: 1px solid rgba(148, 163, 184, 0.1);
             display: flex;
             flex-direction: column;
             gap: 10px;
@@ -288,7 +288,7 @@
         }
 
         .sidebar-footer .sidebar-link {
-            background: rgba(255, 255, 255, 0.02);
+            background: rgba(255, 255, 255, 0.015);
         }
 
         @media (max-width: 1024px) {
@@ -902,6 +902,7 @@
                     <p class="sidebar-section-title">Overview</p>
                     <div class="sidebar-links">
                         <a href="{{ url_for('dashboard') }}" class="sidebar-link"><i class="fas fa-home"></i><span>Dashboard</span></a>
+                        <a href="{{ url_for('landing', preview='1') }}" class="sidebar-link" target="_blank" rel="noopener"><i class="fas fa-globe"></i><span>Landing Page</span></a>
                         <a href="#settings" class="sidebar-link"><i class="fas fa-cog"></i><span>Quick Settings</span></a>
                         <a href="{{ url_for('profile_page') }}" class="sidebar-link"><i class="fas fa-user"></i><span>Profile</span></a>
                         <a href="{{ url_for('favorites_page') }}" class="sidebar-link"><i class="fas fa-star"></i><span>Favorites</span></a>

@@ -763,6 +763,7 @@
             <a href="#features">Features</a>
             <a href="#how-it-works">How It Works</a>
             <a href="#pricing">Pricing</a>
+            <a href="{{ url_for('ai_automation') }}">AI Automation</a>
             <a href="#roadmap">Roadmap</a>
             <a href="#about-creator">About</a>
             <a href="#contact">Contact</a>
@@ -783,6 +784,7 @@
             <div class="hero-cta">
                 <a href="{{ url_for('register') }}" class="btn btn-primary">Get Started Free</a>
                 <a href="#how-it-works" class="btn btn-secondary">See How It Works</a>
+                <a href="{{ url_for('ai_automation') }}" class="btn btn-secondary">Explore AI Automation</a>
             </div>
             <div class="platform-badges">
                 <div class="badge" style="background: linear-gradient(135deg, rgba(0, 255, 136, 0.3), rgba(0, 191, 255, 0.3)); border-color: rgba(0, 255, 136, 0.5);">
@@ -995,6 +997,47 @@
                 </ul>
                 <a href="{{ url_for('register') }}" class="btn btn-primary">Start Free Trial</a>
             </div>
+        </div>
+    </section>
+
+    <!-- AI Automation Services Section -->
+    <section id="automation" style="background: rgba(0, 123, 255, 0.05);">
+        <div class="section-header reveal">
+            <h2>Need AI To Run Your Business?</h2>
+            <p>We build automation systems that answer customers instantly, book appointments, and keep operations humming even while you sleep.</p>
+        </div>
+        <div class="features-grid">
+            <div class="feature-card reveal">
+                <div class="feature-icon"><i class="fas fa-comments"></i></div>
+                <h3>AI Customer Service Assistant</h3>
+                <p>Flagship chatbot deployed on your website, social pages, QR codes, or SMS. Handles FAQs, booking, pricing, and product details.</p>
+                <ul class="feature-list">
+                    <li>Integrates with Calendly, Google Calendar, Square, Shopify</li>
+                    <li>$500 setup + $50–$150/month recurring</li>
+                </ul>
+            </div>
+            <div class="feature-card reveal">
+                <div class="feature-icon"><i class="fas fa-network-wired"></i></div>
+                <h3>AI Automation Suite</h3>
+                <p>Your money-printing machine: instant replies, auto quotes, AI phone assistant, daily summaries, invoicing, follow-ups, and more.</p>
+                <ul class="feature-list">
+                    <li>Powered by OpenAI Assistants, Zapier/Make, Twilio, Sheets</li>
+                    <li>Projects typically range from $800–$4,000</li>
+                </ul>
+            </div>
+            <div class="feature-card reveal">
+                <div class="feature-icon"><i class="fas fa-tools"></i></div>
+                <h3>Custom AI Tools</h3>
+                <p>High-end builds for serious operators: inventory prediction, AI training portals, data scraping, and 24/7 AI “employees.”</p>
+                <ul class="feature-list">
+                    <li>Bespoke automations tailored to any industry</li>
+                    <li>Engagements from $2,000–$15,000+</li>
+                </ul>
+            </div>
+        </div>
+        <div class="hero-cta" style="margin-top: 3rem;">
+            <a href="{{ url_for('ai_automation') }}" class="btn btn-primary">Explore AI Automation Services</a>
+            <a href="mailto:Botifex2025@gmail.com" class="btn btn-secondary">Request a Free Demo</a>
         </div>
     </section>
 
