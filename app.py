@@ -20,7 +20,7 @@ import db_enhanced
 from security import SecurityConfig
 from error_handling import ErrorHandler, log_errors, safe_execute, DatabaseError
 from error_recovery import start_error_recovery, stop_error_recovery, handle_error, get_system_status
-from utils import logger, get_chrome_diagnostics
+from utils import logger, get_chrome_diagnostics, get_client_ip
 from observability import log_event, log_alert, log_http_request, log_http_response
 # Import new modules
 from rate_limiter import rate_limit, add_rate_limit_headers
@@ -1275,13 +1275,32 @@ def register():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
+        password_confirm = request.form.get("password_confirm", "")
         email = request.form.get("email", "").strip()
         agree_terms = request.form.get("agree_terms")
+        form_data = {
+            "username": username,
+            "email": email,
+        }
         
         # Check if user agreed to terms
         if not agree_terms:
             flash("You must agree to the Terms of Service to create an account.", "error")
-            return render_template("register.html", error_field="terms")
+            return render_template(
+                "register.html",
+                error_field="terms",
+                form_data=form_data,
+                terms_checked=False,
+            )
+
+        if password != password_confirm:
+            flash("Passwords do not match. Please re-enter your password.", "error")
+            return render_template(
+                "register.html",
+                error_field="password_confirm",
+                form_data=form_data,
+                terms_checked=True,
+            )
         
         success, msg, status_code = create_user(username, password, email)
         if success:
@@ -1296,33 +1315,59 @@ def register():
             
             # Send verification email if email is configured
             if is_email_configured():
+                base_url = request.url_root.rstrip('/')
                 try:
                     token = generate_verification_token()
-                    db_enhanced.create_verification_token(username, token, expiration_hours=24)
+                    verification_code = db_enhanced.generate_verification_code()
+                    code_hash = db_enhanced.hash_verification_code(username, verification_code)
+                    db_enhanced.create_verification_token(
+                        username,
+                        token,
+                        expiration_hours=24,
+                        code_hash=code_hash,
+                    )
                     
-                    # Get base URL from request
-                    base_url = request.url_root.rstrip('/')
-                    send_verification_email(email, username, token, base_url)
+                    send_verification_email(
+                        email,
+                        username,
+                        token,
+                        base_url,
+                        verification_code=verification_code,
+                    )
                     try:
                         login_url = f"{base_url}/login"
                         if not send_welcome_email(email, username, login_url=login_url):
                             logger.warning(f"Welcome email not sent to {username}")
                     except Exception as welcome_error:
                         logger.warning(f"Failed to send welcome email to {username}: {welcome_error}")
-                    
-                    flash("Registration successful! Please check your email to verify your account.", "success")
+
+                    session["pending_verification_user"] = username
+                    session["pending_verification_email"] = email
+                    flash(
+                        "Registration successful! Enter the verification code we sent to your email.",
+                        "success",
+                    )
+                    return redirect(url_for("verify_email_code_page"))
                 except Exception as e:
                     logger.error(f"Failed to send verification email: {e}")
-                    flash("Registration successful! Please log in. (Verification email could not be sent)", "warning")
+                    flash(
+                        "Registration successful, but we could not send a verification email. "
+                        "Please try resending the code from the login page.",
+                        "warning",
+                    )
             else:
-                flash("Registration successful! Please log in.", "success")
+                flash("Registration successful! Email verification will be skipped because email is not configured.", "warning")
             
             return redirect(url_for("login"))
         else:
             flash(msg, "error")
-            return render_template("register.html"), status_code
+            return render_template(
+                "register.html",
+                form_data=form_data,
+                terms_checked=True,
+            ), status_code
     
-    return render_template("register.html")
+    return render_template("register.html", form_data={}, terms_checked=False)
 
 @app.route("/terms")
 def terms_of_service():
@@ -1564,6 +1609,71 @@ def verify_email():
         return redirect(url_for("login"))
 
 
+@app.route("/verify-email-code", methods=["GET", "POST"])
+def verify_email_code_page():
+    """Verify a user's email address using a numeric code."""
+    prefilled_username = request.args.get("username") or session.get("pending_verification_user", "")
+    email_hint = session.get("pending_verification_email")
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        code = request.form.get("verification_code", "").strip()
+
+        if not username or not code:
+            flash("Please provide both your username and the verification code.", "error")
+            return render_template(
+                "verify_email_code.html",
+                username=username or prefilled_username,
+                email_hint=email_hint,
+            )
+
+        limiter_key = username or get_client_ip(request) or request.remote_addr or "anonymous"
+        is_allowed, _remaining = db_enhanced.check_rate_limit(
+            limiter_key,
+            'verify_email_code_submit',
+            max_requests=10,
+            window_minutes=30,
+        )
+        if not is_allowed:
+            flash("Too many verification attempts. Please wait a few minutes before trying again.", "error")
+            return render_template(
+                "verify_email_code.html",
+                username=username,
+                email_hint=email_hint,
+            ), 429
+
+        success, result = db_enhanced.verify_email_code(username, code)
+        if success:
+            verified_username = result
+            session.pop("pending_verification_user", None)
+            session.pop("pending_verification_email", None)
+            flash(f"Email verified successfully! Welcome, {verified_username}! You can now log in.", "success")
+            try:
+                db_enhanced.log_user_activity(
+                    verified_username,
+                    'email_verified',
+                    'Email address verified via code',
+                    request.remote_addr,
+                    request.headers.get('User-Agent')
+                )
+            except Exception as log_error:
+                logger.warning(f"Failed to log email verification via code for {verified_username}: {log_error}")
+            return redirect(url_for("login"))
+
+        flash(result, "error")
+        return render_template(
+            "verify_email_code.html",
+            username=username,
+            email_hint=email_hint,
+        )
+
+    return render_template(
+        "verify_email_code.html",
+        username=prefilled_username,
+        email_hint=email_hint,
+    )
+
+
 @app.route("/resend-verification", methods=["POST"])
 @rate_limit('api', max_requests=3, window_minutes=60)
 def resend_verification():
@@ -1605,10 +1715,25 @@ def resend_verification():
         # Send new verification email
         if is_email_configured():
             token = generate_verification_token()
-            db_enhanced.create_verification_token(username, token, expiration_hours=24)
+            verification_code = db_enhanced.generate_verification_code()
+            code_hash = db_enhanced.hash_verification_code(username, verification_code)
+            db_enhanced.create_verification_token(
+                username,
+                token,
+                expiration_hours=24,
+                code_hash=code_hash,
+            )
             
             base_url = request.url_root.rstrip('/')
-            send_verification_email(email, username, token, base_url)
+            send_verification_email(
+                email,
+                username,
+                token,
+                base_url,
+                verification_code=verification_code,
+            )
+            session["pending_verification_user"] = username
+            session["pending_verification_email"] = email
             
             flash("Verification email sent! Please check your inbox.", "success")
         else:

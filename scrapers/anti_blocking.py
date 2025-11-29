@@ -23,6 +23,7 @@ import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Deque, Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple
+from urllib.parse import urlparse
 
 # =====================
 # HEADER/FINGERPRINT POOLS
@@ -58,13 +59,6 @@ _SEC_CH_UA_PLATFORMS: Tuple[str, ...] = (
     '"Windows"',
     '"macOS"',
     '"Linux"',
-)
-
-_SEC_FETCH_SITE_VALUES: Tuple[str, ...] = (
-    "none",
-    "same-origin",
-    "same-site",
-    "cross-site",
 )
 
 _CACHE_CONTROL_VALUES: Tuple[str, ...] = (
@@ -105,8 +99,10 @@ class SiteProfile:
     default_referers: Tuple[str, ...] = ()
 
 
+_DEFAULT_PROFILE = SiteProfile()
+
 _SITE_SPECIFIC_PROFILES: Dict[str, SiteProfile] = {
-    "default": SiteProfile(),
+    "default": _DEFAULT_PROFILE,
     "ksl": SiteProfile(
         min_delay=2.5,
         max_delay=6.0,
@@ -138,6 +134,25 @@ _SITE_SPECIFIC_PROFILES: Dict[str, SiteProfile] = {
             "bot detection",
         ),
         default_referers=("https://www.mercari.com/",),
+    ),
+    "ebay": SiteProfile(
+        min_delay=4.0,
+        max_delay=8.0,
+        cooldown_seconds=(180.0, 480.0),
+        adaptive_multiplier=2.2,
+        block_keywords=_DEFAULT_PROFILE.block_keywords
+        + (
+            "pardon our interruption",
+            "bot protection",
+            "why did this happen",
+            "verify you are human",
+            "attention required",
+        ),
+        default_referers=(
+            "https://www.ebay.com/",
+            "https://www.ebay.com/deals",
+            "https://www.ebay.com/b/Auto-Parts-and-Vehicles/6000/bn_1865334",
+        ),
     ),
 }
 
@@ -237,6 +252,19 @@ class AntiBlockManager:
         state.cooldown_until = max(state.cooldown_until, now + cooldown)
 
     # ---------- Headers / Fingerprints ----------
+    def _infer_sec_fetch_site(self, referer: Optional[str], origin: Optional[str]) -> str:
+        """Derive a realistic Sec-Fetch-Site header from referer/origin context."""
+        ref_host = urlparse(referer).hostname if referer else None
+        origin_host = urlparse(origin).hostname if origin else None
+
+        if ref_host and origin_host:
+            return "same-origin" if ref_host == origin_host else "cross-site"
+        if ref_host:
+            return "same-origin"
+        if origin_host:
+            return "same-site"
+        return "none"
+
     def build_headers(
         self,
         site_name: Optional[str],
@@ -257,13 +285,14 @@ class AntiBlockManager:
             "DNT": random.choice(("1", "0")),
             "Sec-Fetch-Dest": "document",
             "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": random.choice(_SEC_FETCH_SITE_VALUES),
             "Sec-Fetch-User": "?1",
             "Cache-Control": random.choice(_CACHE_CONTROL_VALUES),
             "sec-ch-ua": self._random_sec_ch_ua(),
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": random.choice(_SEC_CH_UA_PLATFORMS),
         }
+
+        headers["Sec-Fetch-Site"] = self._infer_sec_fetch_site(referer, origin)
 
         if referer:
             headers["Referer"] = referer

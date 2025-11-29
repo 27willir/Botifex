@@ -8,6 +8,7 @@ import json
 import secrets
 import string
 import statistics
+import hashlib
 from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -80,6 +81,7 @@ SERVER_NAME_MAX_LENGTH = 80
 SERVER_DESCRIPTION_MAX_LENGTH = 800
 SERVER_INVITE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 SERVER_INVITE_CODE_LENGTH = 8
+EMAIL_VERIFICATION_CODE_LENGTH = 6
 USER_BLOCK_MAX_TARGETS = 500
 FRIEND_REQUEST_THROTTLE_LIMIT = 20
 FRIEND_REQUEST_THROTTLE_WINDOW_HOURS = 24
@@ -460,6 +462,20 @@ def _generate_unique_server_slug(name: str, preferred_slug: Optional[str] = None
 def _generate_invite_code() -> str:
     alphabet = SERVER_INVITE_CODE_ALPHABET
     return "".join(secrets.choice(alphabet) for _ in range(SERVER_INVITE_CODE_LENGTH))
+
+
+def generate_verification_code(length: int = EMAIL_VERIFICATION_CODE_LENGTH) -> str:
+    """Generate a numeric verification code with the configured length."""
+    digits = string.digits
+    return "".join(secrets.choice(digits) for _ in range(max(4, length)))
+
+
+def hash_verification_code(username: str, code: str) -> str:
+    """Create a deterministic hash for a verification code scoped to the user."""
+    normalized_username = (username or "").strip().lower()
+    normalized_code = (code or "").strip()
+    payload = f"{normalized_username}:{normalized_code}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _server_row_to_dict(row: Tuple[Any, ...]) -> Dict[str, Any]:
@@ -2432,6 +2448,13 @@ def init_db():
                     FOREIGN KEY (username) REFERENCES users (username) ON DELETE CASCADE
                 )
             """)
+
+            try:
+                c.execute("ALTER TABLE email_verification_tokens ADD COLUMN code_hash TEXT")
+                logger.info("Added code_hash column to email_verification_tokens table")
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
             
             # Password reset tokens
             c.execute("""
@@ -13648,15 +13671,25 @@ def get_subscription_stats():
 # EMAIL VERIFICATION & PASSWORD RESET
 # ======================
 @log_errors()
-def create_verification_token(username, token, expiration_hours=24):
-    """Create an email verification token"""
+def create_verification_token(username, token, expiration_hours=24, code_hash: Optional[str] = None):
+    """Create an email verification token and optional numeric code hash."""
     with get_pool().get_connection() as conn:
         c = conn.cursor()
         expires_at = datetime.now() + timedelta(hours=expiration_hours)
-        c.execute("""
-            INSERT INTO email_verification_tokens (username, token, expires_at)
-            VALUES (?, ?, ?)
-        """, (username, token, expires_at))
+        try:
+            c.execute("""
+                INSERT INTO email_verification_tokens (username, token, expires_at, code_hash)
+                VALUES (?, ?, ?, ?)
+            """, (username, token, expires_at, code_hash))
+        except sqlite3.OperationalError as e:
+            # Fallback for databases without the code_hash column (should be rare post-migration)
+            if "code_hash" in str(e).lower():
+                c.execute("""
+                    INSERT INTO email_verification_tokens (username, token, expires_at)
+                    VALUES (?, ?, ?)
+                """, (username, token, expires_at))
+            else:
+                raise
         conn.commit()
         return True
 
@@ -13704,6 +13737,100 @@ def verify_email_token(token):
         
         conn.commit()
         logger.info(f"Email verified for user: {username}")
+        return True, username
+
+
+@log_errors()
+def get_latest_verification_entry(username: str) -> Optional[Dict[str, Any]]:
+    """Return the most recent email verification token entry for a user."""
+    if not username:
+        return None
+
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, token, code_hash, expires_at, used, created_at
+            FROM email_verification_tokens
+            WHERE username = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (username,))
+        row = c.fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "id": row[0],
+            "token": row[1],
+            "code_hash": row[2],
+            "expires_at": row[3],
+            "used": bool(row[4]),
+            "created_at": row[5],
+        }
+
+
+@log_errors()
+def verify_email_code(username: str, code: str) -> Tuple[bool, str]:
+    """Validate a numeric verification code for a user."""
+    if not username or not code:
+        return False, "Please provide both username and verification code."
+
+    normalized_code = code.strip()
+    if not normalized_code.isdigit():
+        return False, "Verification code must contain digits only."
+
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, code_hash, expires_at, used
+            FROM email_verification_tokens
+            WHERE username = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (username,))
+        row = c.fetchone()
+
+        if not row:
+            return False, "No verification code found for that account."
+
+        token_id, stored_hash, expires_at_raw, used = row
+
+        if used:
+            return False, "This verification code was already used. Request a new one."
+
+        if not stored_hash:
+            return False, "A verification code is not available. Use the email link or request a new code."
+
+        if isinstance(expires_at_raw, str):
+            try:
+                expires_at = datetime.fromisoformat(expires_at_raw)
+            except ValueError:
+                expires_at = datetime.now() - timedelta(seconds=1)
+        else:
+            expires_at = expires_at_raw
+
+        if datetime.now() > expires_at:
+            return False, "Verification code has expired. Request a new one."
+
+        supplied_hash = hash_verification_code(username, normalized_code)
+        if supplied_hash != stored_hash:
+            return False, "Incorrect verification code. Double-check the digits and try again."
+
+        c.execute("""
+            UPDATE email_verification_tokens
+            SET used = 1
+            WHERE id = ?
+        """, (token_id,))
+
+        c.execute("""
+            UPDATE users
+            SET verified = 1
+            WHERE username = ?
+        """, (username,))
+
+        conn.commit()
+        logger.info(f"Email verified via code for user: {username}")
         return True, username
 
 

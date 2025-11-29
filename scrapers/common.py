@@ -12,6 +12,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from http.cookiejar import LWPCookieJar
 import requests
 from bs4 import BeautifulSoup, FeatureNotFound
 from error_handling import ScraperError
@@ -77,6 +78,7 @@ _recursion_guards = threading.local()
 # Session cache for persistent connections
 _session_cache = {}
 _session_lock = threading.Lock()
+_SESSION_COOKIE_DIR = Path(".session_cookies")
 
 # Compiled URL normalization patterns (cache for better performance)
 _url_cache = {}
@@ -233,6 +235,72 @@ def parse_html_with_fallback(
 # ======================
 # SESSION MANAGEMENT
 # ======================
+def _sanitize_site_name(site_name: str) -> str:
+    if not site_name:
+        return "site"
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", site_name)
+
+
+def _session_cookie_path(site_name: str, username: Optional[str]) -> Path:
+    user_token = _sanitize_username(username)
+    site_token = _sanitize_site_name(site_name)
+    filename = f"{site_token}_{user_token}.lwp" if user_token != "global" else f"{site_token}.lwp"
+    return _SESSION_COOKIE_DIR / filename
+
+
+def _load_session_cookies(session: requests.Session, site_name: str, username: Optional[str]) -> int:
+    """Restore cookies from disk into the provided session."""
+    try:
+        cookie_path = _session_cookie_path(site_name, username)
+        if not cookie_path.exists():
+            return 0
+        jar = LWPCookieJar(str(cookie_path))
+        jar.load(ignore_discard=True, ignore_expires=False)
+        restored = 0
+        for cookie in jar:
+            session.cookies.set_cookie(cookie)
+            restored += 1
+        if restored:
+            logger.debug(f"{site_name}: restored {restored} cookies (user={username})")
+        return restored
+    except Exception as exc:
+        logger.debug(f"{site_name}: failed to restore cookies for user {username}: {exc}")
+        return 0
+
+
+def _save_session_cookies(session: Optional[requests.Session], site_name: str, username: Optional[str]) -> None:
+    """Persist session cookies to disk for reuse across runs."""
+    if session is None:
+        return
+    try:
+        cookies = list(session.cookies)
+        cookie_path = _session_cookie_path(site_name, username)
+        if not cookies:
+            if cookie_path.exists():
+                cookie_path.unlink(missing_ok=True)
+                logger.debug(f"{site_name}: cleared persisted cookies (user={username})")
+            return
+        _SESSION_COOKIE_DIR.mkdir(parents=True, exist_ok=True)
+        jar = LWPCookieJar(str(cookie_path))
+        for cookie in cookies:
+            jar.set_cookie(cookie)
+        jar.save(ignore_discard=True, ignore_expires=True)
+        logger.debug(f"{site_name}: persisted {len(cookies)} cookies (user={username})")
+    except Exception as exc:
+        logger.debug(f"{site_name}: failed to persist cookies for user {username}: {exc}")
+
+
+def _delete_session_cookies(site_name: str, username: Optional[str]) -> None:
+    """Remove any persisted cookies for the given site/user combination."""
+    try:
+        cookie_path = _session_cookie_path(site_name, username)
+        if cookie_path.exists():
+            cookie_path.unlink(missing_ok=True)
+            logger.debug(f"{site_name}: deleted cookie cache (user={username})")
+    except Exception as exc:
+        logger.debug(f"{site_name}: failed to delete cookie cache for user {username}: {exc}")
+
+
 def get_session(site_name, initialize_url=None, force_new=False, username=None):
     """
     Get or create a persistent session for a scraper site.
@@ -262,6 +330,7 @@ def get_session(site_name, initialize_url=None, force_new=False, username=None):
                 "Pragma": "no-cache",
                 "Cache-Control": "no-cache"
             })
+            _load_session_cookies(session, site_name, username)
             _session_cache[cache_key] = session
             
             # Initialize session by visiting homepage if provided
@@ -278,6 +347,8 @@ def get_session(site_name, initialize_url=None, force_new=False, username=None):
                         logger.warning(f"{site_name} session initialization returned status {response.status_code}")
                 except Exception as e:
                     logger.warning(f"Failed to initialize {site_name} session: {e}")
+                finally:
+                    _save_session_cookies(session, site_name, username)
         
         return _session_cache[cache_key]
 
@@ -296,6 +367,7 @@ def clear_session(site_name, username=None):
                 logger.debug(f"Cleared session for {site_name} (user={username})")
             else:
                 logger.debug(f"Cleared session for {site_name}")
+        _delete_session_cookies(site_name, username)
 
 
 def reset_session(site_name, initialize_url=None, username=None):
@@ -488,6 +560,8 @@ def make_request_with_retry(
 
             response.raise_for_status()
             anti_blocking.record_success(site_name)
+            if session_to_use:
+                _save_session_cookies(session_to_use, site_name, username)
             return response
 
         except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:

@@ -5,6 +5,7 @@ from datetime import datetime
 import urllib.parse
 import json
 import re
+from xml.etree import ElementTree as ET
 from bs4 import BeautifulSoup
 from utils import debug_scraper_output, logger
 from db import save_listing
@@ -151,6 +152,90 @@ def _parse_json_listings(soup):
                 })
 
     return listings
+
+
+def _parse_rss_item_description(description_html):
+    """Extract price, image, and plain text description from RSS HTML fragments."""
+    if not description_html:
+        return None, None, None
+
+    soup = BeautifulSoup(description_html, 'html.parser')
+
+    image_url = None
+    img_elem = soup.find('img')
+    if img_elem:
+        image_url = img_elem.get('src') or img_elem.get('data-src')
+        if image_url and image_url.startswith('//'):
+            image_url = f"https:{image_url}"
+
+    text_content = soup.get_text(" ", strip=True)
+
+    price_val = None
+    price_match = re.search(r"\$[\d,]+(?:\.\d{2})?", text_content)
+    if price_match:
+        price_val = _parse_price_value(price_match.group())
+
+    if price_val is None:
+        price_val = _parse_price_value(text_content)
+
+    return price_val, image_url, text_content or None
+
+
+def _fetch_rss_fallback(full_url, session, username=None):
+    """
+    Attempt to recover listings via the public RSS endpoint when the HTML view is blocked.
+    """
+    if not full_url:
+        return []
+
+    rss_url = full_url
+    if "_rss=" not in rss_url:
+        joiner = "&" if "?" in rss_url else "?"
+        rss_url = f"{rss_url}{joiner}_rss=1"
+
+    logger.debug("eBay: attempting RSS fallback scrape")
+    rss_response = make_request_with_retry(
+        rss_url,
+        SITE_NAME,
+        session=session,
+        referer=BASE_URL,
+        origin=BASE_URL,
+        session_initialize_url=BASE_URL,
+        extra_headers={
+            "Accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8"
+        },
+        username=username,
+    )
+
+    if not rss_response:
+        return []
+
+    try:
+        root = ET.fromstring(rss_response.text)
+    except ET.ParseError as exc:
+        logger.warning(f"eBay RSS fallback parse error: {exc}")
+        return []
+
+    results = []
+    for item in root.findall(".//item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        description_html = item.findtext("description") or ""
+
+        if not title or not link:
+            continue
+
+        price_val, image_url, text_content = _parse_rss_item_description(description_html)
+        results.append({
+            "title": title,
+            "link": link,
+            "price": price_val,
+            "image": image_url,
+            "description": text_content,
+        })
+
+    logger.debug(f"eBay RSS fallback recovered {len(results)} candidate items")
+    return results
 
 
 def send_discord_message(title, link, price=None, image_url=None, user_id=None):
@@ -315,9 +400,36 @@ def check_ebay(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None)
             response_text_lower = response.text.lower()
             if any(keyword in response_text_lower for keyword in _BLOCK_KEYWORDS):
                 logger.warning("eBay: Block page detected (bot protection triggered)")
-                anti_blocking.record_block(SITE_NAME, "keyword:ebay-block", cooldown_hint=180)
+                anti_blocking.record_block(SITE_NAME, "keyword:ebay-block", cooldown_hint=300)
                 metrics.error = "Bot protection page detected"
-                reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
+                session = reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
+
+                rss_candidates = _fetch_rss_fallback(full_url, session, username=user_id)
+                if rss_candidates:
+                    logger.info(f"eBay: RSS fallback recovered {len(rss_candidates)} items after block page")
+                    for entry in rss_candidates:
+                        handle_candidate(
+                            entry.get("title"),
+                            entry.get("link"),
+                            entry.get("price"),
+                            entry.get("image"),
+                            entry.get("description"),
+                        )
+
+                    if results:
+                        save_seen_listings(user_seen, SITE_NAME, username=user_id)
+                        metrics.success = True
+                        metrics.listings_found = len(results)
+                        metrics.error = None
+                    else:
+                        logger.info(f"No new eBay listings from RSS fallback. Next check in {check_interval}s...")
+                        metrics.success = True
+                        metrics.listings_found = 0
+
+                    debug_scraper_output("eBay", results)
+                    return results
+
+                logger.warning("eBay RSS fallback did not return any items after block page")
                 return []
             
             # Parse with BeautifulSoup for better HTML handling
