@@ -573,6 +573,91 @@
             margin-top: 10px;
         }
 
+        .friend-code-card {
+            background: rgba(0, 212, 255, 0.12);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 12px;
+            padding: 16px 18px;
+            display: grid;
+            gap: 16px;
+        }
+
+        .friend-code-header {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .friend-code-label {
+            font-size: 0.8em;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: #9ee6ff;
+        }
+
+        .friend-code-value {
+            font-family: "Inter", monospace;
+            font-weight: 700;
+            font-size: 1.6em;
+            letter-spacing: 0.18em;
+            color: #ffffff;
+        }
+
+        .friend-code-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .friend-code-input {
+            display: grid;
+            gap: 8px;
+        }
+
+        .friend-code-field {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .friend-code-field input {
+            flex: 1 1 200px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 212, 255, 0.35);
+            background: rgba(8, 12, 24, 0.85);
+            color: #e0f4ff;
+            font-weight: 600;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .friend-code-field input::placeholder {
+            letter-spacing: normal;
+            text-transform: none;
+            color: rgba(224, 244, 255, 0.55);
+        }
+
+        .friend-code-help {
+            font-size: 0.85em;
+            color: rgba(224, 244, 255, 0.75);
+        }
+
+        .friend-code-status {
+            font-size: 0.85em;
+            min-height: 1em;
+        }
+
+        .friend-code-status.error {
+            color: #f87171;
+        }
+
+        .friend-code-status.success {
+            color: #34d399;
+        }
+
         .connection-item {
             display: flex;
             gap: 12px;
@@ -1060,6 +1145,35 @@
 
                     <div class="card connections-card" id="connectionsCard">
                         <h2><i class="fas fa-user-group"></i> Connections</h2>
+                        <div class="friend-code-card">
+                            <div class="friend-code-header">
+                                <div>
+                                    <div class="friend-code-label">Your friend code</div>
+                                    <div class="friend-code-value" id="friendCodeValue">
+                                        {{ friend_code.code if friend_code else '———' }}
+                                    </div>
+                                </div>
+                                <div class="friend-code-actions">
+                                    <button type="button" class="btn btn-secondary small" id="copyFriendCodeBtn">
+                                        <i class="fas fa-copy"></i> Copy
+                                    </button>
+                                    <button type="button" class="btn btn-primary small" id="regenerateFriendCodeBtn">
+                                        <i class="fas fa-rotate"></i> Refresh
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="friend-code-input">
+                                <label for="friendCodeInput" class="friend-code-label">Add a friend by code</label>
+                                <div class="friend-code-field">
+                                    <input type="text" id="friendCodeInput" maxlength="16" placeholder="Enter code">
+                                    <button type="button" class="btn btn-primary small" id="submitFriendCodeBtn">
+                                        <i class="fas fa-paper-plane"></i> Send Request
+                                    </button>
+                                </div>
+                                <div class="friend-code-help">Share your code or enter someone else's to connect instantly.</div>
+                                <div class="friend-code-status" id="friendCodeStatus"></div>
+                            </div>
+                        </div>
                         <div class="connections-section">
                             <div class="connections-section-header">
                                 <span>Friends</span>
@@ -1363,6 +1477,7 @@
             connections: {{ friend_overview | tojson }},
             streak: {{ streak | tojson }},
             referral: {{ referral_overview | tojson }},
+            friend_code: {{ friend_code | tojson }},
         };
 
         const toastContainer = document.getElementById('toastContainer');
@@ -1387,6 +1502,12 @@
         const friendCountBadge = document.getElementById('friendCountBadge');
         const incomingCountBadge = document.getElementById('incomingCountBadge');
         const outgoingCountBadge = document.getElementById('outgoingCountBadge');
+        const friendCodeValue = document.getElementById('friendCodeValue');
+        const copyFriendCodeBtn = document.getElementById('copyFriendCodeBtn');
+        const regenerateFriendCodeBtn = document.getElementById('regenerateFriendCodeBtn');
+        const friendCodeInput = document.getElementById('friendCodeInput');
+        const submitFriendCodeBtn = document.getElementById('submitFriendCodeBtn');
+        const friendCodeStatus = document.getElementById('friendCodeStatus');
 
         const avatarDropzone = document.getElementById('avatarDropzone');
         const avatarInput = document.getElementById('avatarInput');
@@ -1433,6 +1554,7 @@
             next_cursor: null,
             is_complete: false,
         };
+        let friendCodeState = profileState.friend_code || null;
 
         const loadMoreFriendsBtn = document.getElementById('loadMoreFriends');
         const friendsErrorEl = document.getElementById('friendsError');
@@ -1985,6 +2107,109 @@
             renderFriendsList();
             renderIncomingRequests();
             renderOutgoingRequests();
+        }
+
+        function formatFriendCode(value) {
+            if (!value) {
+                return '———';
+            }
+            return value.replace(/(.{4})/g, '$1 ').trim();
+        }
+
+        function setFriendCodeStatus(message, variant = 'info') {
+            if (!friendCodeStatus) {
+                return;
+            }
+            friendCodeStatus.textContent = message || '';
+            friendCodeStatus.classList.remove('error', 'success');
+            if (variant === 'error') {
+                friendCodeStatus.classList.add('error');
+            } else if (variant === 'success') {
+                friendCodeStatus.classList.add('success');
+            }
+        }
+
+        function renderFriendCode(codePayload) {
+            friendCodeState = codePayload || friendCodeState;
+            if (!friendCodeValue) {
+                return;
+            }
+            const raw = friendCodeState?.code || '';
+            friendCodeValue.textContent = formatFriendCode(raw);
+        }
+
+        async function loadFriendCode({ regenerate = false } = {}) {
+            if (!friendCodeValue) {
+                return;
+            }
+            try {
+                let response;
+                if (regenerate) {
+                    response = await fetch('/api/friends/code', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken,
+                        },
+                        body: JSON.stringify({ regenerate: true }),
+                    });
+                } else {
+                    response = await fetch('/api/friends/code');
+                }
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Unable to load friend code.');
+                }
+                const payload = data.friend_code || data.code || data;
+                renderFriendCode(payload);
+                setFriendCodeStatus(regenerate ? 'Friend code refreshed.' : '', regenerate ? 'success' : 'info');
+                if (regenerate) {
+                    showToast('Friend code refreshed.', 'success');
+                }
+            } catch (error) {
+                console.error('Failed to load friend code', error);
+                const message = error.message || 'Unable to load friend code.';
+                setFriendCodeStatus(message, 'error');
+                if (regenerate) {
+                    showToast(message, 'error');
+                }
+            }
+        }
+
+        async function redeemFriendCode(codeValue, button) {
+            const trimmed = (codeValue || '').trim();
+            if (!trimmed) {
+                setFriendCodeStatus('Enter a friend code to continue.', 'error');
+                throw new Error('Enter a friend code to continue.');
+            }
+
+            return withButtonLoading(button, async () => {
+                const response = await fetch('/api/friends/code/redeem', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({ code: trimmed }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Unable to redeem friend code.');
+                }
+                if (data.overview) {
+                    updateConnectionsState(data.overview);
+                } else {
+                    await refreshConnections();
+                }
+                if (friendCodeInput) {
+                    friendCodeInput.value = '';
+                }
+                renderFriendCode(friendCodeState);
+                const successMessage = data.created ? 'Friend request sent.' : 'Friend request already pending.';
+                setFriendCodeStatus(successMessage, 'success');
+                showToast(successMessage, 'success');
+                return data;
+            });
         }
 
         async function refreshConnections(limit = 24) {
@@ -2600,6 +2825,62 @@
 
         renderConnections();
         evaluateOnboarding();
+
+        renderFriendCode(friendCodeState);
+        if (!friendCodeState || !friendCodeState.code) {
+            loadFriendCode().catch(error => console.error('Unable to initialize friend code', error));
+        }
+
+        if (friendCodeInput) {
+            friendCodeInput.addEventListener('input', event => {
+                const normalized = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                if (event.target.value !== normalized) {
+                    event.target.value = normalized;
+                }
+                setFriendCodeStatus('');
+            });
+            friendCodeInput.addEventListener('keydown', event => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    submitFriendCodeBtn?.click();
+                }
+            });
+        }
+
+        if (copyFriendCodeBtn) {
+            copyFriendCodeBtn.addEventListener('click', () => {
+                const code = friendCodeState?.code;
+                if (!code) {
+                    setFriendCodeStatus('Generate a friend code first.', 'error');
+                    showToast('Friend code not ready yet.', 'error');
+                    return;
+                }
+                copyText(code, 'Friend code copied.');
+                setFriendCodeStatus('Friend code copied to clipboard.');
+            });
+        }
+
+        if (regenerateFriendCodeBtn) {
+            regenerateFriendCodeBtn.addEventListener('click', async () => {
+                try {
+                    await withButtonLoading(regenerateFriendCodeBtn, () => loadFriendCode({ regenerate: true }));
+                } catch (error) {
+                    console.error('Failed to refresh friend code', error);
+                }
+            });
+        }
+
+        if (submitFriendCodeBtn) {
+            submitFriendCodeBtn.addEventListener('click', async () => {
+                try {
+                    await redeemFriendCode(friendCodeInput?.value || '', submitFriendCodeBtn);
+                } catch (error) {
+                    const message = error.message || 'Unable to redeem friend code.';
+                    setFriendCodeStatus(message, 'error');
+                    showToast(message, 'error');
+                }
+            });
+        }
 
         if (reportProfileBtn) {
             reportProfileBtn.addEventListener('click', reportProfile);

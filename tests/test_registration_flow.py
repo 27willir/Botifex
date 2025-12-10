@@ -21,8 +21,17 @@ def test_registration_allows_new_user():
     username = f"regtest_{unique_suffix}"
     email = f"{username}@example.com"
 
+    pending = db_enhanced.create_pending_signup(email=email, plan_tier="pro")
+    db_enhanced.mark_pending_signup_paid(
+        pending["id"],
+        stripe_customer_id=None,
+        stripe_subscription_id=None,
+        plan_tier="pro",
+        payment_status="paid",
+    )
+
     with app.test_client() as client:
-        response = client.get("/register")
+        response = client.get(f"/register?pending={pending['id']}")
         assert response.status_code == 200
 
         register_csrf = _extract_csrf_token(response.data.decode("utf-8"))
@@ -33,6 +42,11 @@ def test_registration_allows_new_user():
             post_response = client.post(
                 "/register",
                 data={
+                    "pending_id": pending["id"],
+                    "first_name": "Test",
+                    "last_name": "User",
+                    "phone": "+12085551212",
+                    "zip_code": "83702",
                     "username": username,
                     "password": "ValidPass1!",
                     "password_confirm": "ValidPass1!",
@@ -75,6 +89,10 @@ def test_registration_allows_new_user():
         user_record = db_enhanced.get_user_by_username(username)
         assert user_record is not None
         assert user_record.get("verified") is True
+
+        pending_record = db_enhanced.get_pending_signup(pending["id"])
+        assert pending_record is not None
+        assert pending_record["status"] == "completed"
 
     db_enhanced.reset_rate_limit("127.0.0.1", "register")
 

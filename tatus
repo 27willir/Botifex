@@ -1,0 +1,62 @@
+[1mdiff --git a/admin_panel.py b/admin_panel.py[m
+[1mindex eeded03..b047ce7 100644[m
+[1m--- a/admin_panel.py[m
+[1m+++ b/admin_panel.py[m
+[36m@@ -136,19 +136,25 @@[m [mdef check_role():[m
+     # Get fresh user data from database[m
+     user_data = db_enhanced.get_user_by_username(current_user.id)[m
+     [m
+[32m+[m[32m    db_role = user_data.get('role') if user_data else None[m
+[32m+[m
+     debug_info = {[m
+         'current_user_id': current_user.id,[m
+         'current_user_has_role_attr': hasattr(current_user, 'role'),[m
+         'current_user_role': getattr(current_user, 'role', 'NO ROLE ATTRIBUTE'),[m
+         'db_user_data': str(user_data) if user_data else 'NO USER DATA',[m
+[31m-        'db_role': user_data[4] if user_data else 'NO USER DATA',[m
+[32m+[m[32m        'db_role': db_role if db_role is not None else 'NO USER DATA',[m
+         'cache_cleared': True,[m
+         'message': 'If roles mismatch, please log out and log back in to refresh your session.'[m
+     }[m
+     [m
+     # Clear any cached user data so next request loads fresh role from DB[m
+     cache_user_data(current_user.id)[m
+[31m-    logger.info(f"Cleared cache for user {current_user.id}. Session role: {getattr(current_user, 'role', 'NONE')}, DB role: {user_data[4] if user_data else 'NONE'}")[m
+[32m+[m[32m    logger.info([m
+[32m+[m[32m        f"Cleared cache for user {current_user.id}. "[m
+[32m+[m[32m        f"Session role: {getattr(current_user, 'role', 'NONE')}, "[m
+[32m+[m[32m        f"DB role: {db_role if db_role is not None else 'NONE'}"[m
+[32m+[m[32m    )[m
+     [m
+     return jsonify(debug_info)[m
+ [m
+[36m@@ -164,7 +170,7 @@[m [mdef admin_required(f):[m
+         # Always revalidate role against the database to avoid stale session cache[m
+         try:[m
+             user_data = db_enhanced.get_user_by_username(current_user.id)[m
+[31m-            db_role = user_data[4] if user_data else None[m
+[32m+[m[32m            db_role = user_data.get('role') if user_data else None[m
+         except Exception as e:[m
+             logger.error(f"Failed to fetch user role for {current_user.id}: {e}")[m
+             flash("Access denied. Admin privileges required.", "error")[m
+[36m@@ -309,13 +315,13 @@[m [mdef user_detail(username):[m
+         listing_count = db_enhanced.get_listing_count(user_id=username)[m
+         [m
+         user_data = {[m
+[31m-            'username': user[0],[m
+[31m-            'email': user[1],[m
+[31m-            'role': user[4],[m
+[31m-            'active': user[5],[m
+[31m-            'created_at': _format_timestamp(user[6], mode='datetime_minutes'),[m
+[31m-            'last_login': _format_timestamp(user[7], mode='datetime_minutes'),[m
+[31m-            'login_count': user[8],[m
+[32m+[m[32m            'username': user.get('username'),[m
+[32m+[m[32m            'email': user.get('email'),[m
+[32m+[m[32m            'role': user.get('role'),[m
+[32m+[m[32m            'active': user.get('active'),[m
+[32m+[m[32m            'created_at': _format_timestamp(user.get('created_at'), mode='datetime_minutes'),[m
+[32m+[m[32m            'last_login': _format_timestamp(user.get('last_login'), mode='datetime_minutes'),[m
+[32m+[m[32m            'login_count': user.get('login_count'),[m
+             'listing_count': listing_count,[m
+         }[m
+         [m

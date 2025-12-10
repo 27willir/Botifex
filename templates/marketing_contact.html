@@ -1,0 +1,109 @@
+{% extends "marketing_base.html" %}
+{% block title %}Contact Botifex | Support for Consumers{% endblock %}
+{% block meta_description %}Get in touch with the Botifex team. Email, phone, and contact form guidance for consumers ready to activate or already using the platform.{% endblock %}
+{% block page_styles %}
+    .contact-hero {
+        padding-top: 6.5rem;
+        text-align: center;
+    }
+
+    .contact-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 2.2rem;
+        margin-top: 3rem;
+    }
+
+    .contact-card {
+        background: rgba(26, 26, 46, 0.82);
+        border-radius: 16px;
+        padding: 2.2rem;
+        border: 1px solid rgba(0, 191, 255, 0.2);
+        text-align: center;
+    }
+
+    .contact-card h2 {
+        margin-bottom: 0.8rem;
+    }
+
+    .faq {
+        margin-top: 3.4rem;
+        background: rgba(0, 191, 255, 0.12);
+        border: 1px solid rgba(0, 191, 255, 0.28);
+        border-radius: 20px;
+        padding: 2.4rem;
+    }
+
+    .faq details + details {
+        margin-top: 1.2rem;
+    }
+
+    .faq summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: #00cdfb;
+    }
+{% endblock %}
+
+{% block content %}
+<section class="contact-hero">
+    <h1>Contact Botifex Support</h1>
+    <p style="max-width: 720px; margin: 0 auto; color: rgba(255,255,255,0.74);">
+        Need help before you pay? Already have a plan and want onboarding assistance? The Botifex team replies within 24 hours on weekdays and monitors the inbox on weekends.
+    </p>
+    <div class="cta-stack" style="justify-content: center; margin-top: 2rem;">
+        <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+        <a class="secondary-btn" href="{{ url_for('marketing_overview') }}">Review the overview</a>
+    </div>
+</section>
+
+<section>
+    <div class="contact-grid">
+        <div class="contact-card">
+            <h2>Email</h2>
+            <p style="color: rgba(255,255,255,0.7); margin-bottom: 1rem;">For payment questions, feature requests, and support.</p>
+            <a class="primary-btn" href="mailto:Botifex2025@gmail.com">Botifex2025@gmail.com</a>
+        </div>
+        <div class="contact-card">
+            <h2>Phone</h2>
+            <p style="color: rgba(255,255,255,0.7); margin-bottom: 1rem;">Call or text during business hours.</p>
+            <a class="secondary-btn" href="tel:+12086816169">(208) 681-6169</a>
+        </div>
+        <div class="contact-card">
+            <h2>Response Time</h2>
+            <p style="color: rgba(255,255,255,0.7); margin-bottom: 1rem;">Mon–Fri 9am–6pm PST<br>Weekend monitoring via email.</p>
+            <a class="tertiary-link" href="{{ url_for('marketing_roadmap') }}">See what’s launching next</a>
+        </div>
+    </div>
+</section>
+
+<section class="faq" style="background: rgba(0, 123, 255, 0.08);">
+    <h2 style="text-align: center; margin-bottom: 1.4rem;">Frequently Asked Questions</h2>
+    <details>
+        <summary>Can I test Botifex before paying?</summary>
+        <p style="color: rgba(255,255,255,0.7); margin-top: 0.6rem;">Yes—choose the Free plan in the payment flow to explore the dashboard with limited refresh speeds. Upgrade anytime to Standard or Pro.</p>
+    </details>
+    <details>
+        <summary>How do I complete account creation after payment?</summary>
+        <p style="color: rgba(255,255,255,0.7); margin-top: 0.6rem;">Immediately after checkout, you’ll land on the sign-up form requesting your name, phone, ZIP, email, and password. The <a href="{{ url_for('marketing_how_it_works') }}">How It Works</a> guide outlines every step.</p>
+    </details>
+    <details>
+        <summary>Why do you collect phone number and ZIP code?</summary>
+        <p style="color: rgba(255,255,255,0.7); margin-top: 0.6rem;">We use location and phone details to tailor alerts and optimize coverage. Review the <a href="{{ url_for('why_we_collect') }}">Why We Collect This Information</a> page for full context.</p>
+    </details>
+</section>
+
+<section>
+    <div class="cta-banner">
+        <h2 style="font-size: 2.2rem; margin-bottom: 1rem;">Ready to get started?</h2>
+        <p style="color: rgba(255,255,255,0.74); max-width: 640px; margin: 0 auto 2rem;">
+            Join the payment-first flow and become the fastest shopper in your niche.
+        </p>
+        <div class="cta-stack" style="justify-content: center;">
+            <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+            <a class="secondary-btn" href="{{ url_for('marketing_pricing') }}">Compare plans</a>
+        </div>
+    </div>
+</section>
+{% endblock %}
+

@@ -247,6 +247,13 @@
             box-shadow: 0 4px 15px rgba(255, 71, 87, 0.2);
         }
 
+        .flash-info {
+            background: rgba(0, 191, 255, 0.9);
+            color: white;
+            border-color: rgba(0, 191, 255, 0.5);
+            box-shadow: 0 4px 15px rgba(0, 191, 255, 0.2);
+        }
+
         .terms-checkbox {
             display: flex;
             align-items: flex-start;
@@ -308,8 +315,30 @@
         
         <form method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <input type="text" name="username" placeholder="Username" value="{{ form_data.username or '' }}" required autofocus>
-            <input type="email" name="email" placeholder="Email" value="{{ form_data.email or '' }}" required>
+            <input type="hidden" name="pending_id" value="{{ pending_id }}"/>
+
+            {% if payment_status != 'paid' and plan_tier != 'free' %}
+            <div class="flash-message flash-info">
+                Waiting for Stripe to confirm payment. Refresh if this remains after a minute.
+            </div>
+            {% endif %}
+
+            <div style="margin-bottom: 15px; text-align: center;">
+                <span style="display: inline-block; padding: 6px 16px; border-radius: 999px; background: rgba(0,191,255,0.15); border: 1px solid rgba(0,191,255,0.3); color: #00bfff; font-size: 0.9em; text-transform: uppercase;">
+                    {{ plan_tier|capitalize }} Plan
+                </span>
+            </div>
+
+            <input type="text" name="first_name" placeholder="First Name" value="{{ form_data.first_name or '' }}" required>
+            <input type="text" name="last_name" placeholder="Last Name (optional)" value="{{ form_data.last_name or '' }}">
+            <input type="tel" name="phone" placeholder="Phone (for alerts)" value="{{ form_data.phone or '' }}">
+            <input type="text" name="zip_code" placeholder="ZIP / Postal Code" value="{{ form_data.zip_code or '' }}">
+
+            <input type="text" name="username" placeholder="Username" value="{{ form_data.username or '' }}" required>
+            <input type="email" name="email" placeholder="Email" value="{{ form_data.email or '' }}" readonly>
+            <p style="font-size: 0.8em; color: rgba(255,255,255,0.6); margin-top: -10px; margin-bottom: 10px;">
+                We explain why we request these details in <a href="{{ url_for('why_we_collect') }}" style="color: #00bfff;">Why We Collect This Information</a>.
+            </p>
             
             <div class="password-wrapper">
                 <input type="password" id="password" name="password" placeholder="Password" required autocomplete="new-password">
@@ -328,7 +357,7 @@
                 </label>
             </div>
             
-            <button type="submit">Register</button>
+            <button type="submit">Create Account</button>
         </form>
         <div class="login-footer">
              <a href="/login" style="display: block; margin-bottom: 5px;">Back to Login</a>

@@ -1,12 +1,13 @@
-"""Utilities for keeping scrapers resilient without relying on third-party services.
+"""Advanced anti-blocking utilities for resilient web scraping.
 
-This module centralizes anti-blocking strategies that can be shared by all scrapers,
-including:
+This module implements sophisticated bypass techniques including:
 
-- Realistic, rotating browser fingerprints (headers, sec-ch hints, Accept-Language)
-- Adaptive cooldown tracking after blocks, rate limits, or network failures
-- Soft block detection via response analysis
-- Dynamic request spacing with jitter to mimic human browsing patterns
+- Realistic, session-consistent browser fingerprints with extensive user agent rotation
+- Advanced block detection via content analysis, response size validation, and keyword matching
+- Adaptive cooldown tracking with intelligent backoff strategies
+- Proxy support infrastructure for IP rotation
+- Human-like timing patterns with variable jitter
+- Session-based fingerprint consistency (same browser identity per session)
 
 These helpers operate entirely locally—no external proxy providers or SaaS dependencies
 are required. Individual scrapers can opt-in by using the public functions exported
@@ -16,6 +17,7 @@ time within the current process.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import random
 import threading
@@ -24,29 +26,57 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Deque, Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple
 from urllib.parse import urlparse
+import os
 
 # =====================
-# HEADER/FINGERPRINT POOLS
+# HEADER/FINGERPRINT POOLS (EXTENSIVELY EXPANDED)
 # =====================
 
+# Comprehensive, current user agent pool (2024-2025 Chrome/Firefox/Edge/Safari)
 _USER_AGENTS: Tuple[str, ...] = (
-    # Modern Chrome (Windows/Mac/Linux)
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    # Chrome 131-135 (latest)
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    # Chrome Mac
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+    # Chrome Linux
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    # Edge (Chromium-based)
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0",
+    # Safari (macOS)
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    # Firefox (latest)
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:135.0) Gecko/20100101 Firefox/135.0",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0",
+    # Older but still common (for diversity)
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 )
 
 _ACCEPT_LANGUAGES: Tuple[str, ...] = (
     "en-US,en;q=0.9",
+    "en-US,en;q=0.9,es;q=0.8",
     "en-US,en;q=0.8,en-GB;q=0.7",
     "en-US,en;q=0.7,es;q=0.4",
     "en-US,en;q=0.8,fr;q=0.4",
     "en-US,en;q=0.75,es-419;q=0.5",
+    "en-GB,en;q=0.9",
+    "en-CA,en;q=0.9",
+    "en-AU,en;q=0.9",
 )
 
 _ACCEPT_HEADERS: Tuple[str, ...] = (
@@ -91,6 +121,28 @@ class SiteProfile:
         "zero size object",
         "robot check",
         "forbidden",
+        "cloudflare",
+        "ray id",
+        "checking your browser",
+        "please wait",
+        "ddos protection",
+        "security check",
+        "challenge page",
+        "cf-browser-verification",
+        "just a moment",
+        "enable javascript",
+        "browser verification",
+        "anti-bot",
+        "rate limit",
+        "too many requests",
+        "automated access",
+        "distil networks",
+        "incapsula",
+        "shape security",
+        "imperva",
+        "datadome",
+        "are you a bot",
+        "prove you're human",
     )
     soft_block_css_selectors: Tuple[str, ...] = ()
     cooldown_seconds: Tuple[float, float] = (45.0, 120.0)
@@ -147,12 +199,55 @@ _SITE_SPECIFIC_PROFILES: Dict[str, SiteProfile] = {
             "why did this happen",
             "verify you are human",
             "attention required",
+            "something went wrong",
+            "security challenge",
         ),
         default_referers=(
             "https://www.ebay.com/",
             "https://www.ebay.com/deals",
             "https://www.ebay.com/b/Auto-Parts-and-Vehicles/6000/bn_1865334",
         ),
+    ),
+    "facebook": SiteProfile(
+        min_delay=3.0,
+        max_delay=6.0,
+        cooldown_seconds=(120.0, 300.0),
+        adaptive_multiplier=2.0,
+        block_keywords=_DEFAULT_PROFILE.block_keywords
+        + (
+            "facebook",
+            "log in",
+            "unusual activity",
+            "security check",
+            "confirm your identity",
+        ),
+        default_referers=("https://www.facebook.com/",),
+    ),
+    "craigslist": SiteProfile(
+        min_delay=2.0,
+        max_delay=5.0,
+        cooldown_seconds=(60.0, 180.0),
+        adaptive_multiplier=1.8,
+        block_keywords=_DEFAULT_PROFILE.block_keywords
+        + (
+            "craigslist",
+            "temporarily unavailable",
+            "automated access",
+        ),
+        default_referers=("https://www.craigslist.org/",),
+    ),
+    "poshmark": SiteProfile(
+        min_delay=3.5,
+        max_delay=7.0,
+        cooldown_seconds=(90.0, 240.0),
+        adaptive_multiplier=2.0,
+        block_keywords=_DEFAULT_PROFILE.block_keywords
+        + (
+            "poshmark",
+            "access denied",
+            "please verify",
+        ),
+        default_referers=("https://www.poshmark.com/",),
     ),
 }
 
@@ -167,6 +262,8 @@ class SiteState:
     consecutive_failures: int = 0
     recent_blocks: Deque[float] = field(default_factory=lambda: deque(maxlen=10))
     last_headers: Optional[Mapping[str, str]] = None
+    session_fingerprint: Optional[str] = None  # Consistent fingerprint per session
+    expected_min_response_size: int = 5000  # Track expected response sizes to detect empty blocks
 
 
 class AntiBlockManager:
@@ -175,6 +272,12 @@ class AntiBlockManager:
     def __init__(self):
         self._states: Dict[str, SiteState] = defaultdict(SiteState)
         self._lock = threading.Lock()
+        self._proxies: List[str] = []
+        self._proxy_lock = threading.Lock()
+        self._current_proxy_idx: Dict[str, int] = defaultdict(int)
+        
+        # Load proxies from environment if available
+        self._load_proxies_from_env()
 
     # ---------- State helpers ----------
     def _get_state(self, site_name: Optional[str]) -> SiteState:
@@ -271,25 +374,52 @@ class AntiBlockManager:
         referer: Optional[str] = None,
         origin: Optional[str] = None,
         base_headers: Optional[Mapping[str, str]] = None,
+        session_id: Optional[str] = None,
     ) -> Dict[str, str]:
-        """Return headers representing a plausible browser request."""
+        """Return headers representing a plausible browser request with session consistency."""
 
         profile = self._get_profile(site_name)
+        state = self._get_state(site_name)
+        
+        # Use session-consistent fingerprint if session_id provided, otherwise create new one
+        if session_id:
+            fingerprint_key = f"{site_name}:{session_id}"
+            if state.session_fingerprint != fingerprint_key:
+                state.session_fingerprint = fingerprint_key
+        elif not state.session_fingerprint:
+            # Create a new session fingerprint for this site
+            state.session_fingerprint = f"{site_name}:{int(time.time())}"
+        
+        # Generate consistent headers for this session using hash of fingerprint
+        fingerprint_hash = hashlib.md5(state.session_fingerprint.encode()).hexdigest()
+        hash_int = int(fingerprint_hash[:8], 16)
+        
+        # Use hash to deterministically select from pools (consistent per session)
+        user_agent_idx = hash_int % len(_USER_AGENTS)
+        accept_idx = (hash_int // len(_USER_AGENTS)) % len(_ACCEPT_HEADERS)
+        lang_idx = (hash_int // (len(_USER_AGENTS) * len(_ACCEPT_HEADERS))) % len(_ACCEPT_LANGUAGES)
+        platform_idx = (hash_int // (len(_USER_AGENTS) * len(_ACCEPT_HEADERS) * len(_ACCEPT_LANGUAGES))) % len(_SEC_CH_UA_PLATFORMS)
+        
+        # Add slight variation for freshness while maintaining consistency
+        variation = int(time.time() // 3600)  # Changes hourly
+        user_agent_idx = (user_agent_idx + variation) % len(_USER_AGENTS)
+        
         headers: Dict[str, str] = {
-            "User-Agent": random.choice(_USER_AGENTS),
-            "Accept": random.choice(_ACCEPT_HEADERS),
-            "Accept-Language": random.choice(_ACCEPT_LANGUAGES),
-            "Accept-Encoding": "gzip, deflate, br",
+            "User-Agent": _USER_AGENTS[user_agent_idx],
+            "Accept": _ACCEPT_HEADERS[accept_idx],
+            "Accept-Language": _ACCEPT_LANGUAGES[lang_idx],
+            "Accept-Encoding": "gzip, deflate, br, zstd",
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
-            "DNT": random.choice(("1", "0")),
+            "DNT": "1" if (hash_int % 2) == 0 else "0",
             "Sec-Fetch-Dest": "document",
             "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-User": "?1",
             "Cache-Control": random.choice(_CACHE_CONTROL_VALUES),
-            "sec-ch-ua": self._random_sec_ch_ua(),
+            "sec-ch-ua": self._random_sec_ch_ua_consistent(fingerprint_hash),
             "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": random.choice(_SEC_CH_UA_PLATFORMS),
+            "sec-ch-ua-platform": _SEC_CH_UA_PLATFORMS[platform_idx],
+            "Pragma": "no-cache",  # Additional header for realism
         }
 
         headers["Sec-Fetch-Site"] = self._infer_sec_fetch_site(referer, origin)
@@ -297,7 +427,8 @@ class AntiBlockManager:
         if referer:
             headers["Referer"] = referer
         elif profile.default_referers:
-            headers["Referer"] = random.choice(profile.default_referers)
+            ref_idx = (hash_int // 100) % len(profile.default_referers) if profile.default_referers else 0
+            headers["Referer"] = profile.default_referers[ref_idx]
 
         if origin:
             headers["Origin"] = origin
@@ -307,7 +438,7 @@ class AntiBlockManager:
             merged.update({k: v for k, v in headers.items() if k not in merged})
             headers = merged
 
-        self._get_state(site_name).last_headers = headers
+        state.last_headers = headers
         return headers
 
     def enrich_headers(self, site_name: Optional[str], headers: MutableMapping[str, str]) -> Dict[str, str]:
@@ -320,45 +451,137 @@ class AntiBlockManager:
         return new_headers
 
     def _random_sec_ch_ua(self) -> str:
+        """Generate random sec-ch-ua header."""
         brands = [
             '"Not_A Brand";v="{}"'.format(random.randint(8, 99)),
-            '"Chromium";v="{}"'.format(random.randint(110, 122)),
-            '"Google Chrome";v="{}"'.format(random.randint(110, 122)),
+            '"Chromium";v="{}"'.format(random.randint(110, 135)),
+            '"Google Chrome";v="{}"'.format(random.randint(110, 135)),
         ]
         random.shuffle(brands)
+        return ", ".join(brands)
+    
+    def _random_sec_ch_ua_consistent(self, hash_str: str) -> str:
+        """Generate consistent sec-ch-ua header based on hash."""
+        hash_int = int(hash_str[:8], 16)
+        v1 = 8 + (hash_int % 92)
+        v2 = 110 + ((hash_int // 100) % 26)
+        v3 = 110 + ((hash_int // 10000) % 26)
+        brands = [
+            f'"Not_A Brand";v="{v1}"',
+            f'"Chromium";v="{v2}"',
+            f'"Google Chrome";v="{v3}"',
+        ]
+        # Deterministic shuffle
+        if (hash_int % 2) == 0:
+            brands = [brands[1], brands[0], brands[2]]
         return ", ".join(brands)
 
     # ---------- Response analysis ----------
     def detect_soft_block(self, site_name: Optional[str], response) -> Optional[str]:
-        """Inspect a response for signs of blocking beyond status codes."""
+        """Inspect a response for signs of blocking beyond status codes with advanced validation."""
 
         if response is None:
             return None
 
         profile = self._get_profile(site_name)
+        state = self._get_state(site_name)
 
+        # Check status codes first
         if response.status_code in profile.block_status_codes:
             return f"status:{response.status_code}"
 
-        # Only sample a limited portion to avoid heavy memory usage
+        # Check for suspiciously small responses (likely block/challenge pages)
+        content_length = len(response.content) if hasattr(response, 'content') else 0
+        if content_length > 0 and content_length < 2000:
+            # Very small responses are often challenge pages
+            if content_length < 500:
+                # Check if it's a valid HTML structure or just a redirect/challenge
+                text_sample = response.text[:500].lower() if hasattr(response, 'text') else ""
+                # If it's not obviously valid content, it might be a block
+                if any(indicator in text_sample for indicator in ['redirect', 'location.href', '<meta http-equiv']):
+                    pass  # Valid redirect, not a block
+                elif content_length < 200 and 'html' not in text_sample[:50]:
+                    return f"response_too_small:{content_length}"
+        
+        # Check for suspicious response size compared to expected
+        if state.expected_min_response_size > 0 and content_length < state.expected_min_response_size * 0.1:
+            # Response is less than 10% of expected size - likely blocked
+            if content_length < 3000:
+                return f"response_size_mismatch:{content_length}"
+        
+        # Update expected size on successful requests
+        if content_length > 1000:
+            # Update with moving average
+            state.expected_min_response_size = int(
+                (state.expected_min_response_size * 0.7) + (content_length * 0.3)
+            )
+
+        # Content analysis - check for block indicators
         if isinstance(response.text, str):
             snippet = response.text[: profile.sample_html_bytes].lower()
         else:
             snippet = ""
 
+        # Enhanced keyword detection
         for keyword in profile.block_keywords:
-            if keyword in snippet:
+            if keyword.lower() in snippet:
                 return f"keyword:{keyword}"
+        
+        # Check for common challenge/block patterns
+        block_patterns = [
+            r'<title[^>]*>.*?(?:block|challenge|verify|captcha|cloudflare|ddos).*?</title>',
+            r'challenge-platform',
+            r'cf-browser-verification',
+            r'cf-ray',
+            r'distil',
+            r'incapsula',
+            r'__cf_chl_',
+            r'data-ray',
+            r'challenge\.js',
+            r'checking.*browser',
+            r'just.*moment',
+            r'enable.*javascript',
+        ]
+        
+        import re
+        for pattern in block_patterns:
+            if re.search(pattern, snippet, re.IGNORECASE):
+                return f"pattern_match:{pattern}"
 
         return None
 
     def suggest_retry_delay(self, site_name: Optional[str], attempt: int) -> float:
-        """Return seconds to sleep before a retry after a failure."""
+        """Return seconds to sleep before a retry after a failure with exponential backoff."""
 
         profile = self._get_profile(site_name)
-        base = profile.min_delay * (2 ** min(attempt, 3))
-        jitter = random.uniform(0.5, 1.5)
+        # Exponential backoff with jitter
+        base = profile.min_delay * (2 ** min(attempt, 4))
+        jitter = random.uniform(0.7, 1.3)
         return base * jitter
+    
+    def _load_proxies_from_env(self) -> None:
+        """Load proxy list from environment variable if set."""
+        proxy_env = os.environ.get("SCRAPER_PROXIES", "")
+        if proxy_env:
+            self._proxies = [p.strip() for p in proxy_env.split(",") if p.strip()]
+            if self._proxies:
+                print(f"Loaded {len(self._proxies)} proxies from environment")
+    
+    def get_proxy(self, site_name: Optional[str]) -> Optional[str]:
+        """Get next proxy in rotation for a site. Returns None if no proxies configured."""
+        with self._proxy_lock:
+            if not self._proxies:
+                return None
+            idx = self._current_proxy_idx[site_name or "default"] % len(self._proxies)
+            proxy = self._proxies[idx]
+            self._current_proxy_idx[site_name or "default"] += 1
+            return proxy
+    
+    def rotate_proxy(self, site_name: Optional[str]) -> None:
+        """Force rotate to next proxy for a site."""
+        with self._proxy_lock:
+            key = site_name or "default"
+            self._current_proxy_idx[key] = (self._current_proxy_idx[key] + 1) % max(len(self._proxies), 1)
 
 
 # Singleton manager used throughout the scrapers
@@ -394,8 +617,19 @@ def build_headers(
     referer: Optional[str] = None,
     origin: Optional[str] = None,
     base_headers: Optional[Mapping[str, str]] = None,
+    session_id: Optional[str] = None,
 ) -> Dict[str, str]:
-    return _manager.build_headers(site_name, referer, origin, base_headers)
+    return _manager.build_headers(site_name, referer, origin, base_headers, session_id)
+
+
+def get_proxy(site_name: Optional[str]) -> Optional[str]:
+    """Get next proxy in rotation for a site."""
+    return _manager.get_proxy(site_name)
+
+
+def rotate_proxy(site_name: Optional[str]) -> None:
+    """Force rotate to next proxy for a site."""
+    return _manager.rotate_proxy(site_name)
 
 
 def enrich_headers(site_name: Optional[str], headers: MutableMapping[str, str]) -> Dict[str, str]:
@@ -420,5 +654,7 @@ __all__ = [
     "record_request_start",
     "record_success",
     "suggest_retry_delay",
+    "get_proxy",
+    "rotate_proxy",
 ]
 

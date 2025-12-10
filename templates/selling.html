@@ -678,6 +678,22 @@
 
     <script>
         let currentListings = [];
+        const MARKETPLACE_POST_URLS = {
+            craigslist: 'https://post.craigslist.org/',
+            facebook: 'https://www.facebook.com/marketplace/create/item',
+            ksl: 'https://classifieds.ksl.com/create-listing',
+            ebay: 'https://www.ebay.com/sl/sell',
+            poshmark: 'https://poshmark.com/create-listing',
+            mercari: 'https://www.mercari.com/sell'
+        };
+        const MARKETPLACE_LABELS = {
+            craigslist: 'Craigslist',
+            facebook: 'Facebook Marketplace',
+            ksl: 'KSL Classifieds',
+            ebay: 'eBay',
+            poshmark: 'Poshmark',
+            mercari: 'Mercari'
+        };
 
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
@@ -1070,9 +1086,29 @@
         }
 
         async function postListing(listingId) {
-            if (!confirm('This will prepare your listing for posting to the selected marketplaces. Continue?')) {
+            const listing = currentListings.find(l => l.id === listingId);
+            if (!listing) {
+                showAlert('Listing not found. Please refresh and try again.', 'error');
                 return;
             }
+
+            const marketplaces = (listing.marketplaces || '')
+                .split(',')
+                .map(mp => mp.trim().toLowerCase())
+                .filter(Boolean);
+            const uniqueMarketplaces = Array.from(new Set(marketplaces));
+
+            if (uniqueMarketplaces.length === 0) {
+                showAlert('This listing does not have any marketplaces selected yet. Edit the listing to add at least one.', 'error');
+                return;
+            }
+
+            if (!confirm('This will open your selected marketplaces in new tabs so you can finish posting manually. Continue?')) {
+                return;
+            }
+
+            const launchResult = openMarketplaceTabs(uniqueMarketplaces);
+            handleMarketplaceLaunchFeedback(launchResult);
             
             try {
                 const response = await fetch(`/api/seller-listings/${listingId}/post`, {
@@ -1377,6 +1413,60 @@
             setTimeout(() => {
                 alertDiv.remove();
             }, type === 'error' ? 5000 : 3000);
+        }
+
+        function openMarketplaceTabs(marketplaces) {
+            const result = { launched: [], blocked: [], missing: [] };
+            marketplaces.forEach(marketplace => {
+                const url = MARKETPLACE_POST_URLS[marketplace];
+                if (!url) {
+                    result.missing.push(marketplace);
+                    return;
+                }
+                const windowRef = window.open(url, '_blank', 'noopener');
+                if (!windowRef) {
+                    result.blocked.push(marketplace);
+                } else {
+                    result.launched.push(marketplace);
+                }
+            });
+            return result;
+        }
+
+        function handleMarketplaceLaunchFeedback(result) {
+            if (result.launched.length > 0) {
+                const reminder = getMarketplaceLoginReminderText();
+                showAlert(`Opened ${formatMarketplaceList(result.launched)} in new tabs.${reminder}`, 'success');
+            }
+
+            const failedTargets = [...result.blocked, ...result.missing];
+            if (failedTargets.length > 0) {
+                showAlert(`Could not automatically open ${formatMarketplaceList(failedTargets)}. Allow pop-ups for this site and try again.`, 'error');
+            }
+        }
+
+        function formatMarketplaceList(marketplaces) {
+            const names = marketplaces.map(mp => MARKETPLACE_LABELS[mp] || (mp.charAt(0).toUpperCase() + mp.slice(1)));
+            if (names.length === 0) {
+                return '';
+            }
+            if (names.length === 1) {
+                return names[0];
+            }
+            return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+        }
+
+        function getMarketplaceLoginReminderText() {
+            const storageKey = 'sellingMarketplaceLoginReminderShown';
+            try {
+                if (!localStorage.getItem(storageKey)) {
+                    localStorage.setItem(storageKey, 'true');
+                    return ' Tip: stay logged in on those tabs so your browser keeps the session with cookies.';
+                }
+            } catch (error) {
+                console.warn('Unable to persist login reminder preference:', error);
+            }
+            return '';
         }
         
         async function checkPremiumMarketplaceAvailability() {

@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import importlib
 import unittest
+from datetime import date, datetime, timedelta
 
 
 class ProfileDBTestCase(unittest.TestCase):
@@ -143,6 +144,109 @@ class ProfileDBTestCase(unittest.TestCase):
         self.assertIsNotNone(conversation)
         participant_usernames = {p["username"] for p in conversation["participants"]}
         self.assertEqual(participant_usernames, {"alice", "bob"})
+
+    def test_friend_code_flow(self):
+        code_info = self.db.ensure_friend_code("alice")
+        self.assertTrue(code_info.get("code"))
+
+        self.db.create_user_db("bob", "bob@example.com", "hash")
+        self.db.ensure_profile("bob")
+
+        result = self.db.redeem_friend_code(code_info["code"], "bob")
+        self.assertEqual(result["owner_username"], "alice")
+        self.assertTrue(result["created"])
+        request = result["request"]
+        self.assertEqual(request["requester_username"], "bob")
+        self.assertEqual(request["recipient_username"], "alice")
+
+        repeat = self.db.redeem_friend_code(code_info["code"], "bob")
+        self.assertFalse(repeat["created"])
+        self.assertEqual(repeat["request"]["id"], request["id"])
+
+        updated = self.db.respond_friend_request(request["id"], "alice", "accept")
+        self.assertEqual(updated["status"], self.db.FRIEND_REQUEST_STATUS_ACCEPTED)
+        self.assertTrue(self.db.are_friends("alice", "bob"))
+        conversation = self.db.ensure_dm_conversation_between("alice", "bob")
+        self.assertIsNotNone(conversation)
+
+
+class StreakDateParsingTestCase(unittest.TestCase):
+    def test_record_user_engagement_handles_native_date(self):
+        import db_enhanced as db
+
+        previous_day = date.today() - timedelta(days=1)
+
+        class FakeCursor:
+            def __init__(self):
+                self.mode = None
+                self.insert_params = None
+
+            def execute(self, query, params=()):
+                normalized = query.strip().lower()
+                if normalized.startswith("select"):
+                    self.mode = "select"
+                elif "insert into user_streaks" in normalized:
+                    self.mode = "insert"
+                    self.insert_params = params
+                else:
+                    self.mode = None
+
+                self.last_query = query
+                self.last_params = params
+
+            def fetchone(self):
+                if self.mode == "select":
+                    return ("alice", 3, 5, previous_day)
+                return None
+
+        class FakeConnection:
+            def __init__(self):
+                self.cursor_obj = FakeCursor()
+                self.committed = False
+
+            def cursor(self):
+                return self.cursor_obj
+
+            def commit(self):
+                self.committed = True
+
+        class FakeConnectionContext:
+            def __init__(self, conn):
+                self.conn = conn
+
+            def __enter__(self):
+                return self.conn
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class FakePool:
+            def __init__(self, conn):
+                self.conn = conn
+
+            def get_connection(self):
+                return FakeConnectionContext(self.conn)
+
+        fake_conn = FakeConnection()
+        fake_pool = FakePool(fake_conn)
+        original_pool = db._connection_pool
+        try:
+            db._connection_pool = fake_pool
+            event_time = datetime.combine(date.today(), datetime.min.time())
+            result = db.record_user_engagement("alice", "message", event_time=event_time)
+        finally:
+            db._connection_pool = original_pool
+
+        cursor = fake_conn.cursor_obj
+        self.assertIsNotNone(cursor.insert_params)
+        self.assertEqual(cursor.insert_params[1], 4)  # current_streak
+        self.assertEqual(cursor.insert_params[2], 5)  # longest_streak remains max
+        self.assertEqual(cursor.insert_params[3], date.today())
+        self.assertTrue(fake_conn.committed)
+
+        self.assertEqual(result["current_streak"], 4)
+        self.assertEqual(result["longest_streak"], 5)
+        self.assertEqual(result["last_engaged_date"], date.today().isoformat())
 
 
 if __name__ == "__main__":

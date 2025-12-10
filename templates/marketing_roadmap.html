@@ -1,0 +1,142 @@
+{% extends "marketing_base.html" %}
+{% block title %}Botifex Roadmap | Upcoming Consumer Features{% endblock %}
+{% block meta_description %}Track the Botifex roadmap for marketplace enhancements, alert upgrades, analytics, and mobile releases. Stay aligned with what’s shipping next for consumers.{% endblock %}
+{% block page_styles %}
+    .roadmap-hero {
+        padding-top: 6.5rem;
+        text-align: center;
+    }
+
+    .roadmap-sections {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 2.4rem;
+        margin-top: 3rem;
+    }
+
+    .roadmap-card {
+        background: rgba(26, 26, 46, 0.82);
+        border-radius: 18px;
+        padding: 2.6rem;
+        border: 1px solid rgba(0, 191, 255, 0.2);
+        min-height: 320px;
+    }
+
+    .roadmap-card h2 {
+        font-size: 1.9rem;
+        margin-bottom: 1rem;
+    }
+
+    .roadmap-card ul {
+        margin-left: 1.2rem;
+        color: rgba(255, 255, 255, 0.75);
+    }
+
+    .roadmap-card li + li {
+        margin-top: 0.8rem;
+    }
+
+    .timeline-section {
+        margin-top: 3.4rem;
+    }
+
+    .timeline-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.8rem;
+    }
+
+    .timeline-box {
+        background: rgba(18, 22, 38, 0.82);
+        border-radius: 16px;
+        padding: 2rem;
+        border: 1px solid rgba(0, 191, 255, 0.18);
+    }
+
+    .feedback-card {
+        background: rgba(0, 191, 255, 0.12);
+        border: 1px solid rgba(0, 191, 255, 0.28);
+        border-radius: 20px;
+        padding: 2.6rem;
+        text-align: center;
+        margin-top: 3.4rem;
+    }
+{% endblock %}
+
+{% block content %}
+<section class="roadmap-hero">
+    <h1>Where Botifex Is Headed Next</h1>
+    <p style="max-width: 760px; margin: 0 auto; color: rgba(255,255,255,0.75);">
+        We ship weekly improvements for consumer shoppers. The roadmap shows what is live, what’s being built, and what’s on deck.
+        Follow along to know when a feature you’re waiting for arrives—and use the <a href="{{ url_for('marketing_contact') }}">Contact</a> page to request something new.
+    </p>
+    <div class="cta-stack" style="justify-content: center; margin-top: 2rem;">
+        <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+        <a class="secondary-btn" href="{{ url_for('marketing_overview') }}">Review the product overview</a>
+    </div>
+</section>
+
+<section>
+    <div class="roadmap-sections">
+        <div class="roadmap-card" style="border-color: rgba(0, 255, 136, 0.3);">
+            <h2>Recently Launched</h2>
+            <ul>
+                <li>Mercari + Poshmark integrations for Pro shoppers.</li>
+                <li>New alert engine with digest summaries and quiet hours.</li>
+                <li>Enhanced saved search dashboard with cross-platform filters.</li>
+            </ul>
+        </div>
+        <div class="roadmap-card" style="border-color: rgba(255, 179, 71, 0.3);">
+            <h2>In Development</h2>
+            <ul>
+                <li>iOS and Android companion apps for on-the-go alerts.</li>
+                <li>Deal scoring powered by price velocity and scarcity signals.</li>
+                <li>Shareable wish lists for families and collector groups.</li>
+            </ul>
+        </div>
+        <div class="roadmap-card" style="border-color: rgba(0, 191, 255, 0.3);">
+            <h2>Coming Soon</h2>
+            <ul>
+                <li>Browser extension for instant save-to-Botifex actions.</li>
+                <li>Additional payment methods for international shoppers.</li>
+                <li>Multi-language support beginning with Spanish and French.</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<section class="timeline-section" style="background: rgba(0, 123, 255, 0.06);">
+    <div class="section-header">
+        <h2>Long-Term Vision</h2>
+        <p>Consumer empowerment drives the roadmap. Here’s what we’re planning after the current milestones.</p>
+    </div>
+    <div class="timeline-grid">
+        <div class="timeline-box">
+            <h3>Negotiation Helpers</h3>
+            <p>Automate opening messages and suggested counter offers for major categories.</p>
+        </div>
+        <div class="timeline-box">
+            <h3>Logistics Connections</h3>
+            <p>Coordinate pickup and shipping with preferred carriers directly from Botifex.</p>
+        </div>
+        <div class="timeline-box">
+            <h3>Marketplace Expansion</h3>
+            <p>Support additional regional marketplaces based on user voting.</p>
+        </div>
+    </div>
+</section>
+
+<section>
+    <div class="feedback-card">
+        <h2 style="font-size: 2.1rem; margin-bottom: 1rem;">We Build What You Need</h2>
+        <p style="color: rgba(255,255,255,0.74); max-width: 640px; margin: 0 auto 2rem;">
+            Share feedback through the <a href="{{ url_for('marketing_contact') }}">Contact</a> page or social channels. We respond within 24 hours and often ship requests in the next sprint.
+        </p>
+        <div class="cta-stack" style="justify-content: center;">
+            <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+            <a class="secondary-btn" href="{{ url_for('marketing_about') }}">Read about the team</a>
+        </div>
+    </div>
+</section>
+{% endblock %}
+

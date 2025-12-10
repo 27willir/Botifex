@@ -1,0 +1,128 @@
+{% extends "marketing_base.html" %}
+{% block title %}About Botifex | Built for Everyday Deal Hunters{% endblock %}
+{% block meta_description %}Learn the story behind Botifex, a consumer-focused marketplace search platform created to save time and surface better deals. Get to know the founder and our values.{% endblock %}
+{% block page_styles %}
+    .about-hero {
+        padding-top: 6.5rem;
+        text-align: center;
+    }
+
+    .story-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 2.4rem;
+        margin-top: 3rem;
+    }
+
+    .story-card {
+        background: rgba(26, 26, 46, 0.82);
+        border-radius: 18px;
+        padding: 2.6rem;
+        border: 1px solid rgba(0, 191, 255, 0.2);
+    }
+
+    .value-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1.6rem;
+        margin-top: 3rem;
+    }
+
+    .value-card {
+        background: rgba(18, 22, 38, 0.82);
+        border-radius: 16px;
+        padding: 2rem;
+        border: 1px solid rgba(0, 191, 255, 0.18);
+    }
+
+    .timeline {
+        margin-top: 3.4rem;
+        background: rgba(0, 191, 255, 0.12);
+        border: 1px solid rgba(0, 191, 255, 0.28);
+        border-radius: 20px;
+        padding: 2.6rem;
+    }
+
+    .timeline ul {
+        list-style: none;
+    }
+
+    .timeline li + li {
+        margin-top: 1.1rem;
+    }
+{% endblock %}
+
+{% block content %}
+<section class="about-hero">
+    <h1>The Botifex Story</h1>
+    <p style="max-width: 780px; margin: 0 auto; color: rgba(255,255,255,0.74);">
+        Botifex exists because manually refreshing marketplaces was wasting hours every week. A 16-year-old builder in rural Idaho
+        hacked together the first version for personal use. Today Botifex is a polished platform serving consumers across the U.S.
+    </p>
+    <div class="cta-stack" style="justify-content: center; margin-top: 2rem;">
+        <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+        <a class="secondary-btn" href="{{ url_for('marketing_contact') }}">Reach out to the team</a>
+    </div>
+</section>
+
+<section>
+    <div class="story-grid">
+        <div class="story-card">
+            <h2>From Raspberry Pi to Platform</h2>
+            <p>Learning to code quickly, the founder built five prototypes in twelve days before landing on the Botifex approach.</p>
+            <p>There was no venture funding or giant team—just determination and a desire to find better deals faster.</p>
+        </div>
+        <div class="story-card">
+            <h2>Consumers First</h2>
+            <p>Every feature is evaluated by how it helps individual buyers. Botifex is not framed as “AI automation for businesses.”</p>
+            <p>Instead, we obsess over refresh speed, trustworthy alerts, and analytics that empower shoppers.</p>
+        </div>
+    </div>
+</section>
+
+<section style="background: rgba(0, 123, 255, 0.06);">
+    <div class="section-header">
+        <h2>Our Core Values</h2>
+        <p>These values guide what ships next on the <a href="{{ url_for('marketing_roadmap') }}">Roadmap</a>.</p>
+    </div>
+    <div class="value-list">
+        <div class="value-card">
+            <h3>Speed</h3>
+            <p>Listings must reach consumers before they disappear. Infrastructure investments prioritize refresh intervals.</p>
+        </div>
+        <div class="value-card">
+            <h3>Clarity</h3>
+            <p>Every alert includes context, pricing, and source links. No fluff, only action-ready information.</p>
+        </div>
+        <div class="value-card">
+            <h3>Trust</h3>
+            <p>Payment-first flow keeps fraudsters out. Privacy policies, including <a href="{{ url_for('why_we_collect') }}">Why We Collect This Information</a>, remain transparent.</p>
+        </div>
+    </div>
+</section>
+
+<section>
+    <div class="timeline">
+        <h2 style="margin-bottom: 1.4rem;">Milestones</h2>
+        <ul>
+            <li><strong>2024:</strong> Prototype V5 launches on a Raspberry Pi. Real-time Craigslist and eBay alerts prove the model.</li>
+            <li><strong>2025:</strong> Botifex LLC formed, multi-marketplace support added, payment-first flow introduced.</li>
+            <li><strong>Today:</strong> Continuous shipping of consumer features; next up is mobile, smarter deals, and global support.</li>
+        </ul>
+    </div>
+</section>
+
+<section>
+    <div class="cta-banner">
+        <h2 style="font-size: 2.2rem; margin-bottom: 1rem;">Join the Next Chapter</h2>
+        <p style="color: rgba(255,255,255,0.74); max-width: 640px; margin: 0 auto 2rem;">
+            Start your plan, finish onboarding, and let Botifex watch the marketplaces while you focus on life.
+        </p>
+        <div class="cta-stack" style="justify-content: center;">
+            <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+            <a class="secondary-btn" href="{{ url_for('marketing_overview') }}">Review the full overview</a>
+        </div>
+    </div>
+</section>
+{% endblock %}
+

@@ -9,7 +9,7 @@ from utils import debug_scraper_output, logger
 from db import get_settings, save_listing
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
 from location_utils import geocode_location, get_location_coords, miles_to_km
-from scrapers.common import parse_html_with_fallback
+from scrapers.common import parse_html_with_fallback, get_session, make_request_with_retry
 from collections import defaultdict
 
 # ======================
@@ -240,17 +240,27 @@ def check_poshmark(flag_name="poshmark", user_id=None, flag_key=None):
             
             full_url = base_url + "?" + urllib.parse.urlencode(params)
 
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept-Encoding": "gzip, deflate, br",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Referer": "https://poshmark.com/",
-                "Origin": "https://poshmark.com"
-            }
-
-            response = requests.get(full_url, headers=headers, timeout=30)
-            response.raise_for_status()  # Raise exception for bad status codes
+            # Get persistent session with initialization
+            SITE_NAME = "poshmark"
+            BASE_URL = "https://poshmark.com"
+            
+            session = get_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
+            
+            # Use enhanced anti-blocking request system
+            response = make_request_with_retry(
+                full_url,
+                SITE_NAME,
+                session=session,
+                referer=BASE_URL,
+                origin=BASE_URL,
+                session_initialize_url=BASE_URL,
+                username=user_id,
+                max_retries=5,
+            )
+            
+            if not response:
+                logger.error("Poshmark request failed after retries")
+                return []
 
             encoding_candidates = []
             if response.encoding:
@@ -271,27 +281,34 @@ def check_poshmark(flag_name="poshmark", user_id=None, flag_key=None):
         except ScraperError as e:
             logger.error(f"Poshmark parser failed after fallbacks: {e}")
             return []
-        except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
-            logger.warning(f"Poshmark request failed (attempt {attempt + 1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                # Exponential backoff: 2, 4, 8 seconds
-                delay = base_retry_delay * (2 ** attempt)
-                logger.info(f"Retrying in {delay} seconds...")
-                time.sleep(delay)
-                continue
-            else:
-                logger.error(f"Poshmark request failed after {max_retries} attempts: {e}")
-                return []
         except Exception as e:
             logger.error(f"Unexpected error in Poshmark scraper: {e}")
             return []
 
     # Process the results if we successfully got the page
     try:
-        # Try to find listing items (consolidated selectors)
-        items = (soup.find_all('div', class_='tile') or 
-                soup.find_all('div', attrs={'class': lambda x: x and 'listing' in x.lower() if x else False}) or 
-                soup.find_all('div', attrs={'class': lambda x: x and 'item' in x.lower() if x else False}))
+        # Enhanced item extraction with multiple selector strategies
+        items = []
+        parse_strategies = [
+            (1, "div.tile class", lambda: soup.find_all('div', class_='tile')),
+            (2, "div.listing pattern", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'listing' in str(x).lower() if x else False})),
+            (3, "div.item pattern", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'item' in str(x).lower() if x else False})),
+            (4, "article.tile", lambda: soup.find_all('article', class_='tile')),
+            (5, "div.posh-item", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'posh-item' in str(x).lower() if x else False})),
+            (6, "div.product-card", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'product-card' in str(x).lower() if x else False})),
+            (7, "links with /closet/ in href", lambda: soup.find_all('a', href=lambda x: x and '/closet/' in str(x) if x else False)),
+            (8, "div.tile-container", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'tile-container' in str(x).lower() if x else False})),
+        ]
+        
+        for method_num, description, strategy in parse_strategies:
+            try:
+                items = strategy()
+                if items:
+                    logger.debug(f"Poshmark: Found {len(items)} items using method {method_num} ({description})")
+                    break
+            except Exception as e:
+                logger.debug(f"Poshmark: Method {method_num} failed: {e}")
+                continue
         
         logger.debug(f"Found {len(items)} Poshmark items to process")
         
@@ -301,44 +318,70 @@ def check_poshmark(flag_name="poshmark", user_id=None, flag_key=None):
         
         for item in items:
             try:
-                # Extract title (consolidated selector)
-                title_elem = (item.find('a', class_='title') or 
-                             item.find('div', class_='title') or 
-                             item.find('h3') or 
-                             item.find('a', href=True))
+                # Enhanced title extraction with multiple fallbacks
+                title = None
+                title_selectors = [
+                    item.find('a', class_='title'),
+                    item.find('div', class_='title'),
+                    item.find('h2'),
+                    item.find('h3'),
+                    item.find('h4'),
+                    item.find('a', href=True),
+                    item.find('span', class_=lambda x: x and 'title' in str(x).lower() if x else False),
+                ]
+                for title_elem in title_selectors:
+                    if title_elem:
+                        title_text = title_elem.get_text(strip=True) if hasattr(title_elem, 'get_text') else str(title_elem).strip()
+                        if title_text:
+                            title = title_text
+                            break
                 
-                if not title_elem:
-                    continue
-                
-                title = title_elem.get_text(strip=True)
                 if not title:
                     continue
                 
-                # Extract link
-                link_elem = item.find('a', href=True)
-                if not link_elem:
-                    continue
+                # Enhanced link extraction with multiple fallbacks
+                link = None
+                link_selectors = [
+                    item.find('a', href=True),
+                    item.find('a', class_='title'),
+                    item.find('a', class_='link'),
+                ]
+                for link_elem in link_selectors:
+                    if link_elem:
+                        link = link_elem.get('href')
+                        if link:
+                            break
                 
-                link = link_elem.get('href')
                 if not link:
                     continue
                 
                 # Make sure link is absolute (fast path check)
                 if link.startswith('/'):
                     link = "https://poshmark.com" + link
+                elif not link.startswith('http'):
+                    link = "https://poshmark.com/" + link.lstrip('/')
                 
-                # Extract and parse price (consolidated)
-                price_elem = item.find('span', class_='price') or item.find('div', class_='price')
-                
+                # Enhanced price extraction with multiple fallbacks
                 price_val = None
-                if price_elem:
-                    price_text = price_elem.get_text(strip=True)
-                    try:
-                        # Handle price formats efficiently
-                        price_clean = price_text.replace('$', '').replace(',', '').strip()
-                        price_val = int(float(price_clean))
-                    except (ValueError, AttributeError):
-                        pass
+                price_selectors = [
+                    item.find('span', class_='price'),
+                    item.find('div', class_='price'),
+                    item.find('span', class_=lambda x: x and 'price' in str(x).lower() if x else False),
+                    item.find('div', class_=lambda x: x and 'price' in str(x).lower() if x else False),
+                    item.find('*', string=lambda x: x and '$' in str(x) if x else False),
+                ]
+                for price_elem in price_selectors:
+                    if price_elem:
+                        price_text = price_elem.get_text(strip=True) if hasattr(price_elem, 'get_text') else str(price_elem).strip()
+                        if price_text:
+                            try:
+                                # Handle price formats efficiently
+                                price_clean = price_text.replace('$', '').replace(',', '').strip()
+                                price_val = int(float(price_clean))
+                                if price_val:
+                                    break
+                            except (ValueError, AttributeError):
+                                continue
                 
                 # Early exit if price out of range
                 if price_val and (price_val < min_price or price_val > max_price):

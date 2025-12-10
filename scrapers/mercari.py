@@ -243,22 +243,35 @@ def _coerce_html_listing(node):
 def _parse_html_results(soup):
     """Gather listing dictionaries using multiple HTML selector strategies."""
     selectors = [
-        ("data-testid item tiles", soup.select('[data-testid="ItemTile"], [data-testid="item-tile"]')),
-        ("modern anchor cards", soup.select('a[href*="/item/"]')),
-        ("legacy item-box divs", soup.find_all("div", class_="item-box")),
+        (1, "data-testid item tiles", lambda: soup.select('[data-testid="ItemTile"], [data-testid="item-tile"]')),
+        (2, "modern anchor cards", lambda: soup.select('a[href*="/item/"]')),
+        (3, "legacy item-box divs", lambda: soup.find_all("div", class_="item-box")),
+        (4, "div.merItemTile", lambda: soup.find_all("div", class_="merItemTile")),
+        (5, "article.merItemTile", lambda: soup.find_all("article", class_="merItemTile")),
+        (6, "div.mer-item", lambda: soup.find_all("div", class_=lambda x: x and "mer-item" in str(x).lower() if x else False)),
+        (7, "section.item-tile", lambda: soup.find_all("section", class_=lambda x: x and "item-tile" in str(x).lower() if x else False)),
+        (8, "links with /item/ in href", lambda: soup.find_all("a", href=lambda x: x and "/item/" in str(x) if x else False)),
     ]
 
     listings = []
-    for index, (label, nodes) in enumerate(selectors, start=1):
-        if not nodes:
+    seen_links = set()
+    for index, label, strategy in selectors:
+        try:
+            nodes = strategy()
+            if not nodes:
+                continue
+            log_parse_attempt(SITE_NAME, index, label)
+            for node in nodes:
+                listing = _coerce_html_listing(node)
+                if listing and listing.get("link") and listing["link"] not in seen_links:
+                    seen_links.add(listing["link"])
+                    listings.append(listing)
+            if listings:
+                logger.debug(f"Mercari: Found {len(listings)} listings using method {index} ({label})")
+                break
+        except Exception as e:
+            logger.debug(f"Mercari: Method {index} failed: {e}")
             continue
-        log_parse_attempt(SITE_NAME, index, label)
-        for node in nodes:
-            listing = _coerce_html_listing(node)
-            if listing:
-                listings.append(listing)
-        if listings:
-            break
 
     return listings
 
@@ -356,21 +369,36 @@ def check_mercari(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=No
                 reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
                 return []
             
-            soup = BeautifulSoup(response.text, "html.parser")
+            # Use robust HTML parsing with fallback parsers
+            from scrapers.common import parse_html_with_fallback
+            try:
+                soup = parse_html_with_fallback(
+                    response.text,
+                    parser_order=('html.parser', 'lxml'),
+                    raw_bytes=response.content,
+                    site_name=SITE_NAME,
+                )
+            except Exception as parse_error:
+                logger.warning(f"Mercari: HTML parsing failed, trying BeautifulSoup fallback: {parse_error}")
+                soup = BeautifulSoup(response.text, 'html.parser')
 
             listings_by_link = {}
 
+            # Try JSON-LD extraction first (more reliable)
             json_candidates = _parse_json_results(soup)
             for candidate in json_candidates:
                 if not candidate.get("link"):
                     continue
                 listings_by_link.setdefault(candidate["link"], candidate)
 
+            # Fallback to HTML parsing
             html_candidates = _parse_html_results(soup)
             for candidate in html_candidates:
                 if not candidate.get("link"):
                     continue
-                listings_by_link.setdefault(candidate["link"], candidate)
+                # Prefer JSON candidates over HTML if both exist
+                if candidate["link"] not in listings_by_link:
+                    listings_by_link[candidate["link"]] = candidate
 
             if not listings_by_link:
                 log_selector_failure(SITE_NAME, "html/json", "search results", "posts")

@@ -318,42 +318,64 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key
                 reset_session(SITE_NAME, initialize_url=base_domain, username=user_id)
                 return []
             
-            tree = html.fromstring(response.text)
+            # Use robust HTML parsing - try lxml first, fallback to BeautifulSoup
+            tree = None
+            try:
+                tree = html.fromstring(response.text)
+            except Exception as parse_error:
+                logger.warning(f"Craigslist: lxml parsing failed, trying BeautifulSoup: {parse_error}")
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(response.text, 'html.parser')
+                # Convert BeautifulSoup to lxml tree for consistency
+                try:
+                    from lxml import html as lxml_html
+                    tree = lxml_html.fromstring(str(soup))
+                except Exception:
+                    # Fallback: use soup directly for parsing
+                    tree = soup
             
-            # Try multiple XPath patterns for robustness - expanded list
-            log_parse_attempt(SITE_NAME, 1, "cl-static-search-result class")
-            posts = tree.xpath('//li[@class="cl-static-search-result"]')
-            if not posts:
-                log_parse_attempt(SITE_NAME, 2, "result-row class pattern")
-                posts = tree.xpath('//li[contains(@class, "result-row")]')
-            if not posts:
-                log_parse_attempt(SITE_NAME, 3, "generic search-result class")
-                posts = tree.xpath('//li[contains(@class, "search-result")]')
-            if not posts:
-                log_parse_attempt(SITE_NAME, 4, "ol.results li elements")
-                posts = tree.xpath('//ol[contains(@class, "results")]//li')
-            if not posts:
-                log_parse_attempt(SITE_NAME, 5, "div.cl-search-result")
-                posts = tree.xpath('//div[contains(@class, "cl-search-result")]')
-            if not posts:
-                log_parse_attempt(SITE_NAME, 6, "any li with data-pid")
-                posts = tree.xpath('//li[@data-pid]')
-            if not posts:
-                log_parse_attempt(SITE_NAME, 7, "links with href containing /post/")
-                # Try to extract from links directly
+            # Try multiple XPath patterns for robustness - expanded with better fallbacks
+            posts = []
+            parse_strategies = [
+                (1, "cl-static-search-result class", lambda: tree.xpath('//li[@class="cl-static-search-result"]') if hasattr(tree, 'xpath') else []),
+                (2, "result-row class pattern", lambda: tree.xpath('//li[contains(@class, "result-row")]') if hasattr(tree, 'xpath') else []),
+                (3, "generic search-result class", lambda: tree.xpath('//li[contains(@class, "search-result")]') if hasattr(tree, 'xpath') else []),
+                (4, "ol.results li elements", lambda: tree.xpath('//ol[contains(@class, "results")]//li') if hasattr(tree, 'xpath') else []),
+                (5, "div.cl-search-result", lambda: tree.xpath('//div[contains(@class, "cl-search-result")]') if hasattr(tree, 'xpath') else []),
+                (6, "any li with data-pid", lambda: tree.xpath('//li[@data-pid]') if hasattr(tree, 'xpath') else []),
+                (7, "article elements", lambda: tree.xpath('//article[contains(@class, "result")]') if hasattr(tree, 'xpath') else []),
+                (8, "div.result-info containers", lambda: tree.xpath('//div[contains(@class, "result-info")]') if hasattr(tree, 'xpath') else []),
+                (9, "links with href containing /post/", lambda: _extract_from_listing_links(tree)),
+            ]
+            
+            for method_num, description, strategy in parse_strategies:
+                log_parse_attempt(SITE_NAME, method_num, description)
+                try:
+                    posts = strategy()
+                    if posts:
+                        logger.debug(f"Craigslist: Found {len(posts)} posts using method {method_num} ({description})")
+                        break
+                except Exception as e:
+                    logger.debug(f"Craigslist: Method {method_num} failed: {e}")
+                    continue
+            
+            def _extract_from_listing_links(tree):
+                """Extract posts from listing links as fallback."""
+                if not hasattr(tree, 'xpath'):
+                    return []
                 link_elements = tree.xpath('//a[contains(@href, "/post/") or contains(@href, "/d/")]')
-                if link_elements:
-                    # Create pseudo-post elements from parent containers
-                    posts = []
-                    seen_links = set()
-                    for link_elem in link_elements:
-                        href = link_elem.get('href', '')
-                        if href and href not in seen_links:
-                            seen_links.add(href)
-                            # Get the parent container
-                            parent = link_elem.getparent()
-                            if parent is not None:
-                                posts.append(parent)
+                if not link_elements:
+                    return []
+                posts_found = []
+                seen_links = set()
+                for link_elem in link_elements:
+                    href = link_elem.get('href', '')
+                    if href and href not in seen_links:
+                        seen_links.add(href)
+                        parent = link_elem.getparent()
+                        if parent is not None and parent not in posts_found:
+                            posts_found.append(parent)
+                return posts_found
 
             json_ld_items = []
             if not posts:
@@ -432,49 +454,113 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key
                         link = None
                         title = None
 
+                        # Enhanced anchor and title extraction with multiple fallbacks
+                        link = None
+                        title = None
+                        
                         # Try multiple anchor patterns
-                        anchor = post.xpath(".//a[@class='titlestring']")
-                        if not anchor:
-                            anchor = post.xpath(".//a[contains(@class, 'result-title')]")
-                        if not anchor:
-                            anchor = post.xpath(".//a[contains(@class, 'title')]")
-                        if not anchor:
-                            anchor = post.xpath(".//a[contains(@href, '/post/') or contains(@href, '/d/')]")
-                        if not anchor:
-                            anchor = post.xpath(".//a[@href]")
+                        anchor_selectors = [
+                            ".//a[@class='titlestring']",
+                            ".//a[contains(@class, 'result-title')]",
+                            ".//a[contains(@class, 'title')]",
+                            ".//a[contains(@href, '/post/') or contains(@href, '/d/')]",
+                            ".//a[@href]",
+                            ".//h2/a | .//h3/a",
+                            ".//a[contains(@href, 'craigslist.org')]",
+                        ]
+                        
+                        anchor = None
+                        for selector in anchor_selectors:
+                            try:
+                                anchor = post.xpath(selector) if hasattr(post, 'xpath') else []
+                                if anchor:
+                                    break
+                            except Exception:
+                                continue
                         
                         if anchor:
                             link = anchor[0].get('href')
-                            title_attr = post.get("title")
-                            if title_attr:
-                                title = title_attr.strip()
-                            else:
-                                # Try multiple title extraction methods
-                                raw_title = anchor[0].get('title') or (anchor[0].text_content() or "").strip()
-                                title = raw_title or None
-                            if not title:
-                                # Try finding title in nearby elements
-                                title_elem = post.xpath(".//span[contains(@class, 'title')] | .//h2 | .//h3 | .//div[contains(@class, 'title')]")
-                                if title_elem:
-                                    title = title_elem[0].text_content().strip() if title_elem[0].text_content() else None
+                            # Try multiple title extraction methods
+                            title_sources = [
+                                anchor[0].get('title'),
+                                anchor[0].get('aria-label'),
+                                (anchor[0].text_content() or "").strip() if hasattr(anchor[0], 'text_content') else None,
+                                post.get("title") if hasattr(post, 'get') else None,
+                                post.get("aria-label") if hasattr(post, 'get') else None,
+                            ]
+                            for title_source in title_sources:
+                                if title_source and isinstance(title_source, str) and title_source.strip():
+                                    title = title_source.strip()
+                                    break
+                            
+                            # Try finding title in nearby elements if still missing
+                            if not title and hasattr(post, 'xpath'):
+                                title_selectors = [
+                                    ".//span[contains(@class, 'title')]",
+                                    ".//h2",
+                                    ".//h3",
+                                    ".//div[contains(@class, 'title')]",
+                                    ".//p[contains(@class, 'title')]",
+                                ]
+                                for selector in title_selectors:
+                                    try:
+                                        title_elem = post.xpath(selector)
+                                        if title_elem and hasattr(title_elem[0], 'text_content'):
+                                            title_candidate = title_elem[0].text_content().strip()
+                                            if title_candidate:
+                                                title = title_candidate
+                                                break
+                                    except Exception:
+                                        continue
 
                         if not link or not title:
                             continue
 
-                        price_elem = (
-                            post.xpath(".//span[contains(@class, 'price')]/text()")
-                            or post.xpath(".//div[contains(@class, 'price')]/text()")
-                        )
-                        price_val = _parse_price_text(price_elem[0]) if price_elem else None
+                        # Enhanced price extraction with multiple fallbacks
+                        price_val = None
+                        if hasattr(post, 'xpath'):
+                            price_selectors = [
+                                ".//span[contains(@class, 'price')]/text()",
+                                ".//div[contains(@class, 'price')]/text()",
+                                ".//span[contains(text(), '$')]",
+                                ".//div[contains(text(), '$')]",
+                                ".//*[contains(@class, 'price')]//text()",
+                            ]
+                            for selector in price_selectors:
+                                try:
+                                    price_elem = post.xpath(selector)
+                                    if price_elem:
+                                        price_val = _parse_price_text(price_elem[0])
+                                        if price_val is not None:
+                                            break
+                                except Exception:
+                                    continue
 
+                        # Enhanced image extraction with multiple fallbacks
                         image_url = None
-                        img_elem = post.xpath(".//img/@src")
-                        if img_elem:
-                            image_url = img_elem[0]
-                            if image_url.startswith('//'):
-                                image_url = f"https:{image_url}"
-                            elif image_url and not image_url.startswith('http'):
-                                image_url = "https://images.craigslist.org" + image_url
+                        if hasattr(post, 'xpath'):
+                            img_selectors = [
+                                ".//img[@src]/@src",
+                                ".//img[@data-src]/@data-src",
+                                ".//img[@data-lazy]/@data-lazy",
+                                ".//img/@src",
+                            ]
+                            for selector in img_selectors:
+                                try:
+                                    img_elem = post.xpath(selector)
+                                    if img_elem:
+                                        image_url = img_elem[0]
+                                        if image_url.startswith('//'):
+                                            image_url = f"https:{image_url}"
+                                        elif image_url and not image_url.startswith('http'):
+                                            image_url = "https://images.craigslist.org" + image_url
+                                        # Validate image URL
+                                        if image_url and validate_image_url(image_url):
+                                            break
+                                        else:
+                                            image_url = None
+                                except Exception:
+                                    continue
 
                         handle_candidate(title, link, price_val, image_url)
                     except Exception as e:

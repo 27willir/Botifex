@@ -1,0 +1,176 @@
+{% extends "marketing_base.html" %}
+{% block title %}How It Works | Botifex Payment-First Consumer Flow{% endblock %}
+{% block meta_description %}Understand the Botifex onboarding sequence: choose a plan, pay securely, complete account creation, configure searches, and act on alerts. This step-by-step How It Works guide keeps you moving fast.{% endblock %}
+{% block page_styles %}
+    .hiw-hero {
+        padding-top: 6.5rem;
+        text-align: center;
+    }
+
+    .timeline {
+        margin-top: 3rem;
+        position: relative;
+        padding-left: 1.5rem;
+    }
+
+    .timeline::before {
+        content: '';
+        position: absolute;
+        left: 20px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: linear-gradient(180deg, rgba(0, 191, 255, 0.4), rgba(0, 191, 255, 0));
+    }
+
+    .timeline-item {
+        position: relative;
+        background: rgba(26, 26, 46, 0.82);
+        border-radius: 16px;
+        padding: 1.8rem 2rem;
+        border: 1px solid rgba(0, 191, 255, 0.2);
+        margin-left: 1.6rem;
+        margin-bottom: 1.8rem;
+    }
+
+    .timeline-badge {
+        position: absolute;
+        left: -45px;
+        top: 24px;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #007bff, #00cdfb);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+    }
+
+    .timeline-item h3 {
+        margin-bottom: 0.6rem;
+    }
+
+    .timeline-item p {
+        color: rgba(255, 255, 255, 0.75);
+        margin-bottom: 0.6rem;
+    }
+
+    .timeline-item ul {
+        margin-left: 1.2rem;
+        color: rgba(255, 255, 255, 0.7);
+    }
+
+    .two-column {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 2.4rem;
+        margin-top: 3rem;
+    }
+
+    .highlight-box {
+        background: rgba(18, 22, 38, 0.84);
+        border-radius: 16px;
+        padding: 2.2rem;
+        border: 1px solid rgba(0, 191, 255, 0.18);
+    }
+
+    .callout {
+        text-align: center;
+        margin-top: 3.2rem;
+        padding: 2.6rem;
+        border-radius: 18px;
+        border: 1px solid rgba(0, 191, 255, 0.32);
+        background: rgba(0, 191, 255, 0.12);
+    }
+{% endblock %}
+
+{% block content %}
+<section class="hiw-hero">
+    <h1>Exactly How Botifex Works</h1>
+    <p style="max-width: 760px; margin: 0 auto; color: rgba(255,255,255,0.76);">
+        Every Botifex plan starts with payment so you can unlock premium refresh speeds immediately. This guide shows the entire
+        consumer journey—from checkout, to account creation, to marketplace domination.
+    </p>
+    <div class="cta-stack" style="justify-content: center; margin-top: 2rem;">
+        <a class="primary-btn" href="{{ url_for('start_plan') }}">Start Your Pro Plan</a>
+        <a class="secondary-btn" href="{{ url_for('marketing_pricing') }}">Review Pricing</a>
+    </div>
+</section>
+
+<section>
+    <div class="timeline">
+        <div class="timeline-item">
+            <div class="timeline-badge">1</div>
+            <h3>Select Plan &amp; Pay First</h3>
+            <p>Visit the payment flow, choose Free, Standard, or Pro, and complete secure checkout powered by Stripe.</p>
+            <ul>
+                <li>Plan selection happens before account creation.</li>
+                <li>Billing email becomes the anchor for your forthcoming Botifex profile.</li>
+                <li>Pro plan unlocks the entire marketplace suite described on the <a href="{{ url_for('marketing_overview') }}">Overview</a> page.</li>
+            </ul>
+        </div>
+        <div class="timeline-item">
+            <div class="timeline-badge">2</div>
+            <h3>Finish Account Creation</h3>
+            <p>After payment, you’re taken to a streamlined sign-up form.</p>
+            <ul>
+                <li>Provide first name, optional last name, phone number, ZIP code, email, and password.</li>
+                <li>Review why we request location and phone via the <a href="{{ url_for('why_we_collect') }}">Why We Collect This Information</a> policy link beside the form.</li>
+                <li>Agree to terms, set your password, and your Botifex account becomes active.</li>
+            </ul>
+        </div>
+        <div class="timeline-item">
+            <div class="timeline-badge">3</div>
+            <h3>Configure Searches</h3>
+            <p>Use the dashboard to add keywords, price ranges, and target locations.</p>
+            <ul>
+                <li>Each plan enforces refresh intervals listed on the <a href="{{ url_for('marketing_pricing') }}">Pricing</a> page.</li>
+                <li>Saved searches power real-time alerts and the daily digest email.</li>
+            </ul>
+        </div>
+        <div class="timeline-item">
+            <div class="timeline-badge">4</div>
+            <h3>Get Alerts &amp; Take Action</h3>
+            <p>Alerts arrive via email or SMS (Plan dependent). Favorite listings, add notes, or share directly.</p>
+            <ul>
+                <li>Contact support anytime from the <a href="{{ url_for('marketing_contact') }}">Contact</a> page.</li>
+                <li>Future enhancements appear on the <a href="{{ url_for('marketing_roadmap') }}">Roadmap</a>, keeping you in the loop.</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<section style="background: rgba(0, 123, 255, 0.06);">
+    <div class="section-header">
+        <h2>What You’ll Experience</h2>
+        <p>Botifex keeps the interface focused on consumer needs without sacrificing power.</p>
+    </div>
+    <div class="two-column">
+        <div class="highlight-box">
+            <h3>Simplified Dashboard</h3>
+            <p>View unified listings, filter on the fly, and jump into saved searches with one click.</p>
+            <a class="tertiary-link" href="{{ url_for('marketing_overview') }}">See dashboard highlights →</a>
+        </div>
+        <div class="highlight-box">
+            <h3>Alert Controls</h3>
+            <p>Toggle real-time pings or digest summaries, tailor frequency, and pause alerts during quiet hours.</p>
+            <a class="tertiary-link" href="{{ url_for('marketing_pricing') }}">Find which tiers include SMS alerts →</a>
+        </div>
+    </div>
+</section>
+
+<section>
+    <div class="callout">
+        <h2 style="font-size: 2.1rem; margin-bottom: 1rem;">Launch the Flow Today</h2>
+        <p style="color: rgba(255,255,255,0.74); max-width: 620px; margin: 0 auto 2rem;">
+            Start with Pro to unlock every feature and refresh rate. Payment-first onboarding means you confirm commitment before investing time in forms.
+        </p>
+        <div class="cta-stack" style="justify-content: center;">
+            <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+            <a class="secondary-btn" href="{{ url_for('marketing_contact') }}">Talk to support before you pay</a>
+        </div>
+    </div>
+</section>
+{% endblock %}
+

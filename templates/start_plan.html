@@ -1,0 +1,158 @@
+{% extends "marketing_base.html" %}
+{% block title %}Start Your Plan | Botifex Payment-First Flow{% endblock %}
+{% block meta_description %}Choose your Botifex plan and begin the secure payment-first signup flow. You’ll finish account creation immediately after checkout.{% endblock %}
+{% block page_styles %}
+    .start-hero {
+        padding-top: 6.5rem;
+        text-align: center;
+    }
+
+    .plan-selection {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 1.8rem;
+        margin-top: 2.4rem;
+    }
+
+    .plan-option {
+        position: relative;
+        border-radius: 18px;
+        padding: 2.2rem;
+        border: 2px solid rgba(0, 191, 255, 0.18);
+        background: rgba(26, 26, 46, 0.82);
+        cursor: pointer;
+        transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .plan-option input {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+    }
+
+    .plan-option.selected {
+        border-color: #00cdfb;
+        box-shadow: 0 18px 44px rgba(0, 191, 255, 0.3);
+    }
+
+    .plan-option h3 {
+        font-size: 1.6rem;
+        margin-bottom: 0.4rem;
+    }
+
+    .plan-option .price {
+        font-size: 2.4rem;
+        font-weight: 800;
+        margin-bottom: 1rem;
+    }
+
+    .plan-option ul {
+        list-style: none;
+        color: rgba(255, 255, 255, 0.74);
+    }
+
+    .start-form {
+        max-width: 520px;
+        margin: 3rem auto 0;
+        background: rgba(18, 22, 38, 0.82);
+        border-radius: 18px;
+        padding: 2.6rem;
+        border: 1px solid rgba(0, 191, 255, 0.22);
+    }
+
+    .start-form label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 0.6rem;
+    }
+
+    .start-form input,
+    .start-form select {
+        width: 100%;
+        padding: 0.85rem 1rem;
+        border-radius: 12px;
+        border: 1px solid rgba(0, 191, 255, 0.24);
+        background: rgba(14, 19, 33, 0.92);
+        color: #ffffff;
+        margin-bottom: 1.4rem;
+    }
+
+    .start-form p.helper {
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 0.92rem;
+        margin-top: -1rem;
+        margin-bottom: 1.4rem;
+    }
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.querySelectorAll('.plan-option').forEach(option => {
+        option.addEventListener('click', () => {
+            document.querySelectorAll('.plan-option').forEach(o => o.classList.remove('selected'));
+            option.classList.add('selected');
+            option.querySelector('input').checked = true;
+        });
+    });
+</script>
+{% endblock %}
+
+{% block content %}
+<section class="start-hero">
+    <h1>Start Your Botifex Plan</h1>
+    <p style="max-width: 700px; margin: 0 auto; color: rgba(255,255,255,0.74);">
+        Choose your plan and enter the email that should receive the payment receipt. After checkout you’ll complete account creation by adding your name,
+        phone number, ZIP code, and password.
+    </p>
+</section>
+
+<section>
+    <form class="start-form" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="plan-selection">
+            <label class="plan-option {% if selected_plan == 'free' %}selected{% endif %}">
+                <input type="radio" name="plan" value="free" {% if selected_plan == 'free' %}checked{% endif %} required>
+                <h3>Free</h3>
+                <div class="price">$0<span style="font-size: 1rem; color: rgba(255,255,255,0.6);">/mo</span></div>
+                <ul>
+                    <li>Craigslist + eBay coverage</li>
+                    <li>10-minute refresh</li>
+                    <li>Great for sampling Botifex</li>
+                </ul>
+            </label>
+            <label class="plan-option {% if selected_plan == 'standard' %}selected{% endif %}">
+                <input type="radio" name="plan" value="standard" {% if selected_plan == 'standard' %}checked{% endif %}>
+                <h3>Standard</h3>
+                <div class="price">$9.99<span style="font-size: 1rem; color: rgba(255,255,255,0.6);">/mo</span></div>
+                <ul>
+                    <li>Includes Facebook Marketplace + KSL</li>
+                    <li>5-minute refresh</li>
+                    <li>Email alerts + digest</li>
+                </ul>
+            </label>
+            <label class="plan-option {% if selected_plan == 'pro' %}selected{% endif %}">
+                <input type="radio" name="plan" value="pro" {% if selected_plan == 'pro' %}checked{% endif %}>
+                <h3>Pro</h3>
+                <div class="price">$39.99<span style="font-size: 1rem; color: rgba(255,255,255,0.6);">/mo</span></div>
+                <ul>
+                    <li>All six marketplaces</li>
+                    <li>90-second refresh</li>
+                    <li>Email + SMS alerts, analytics</li>
+                </ul>
+            </label>
+        </div>
+
+        <label for="email">Email for receipt &amp; account</label>
+        <input type="email" id="email" name="email" value="{{ form_data.email or '' }}" required>
+        <p class="helper">We’ll use this email for the Stripe checkout and your Botifex login.</p>
+
+        <label for="referral_code">Referral code (optional)</label>
+        <input type="text" id="referral_code" name="referral_code" value="{{ form_data.referral_code or '' }}">
+
+        <button type="submit" class="primary-btn" style="width: 100%; justify-content: center;">Continue to Payment</button>
+        <p class="helper" style="margin-top: 1rem;">Need help? Visit the <a href="{{ url_for('marketing_contact') }}">Contact</a> page.</p>
+    </form>
+</section>
+{% endblock %}
+

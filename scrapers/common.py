@@ -111,11 +111,17 @@ def get_random_user_agent(site_name=None):
     return headers.get("User-Agent", "Mozilla/5.0")
 
 
-def get_realistic_headers(referer=None, origin=None, site_name=None, extra_headers=None):
-    """Generate realistic browser headers enriched with adaptive fingerprints."""
+def get_realistic_headers(referer=None, origin=None, site_name=None, extra_headers=None, session_id=None):
+    """Generate realistic browser headers enriched with adaptive fingerprints and session consistency."""
 
     base_headers = dict(extra_headers) if extra_headers else None
-    return anti_blocking.build_headers(site_name, referer=referer, origin=origin, base_headers=base_headers)
+    return anti_blocking.build_headers(
+        site_name,
+        referer=referer,
+        origin=origin,
+        base_headers=base_headers,
+        session_id=session_id,
+    )
 
 
 # ======================
@@ -484,13 +490,32 @@ def make_request_with_retry(
     if "timeout" not in base_kwargs:
         base_kwargs["timeout"] = 30
 
+    # Generate session ID for consistent fingerprinting
+    session_id = None
+    if session_to_use or username:
+        session_id = f"{site_name}:{username or id(session_to_use) if session_to_use else 'default'}"
+    
+    proxy = None
+    
     for attempt in range(max_retries):
+        # Try proxy rotation on retry attempts if available
+        if attempt > 0 and not proxy:
+            proxy = anti_blocking.get_proxy(site_name)
         pre_wait = anti_blocking.pre_request_wait(site_name)
         if pre_wait > 0:
             logger.debug(f"{site_name}: waiting {pre_wait:.2f}s before request to {url}")
             time.sleep(pre_wait)
 
         request_kwargs = dict(base_kwargs)
+        
+        # Add proxy if available
+        if proxy:
+            request_kwargs["proxies"] = {
+                "http": proxy,
+                "https": proxy,
+            }
+            logger.debug(f"{site_name}: using proxy {proxy} for attempt {attempt + 1}")
+        
         incoming_headers = request_kwargs.get("headers")
         if incoming_headers:
             request_kwargs["headers"] = anti_blocking.enrich_headers(site_name, dict(incoming_headers))
@@ -501,7 +526,14 @@ def make_request_with_retry(
                 base_headers["Referer"] = referer
             if origin:
                 base_headers["Origin"] = origin
-            request_kwargs["headers"] = get_realistic_headers(site_name=site_name, referer=referer, origin=origin, extra_headers=extra_headers)
+            # Use session-aware header building for fingerprint consistency
+            request_kwargs["headers"] = anti_blocking.build_headers(
+                site_name=site_name,
+                referer=referer,
+                origin=origin,
+                base_headers=base_headers,
+                session_id=session_id,
+            )
 
         try:
             anti_blocking.record_request_start(site_name)
@@ -521,12 +553,18 @@ def make_request_with_retry(
                     status_code = getattr(response, "status_code", None)
                     if status_code == 403:
                         logger.info(f"{site_name}: refreshing session after 403 response")
+                        # Rotate proxy if available
+                        if proxy:
+                            anti_blocking.rotate_proxy(site_name)
+                            proxy = anti_blocking.get_proxy(site_name)
                         session_to_use = reset_session(
                             site_name,
                             initialize_url=session_initialize_url,
                             username=username,
                         )
                         requester = session_to_use if session_to_use else requests
+                        # Update session_id after reset
+                        session_id = f"{site_name}:{username or id(session_to_use) if session_to_use else 'default'}"
                     elif session_to_use is None and session is not None:
                         session_to_use = get_session(
                             site_name,
@@ -547,6 +585,10 @@ def make_request_with_retry(
                 anti_blocking.record_block(site_name, soft_block_signal)
                 logger.warning(f"{site_name}: potential block detected ({soft_block_signal}) on attempt {attempt + 1}/{max_retries}")
                 if attempt < max_retries - 1:
+                    # Rotate proxy on block if available
+                    if proxy:
+                        anti_blocking.rotate_proxy(site_name)
+                        proxy = anti_blocking.get_proxy(site_name)
                     if session_to_use:
                         try:
                             session_to_use.cookies.clear()
@@ -568,6 +610,13 @@ def make_request_with_retry(
             anti_blocking.record_failure(site_name)
             logger.warning(f"{site_name} request failed (attempt {attempt + 1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
+                # Try proxy rotation on failures
+                if not proxy:
+                    proxy = anti_blocking.get_proxy(site_name)
+                elif attempt >= 1:
+                    anti_blocking.rotate_proxy(site_name)
+                    proxy = anti_blocking.get_proxy(site_name)
+                
                 if session_to_use:
                     try:
                         session_to_use.cookies.clear()
@@ -582,6 +631,8 @@ def make_request_with_retry(
                                 username=username,
                             )
                             requester = session_to_use if session_to_use else requests
+                            # Update session_id after reset
+                            session_id = f"{site_name}:{username or id(session_to_use) if session_to_use else 'default'}"
                         except Exception as reset_error:
                             logger.debug(f"{site_name}: session reset failed during retry: {reset_error}")
                 elif session is not None:

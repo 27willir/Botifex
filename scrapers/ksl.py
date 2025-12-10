@@ -153,17 +153,61 @@ def check_ksl(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None):
                 reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
                 return []
             
-            tree = html.fromstring(response.text)
+            # Use robust HTML parsing with fallback
+            tree = None
+            try:
+                tree = html.fromstring(response.text)
+            except Exception as parse_error:
+                logger.warning(f"KSL: lxml parsing failed, trying BeautifulSoup: {parse_error}")
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(response.text, 'html.parser')
+                try:
+                    from lxml import html as lxml_html
+                    tree = lxml_html.fromstring(str(soup))
+                except Exception:
+                    tree = soup
             
-            # Try multiple XPath patterns for robustness
-            log_parse_attempt(SITE_NAME, 1, "listing class sections")
-            posts = tree.xpath('//section[contains(@class,"listing")]')
-            if not posts:
-                log_parse_attempt(SITE_NAME, 2, "listing-item divs")
-                posts = tree.xpath('//div[contains(@class,"listing-item")]')
-            if not posts:
-                log_parse_attempt(SITE_NAME, 3, "listing article elements")
-                posts = tree.xpath('//article[contains(@class,"listing")]')
+            # Helper function for extracting posts from listing links
+            def _extract_from_listing_links(tree):
+                """Extract posts from listing links as fallback."""
+                if not hasattr(tree, 'xpath'):
+                    return []
+                link_elements = tree.xpath('//a[contains(@href, "/item/") or contains(@href, "/listing/")]')
+                if not link_elements:
+                    return []
+                posts_found = []
+                seen_links = set()
+                for link_elem in link_elements:
+                    href = link_elem.get('href', '')
+                    if href and href not in seen_links:
+                        seen_links.add(href)
+                        parent = link_elem.getparent()
+                        if parent is not None and parent not in posts_found:
+                            posts_found.append(parent)
+                return posts_found
+            
+            # Try multiple XPath patterns for robustness - expanded
+            posts = []
+            parse_strategies = [
+                (1, "listing class sections", lambda: tree.xpath('//section[contains(@class,"listing")]') if hasattr(tree, 'xpath') else []),
+                (2, "listing-item divs", lambda: tree.xpath('//div[contains(@class,"listing-item")]') if hasattr(tree, 'xpath') else []),
+                (3, "listing article elements", lambda: tree.xpath('//article[contains(@class,"listing")]') if hasattr(tree, 'xpath') else []),
+                (4, "div.listing-card", lambda: tree.xpath('//div[contains(@class,"listing-card")]') if hasattr(tree, 'xpath') else []),
+                (5, "div.item-card", lambda: tree.xpath('//div[contains(@class,"item-card")]') if hasattr(tree, 'xpath') else []),
+                (6, "article.item", lambda: tree.xpath('//article[contains(@class,"item")]') if hasattr(tree, 'xpath') else []),
+                (7, "links with href containing /item/", lambda: _extract_from_listing_links(tree)),
+            ]
+            
+            for method_num, description, strategy in parse_strategies:
+                log_parse_attempt(SITE_NAME, method_num, description)
+                try:
+                    posts = strategy()
+                    if posts:
+                        logger.debug(f"KSL: Found {len(posts)} posts using method {method_num} ({description})")
+                        break
+                except Exception as e:
+                    logger.debug(f"KSL: Method {method_num} failed: {e}")
+                    continue
             
             json_ld_items = []
             if not posts:
@@ -194,41 +238,79 @@ def check_ksl(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None):
             
             for post in posts:
                 try:
-                    link_elems = (
-                        post.xpath(".//a[@class='listing-item-link']/@href") or
-                        post.xpath(".//a[contains(@class,'listing')]/@href") or
-                        post.xpath(".//a/@href")
-                    )
-
-                    if not link_elems:
+                    # Enhanced link extraction with multiple fallbacks
+                    link = None
+                    if hasattr(post, 'xpath'):
+                        link_selectors = [
+                            ".//a[@class='listing-item-link']/@href",
+                            ".//a[contains(@class,'listing')]/@href",
+                            ".//a[contains(@href,'/item/')]/@href",
+                            ".//a[contains(@href,'/listing/')]/@href",
+                            ".//a/@href",
+                            ".//h2/a/@href | .//h3/a/@href",
+                        ]
+                        for selector in link_selectors:
+                            try:
+                                link_elems = post.xpath(selector)
+                                if link_elems:
+                                    link = link_elems[0]
+                                    break
+                            except Exception:
+                                continue
+                    
+                    if not link:
                         continue
-
-                    link = link_elems[0]
+                    
                     if not link.startswith("http"):
                         link = urllib.parse.urljoin(BASE_URL, link)
 
-                    title_elems = (
-                        post.xpath(".//h2/text()") or
-                        post.xpath(".//h3/text()") or
-                        post.xpath(".//div[contains(@class,'title')]/text()")
-                    )
+                    # Enhanced title extraction with multiple fallbacks
+                    title = None
+                    if hasattr(post, 'xpath'):
+                        title_selectors = [
+                            ".//h2/text()",
+                            ".//h3/text()",
+                            ".//div[contains(@class,'title')]//text()",
+                            ".//a[@class='listing-item-link']/@title",
+                            ".//a[contains(@class,'listing')]//text()",
+                            ".//span[contains(@class,'title')]//text()",
+                        ]
+                        for selector in title_selectors:
+                            try:
+                                title_elems = post.xpath(selector)
+                                if title_elems:
+                                    title = title_elems[0].strip() if isinstance(title_elems[0], str) else None
+                                    if title:
+                                        break
+                            except Exception:
+                                continue
 
-                    if not title_elems:
+                    if not title:
                         continue
 
-                    title = title_elems[0].strip()
-
+                    # Enhanced price extraction with multiple fallbacks
                     price_val = None
-                    price_elems = (
-                        post.xpath(".//h3/text()") or
-                        post.xpath(".//span[contains(@class,'price')]/text()") or
-                        post.xpath(".//*[contains(text(),'$')]/text()")
-                    )
-                    if price_elems:
-                        try:
-                            price_val = int(price_elems[0].replace("$", "").replace(",", "").strip())
-                        except (ValueError, AttributeError):
-                            price_val = None
+                    if hasattr(post, 'xpath'):
+                        price_selectors = [
+                            ".//span[contains(@class,'price')]//text()",
+                            ".//div[contains(@class,'price')]//text()",
+                            ".//h3[contains(text(),'$')]//text()",
+                            ".//*[contains(@class,'price')]//text()",
+                            ".//*[contains(text(),'$')]/text()",
+                        ]
+                        for selector in price_selectors:
+                            try:
+                                price_elems = post.xpath(selector)
+                                if price_elems:
+                                    price_text = price_elems[0] if isinstance(price_elems[0], str) else str(price_elems[0])
+                                    try:
+                                        price_val = int(price_text.replace("$", "").replace(",", "").strip())
+                                        if price_val:
+                                            break
+                                    except (ValueError, AttributeError):
+                                        continue
+                            except Exception:
+                                continue
 
                     if price_val and (price_val < min_price or price_val > max_price):
                         continue
@@ -245,14 +327,31 @@ def check_ksl(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None):
                     with lock:
                         user_seen[normalized_link] = datetime.now()
 
-                    img_elem = post.xpath(".//img/@src") or post.xpath(".//img/@data-src")
+                    # Enhanced image extraction with multiple fallbacks
                     image_url = None
-                    if img_elem:
-                        image_url = img_elem[0]
-                        if image_url.startswith("//"):
-                            image_url = f"https:{image_url}"
-                        elif image_url and not image_url.startswith("http"):
-                            image_url = urllib.parse.urljoin(BASE_URL, image_url)
+                    if hasattr(post, 'xpath'):
+                        img_selectors = [
+                            ".//img[@data-src]/@data-src",
+                            ".//img[@src]/@src",
+                            ".//img[@data-lazy]/@data-lazy",
+                            ".//img/@src",
+                        ]
+                        for selector in img_selectors:
+                            try:
+                                img_elem = post.xpath(selector)
+                                if img_elem:
+                                    image_url = img_elem[0]
+                                    if image_url.startswith("//"):
+                                        image_url = f"https:{image_url}"
+                                    elif image_url and not image_url.startswith("http"):
+                                        image_url = urllib.parse.urljoin(BASE_URL, image_url)
+                                    # Validate image URL
+                                    if image_url and validate_image_url(image_url):
+                                        break
+                                    else:
+                                        image_url = None
+                            except Exception:
+                                continue
 
                     send_discord_message(title, link, price_val, image_url, user_id=user_id)
                     results.append({"title": title, "link": link, "price": price_val, "image": image_url})

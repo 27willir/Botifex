@@ -28,7 +28,7 @@ from cache_manager import cache_get, cache_set, cache_clear, cache_user_data, ge
 from admin_panel import admin_bp
 from security_middleware import security_before_request, security_after_request, get_security_stats
 from honeypot_routes import create_honeypot_routes, get_honeypot_stats
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 # Import subscription modules
 from subscriptions import SubscriptionManager, StripeManager, get_all_tiers, format_price
 from subscription_middleware import (
@@ -140,6 +140,9 @@ app.config.setdefault('MAX_CONTENT_LENGTH', 8 * 1024 * 1024)  # 8 MB upload limi
 PROFILE_MEDIA_ROOT = Path(app.root_path) / 'static' / 'uploads' / 'profiles'
 PROFILE_MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 ALLOWED_PROFILE_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+SERVER_MEDIA_ROOT = Path(app.root_path) / 'static' / 'uploads' / 'servers'
+SERVER_MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
+ALLOWED_SERVER_MEDIA_EXTENSIONS = ALLOWED_PROFILE_MEDIA_EXTENSIONS
 
 # Initialize WebSocket support
 from websocket_manager import (
@@ -829,19 +832,163 @@ def readiness_check():
         "checks": checks,
     }), http_status
 
+def marketing_render(template_name, **context):
+    """Render marketing-facing templates with shared context."""
+    context.setdefault("current_year", datetime.utcnow().year)
+    return render_template(template_name, **context)
+
 @app.route("/")
 def landing():
     """Public landing page"""
     preview_requested = request.args.get("preview", "").lower() in {"1", "true", "yes"}
     if current_user.is_authenticated and not preview_requested:
         return redirect(url_for('dashboard'))
-    return render_template("landing.html")
+    selected_plan = request.args.get("plan")
+    return marketing_render("landing.html", selected_plan=selected_plan)
+
+@app.route("/overview")
+def marketing_overview():
+    """Expanded overview landing page"""
+    return marketing_render("marketing_overview.html")
+
+@app.route("/how-it-works")
+def marketing_how_it_works():
+    """Expanded how it works guide"""
+    return marketing_render("marketing_how_it_works.html")
+
+@app.route("/pricing")
+def marketing_pricing():
+    """Pricing landing page"""
+    return marketing_render("marketing_pricing.html")
+
+@app.route("/roadmap")
+def marketing_roadmap():
+    """Roadmap landing page"""
+    return marketing_render("marketing_roadmap.html")
+
+@app.route("/about")
+def marketing_about():
+    """About landing page"""
+    return marketing_render("marketing_about.html")
+
+@app.route("/contact")
+def marketing_contact():
+    """Contact landing page"""
+    return marketing_render("marketing_contact.html")
+
+@app.route("/why-we-collect")
+def why_we_collect():
+    """Explain why additional fields are collected"""
+    return marketing_render("why_we_collect.html")
 
 @app.route("/ai-automation")
 def ai_automation():
-    """AI automation services landing page"""
-    current_year = datetime.now().year
-    return render_template("ai_automation.html", current_year=current_year)
+    """Backwards compatible redirect to new overview"""
+    return redirect(url_for("marketing_overview"), code=301)
+
+@app.route("/start-your-plan", methods=["GET", "POST"])
+@rate_limit('public_checkout', max_requests=10, window_minutes=10)
+def start_plan():
+    """Plan selection and payment-first entry point"""
+    selected_plan = request.args.get("plan", request.form.get("plan", "pro"))
+    if selected_plan not in {"free", "standard", "pro"}:
+        selected_plan = "pro"
+
+    form_data = {
+        "email": request.form.get("email", "").strip() if request.method == "POST" else "",
+        "referral_code": request.form.get("referral_code", "").strip() if request.method == "POST" else "",
+    }
+
+    if request.method == "POST":
+        email = form_data["email"]
+        plan_choice = request.form.get("plan", selected_plan)
+        referral_code = form_data["referral_code"] or None
+
+        is_valid_email, email_error = SecurityConfig.validate_email(email)
+        if not is_valid_email:
+            flash(email_error or "Enter a valid email address.", "error")
+            return marketing_render("start_plan.html", selected_plan=plan_choice, form_data=form_data)
+
+        try:
+            pending = db_enhanced.create_pending_signup(email=email, plan_tier=plan_choice, referral_code=referral_code)
+        except Exception as exc:
+            logger.error(f"Failed to create pending signup: {exc}")
+            flash("We could not start the payment flow. Please try again.", "error")
+            return marketing_render("start_plan.html", selected_plan=plan_choice, form_data=form_data)
+
+        try:
+            db_enhanced.upsert_crm_contact(email, plan_tier=pending["plan_tier"])
+        except Exception as crm_error:
+            logger.warning(f"Failed to seed CRM contact: {crm_error}")
+
+        if pending["plan_tier"] == "free":
+            try:
+                db_enhanced.mark_pending_signup_paid(
+                    pending["id"],
+                    stripe_customer_id=None,
+                    stripe_subscription_id=None,
+                    plan_tier="free",
+                    payment_status="paid"
+                )
+            except Exception as exc:
+                logger.warning(f"Failed to auto-complete free pending signup: {exc}")
+            session["pending_signup_id"] = pending["id"]
+            return redirect(url_for("start_plan_success", pending_id=pending["id"]))
+
+        success_url = url_for("start_plan_success", pending_id=pending["id"], _external=True) + "&session_id={CHECKOUT_SESSION_ID}"
+        cancel_url = url_for("start_plan", plan=pending["plan_tier"], _external=True)
+
+        session_obj, error = StripeManager.create_checkout_session(
+            tier_name=pending["plan_tier"],
+            user_email=email,
+            username=f"pending:{pending['id']}",
+            success_url=success_url,
+            cancel_url=cancel_url
+        )
+
+        if error or not session_obj:
+            logger.error(f"Stripe checkout error: {error}")
+            flash("Unable to start payment. Please try again.", "error")
+            return marketing_render("start_plan.html", selected_plan=pending["plan_tier"], form_data=form_data)
+
+        try:
+            db_enhanced.update_pending_signup_checkout(pending["id"], session_obj.id)
+        except Exception as exc:
+            logger.warning(f"Failed to update pending checkout session: {exc}")
+
+        session["pending_signup_id"] = pending["id"]
+        return redirect(session_obj.url, code=303)
+
+    return marketing_render("start_plan.html", selected_plan=selected_plan, form_data=form_data)
+
+@app.route("/start-your-plan/success")
+def start_plan_success():
+    """Handle redirect back from Stripe checkout before account creation."""
+    pending_id = request.args.get("pending_id") or session.get("pending_signup_id")
+    session_id = request.args.get("session_id")
+
+    if not pending_id:
+        flash("We couldn't find your checkout session. Please start again.", "error")
+        return redirect(url_for("start_plan"))
+
+    pending = db_enhanced.get_pending_signup(pending_id)
+    if not pending:
+        flash("Your payment session expired. Please choose a plan again.", "error")
+        return redirect(url_for("start_plan"))
+
+    session["pending_signup_id"] = pending_id
+    if session_id and not pending.get("checkout_session_id"):
+        try:
+            db_enhanced.update_pending_signup_checkout(pending_id, session_id)
+        except Exception as exc:
+            logger.warning(f"Unable to bind checkout session on success: {exc}")
+
+    if pending.get("payment_status") != "paid":
+        flash("Payment received. If you do not see paid status yet, give us a moment—then finish account creation below.", "info")
+    else:
+        flash("Great! Now finish creating your Botifex account.", "success")
+
+    return redirect(url_for("register", pending=pending_id))
 
 @app.route("/dashboard")
 @login_required
@@ -1272,102 +1419,210 @@ def update_notification_settings():
 @app.route("/register", methods=["GET", "POST"])
 @rate_limit('register', max_requests=3, window_minutes=60)
 def register():
+    pending_id = (
+        request.args.get("pending")
+        or request.form.get("pending_id")
+        or session.get("pending_signup_id")
+    )
+    pending_signup = None
+
+    if not pending_id:
+        if request.method == "POST":
+            flash("Payment is required before account creation.", "error")
+        else:
+            flash("Start by choosing a plan and completing payment.", "info")
+        return redirect(url_for("start_plan"))
+
+    pending_signup = db_enhanced.get_pending_signup(pending_id)
+    if not pending_signup:
+        flash("We couldn't find your payment session. Please begin again.", "error")
+        return redirect(url_for("start_plan"))
+
+    if pending_signup.get("status") == "completed":
+        flash("This payment has already been used to activate an account.", "info")
+        return redirect(url_for("login"))
+
+    form_data = {
+        "username": request.form.get("username", "").strip() if request.method == "POST" else "",
+        "email": pending_signup.get("email", ""),
+        "first_name": request.form.get("first_name", "").strip() if request.method == "POST" else "",
+        "last_name": request.form.get("last_name", "").strip() if request.method == "POST" else "",
+        "phone": request.form.get("phone", "").strip() if request.method == "POST" else "",
+        "zip_code": request.form.get("zip_code", "").strip() if request.method == "POST" else "",
+    }
+
+    terms_checked = bool(request.form.get("agree_terms")) if request.method == "POST" else False
+    error_field = None
+
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         password_confirm = request.form.get("password_confirm", "")
-        email = request.form.get("email", "").strip()
         agree_terms = request.form.get("agree_terms")
-        form_data = {
-            "username": username,
-            "email": email,
-        }
-        
-        # Check if user agreed to terms
+
         if not agree_terms:
+            error_field = "terms"
             flash("You must agree to the Terms of Service to create an account.", "error")
-            return render_template(
-                "register.html",
-                error_field="terms",
-                form_data=form_data,
-                terms_checked=False,
-            )
-
-        if password != password_confirm:
+        elif password != password_confirm:
+            error_field = "password_confirm"
             flash("Passwords do not match. Please re-enter your password.", "error")
-            return render_template(
-                "register.html",
-                error_field="password_confirm",
-                form_data=form_data,
-                terms_checked=True,
-            )
-        
-        success, msg, status_code = create_user(username, password, email)
-        if success:
-            # Record ToS agreement
-            try:
-                if db_enhanced.record_tos_agreement(username):
-                    logger.info(f"ToS agreement recorded for user: {username}")
-                else:
-                    logger.warning(f"Failed to record ToS agreement for {username}: record_tos_agreement returned False")
-            except Exception as e:
-                logger.warning(f"Failed to record ToS agreement for {username}: {e}")
-            
-            # Send verification email if email is configured
-            if is_email_configured():
-                base_url = request.url_root.rstrip('/')
-                try:
-                    token = generate_verification_token()
-                    verification_code = db_enhanced.generate_verification_code()
-                    code_hash = db_enhanced.hash_verification_code(username, verification_code)
-                    db_enhanced.create_verification_token(
-                        username,
-                        token,
-                        expiration_hours=24,
-                        code_hash=code_hash,
-                    )
-                    
-                    send_verification_email(
-                        email,
-                        username,
-                        token,
-                        base_url,
-                        verification_code=verification_code,
-                    )
-                    try:
-                        login_url = f"{base_url}/login"
-                        if not send_welcome_email(email, username, login_url=login_url):
-                            logger.warning(f"Welcome email not sent to {username}")
-                    except Exception as welcome_error:
-                        logger.warning(f"Failed to send welcome email to {username}: {welcome_error}")
-
-                    session["pending_verification_user"] = username
-                    session["pending_verification_email"] = email
-                    flash(
-                        "Registration successful! Enter the verification code we sent to your email.",
-                        "success",
-                    )
-                    return redirect(url_for("verify_email_code_page"))
-                except Exception as e:
-                    logger.error(f"Failed to send verification email: {e}")
-                    flash(
-                        "Registration successful, but we could not send a verification email. "
-                        "Please try resending the code from the login page.",
-                        "warning",
-                    )
-            else:
-                flash("Registration successful! Email verification will be skipped because email is not configured.", "warning")
-            
-            return redirect(url_for("login"))
+        elif pending_signup.get("plan_tier") != "free" and pending_signup.get("payment_status") != "paid":
+            flash("We're still processing your payment. Refresh and try again in a moment.", "warning")
+        elif form_data["email"].strip().lower() != pending_signup.get("email", "").lower():
+            flash("Email mismatch. Use the same email you used during payment.", "error")
+        elif not form_data["first_name"]:
+            flash("First name is required.", "error")
+            error_field = "first_name"
         else:
-            flash(msg, "error")
-            return render_template(
-                "register.html",
-                form_data=form_data,
-                terms_checked=True,
-            ), status_code
-    
-    return render_template("register.html", form_data={}, terms_checked=False)
+            phone_clean = form_data["phone"]
+            if phone_clean:
+                import re
+                phone_clean = re.sub(r"[^\d+]", "", phone_clean)
+                if len(phone_clean) < 10 or len(phone_clean) > 16:
+                    flash("Enter a valid phone number including country code if outside the US.", "error")
+                    error_field = "phone"
+            zip_code = form_data["zip_code"]
+            if zip_code:
+                import re
+                if not re.match(r"^[A-Za-z0-9\\-]{3,10}$", zip_code):
+                    flash("Enter a valid ZIP or postal code.", "error")
+                    error_field = "zip_code"
+
+            if not error_field:
+                success, msg, status_code = create_user(form_data["username"], password, form_data["email"])
+                if success:
+                    try:
+                        if db_enhanced.record_tos_agreement(form_data["username"]):
+                            logger.info(f"ToS agreement recorded for user: {form_data['username']}")
+                    except Exception as tos_error:
+                        logger.warning(f"Failed to record ToS agreement for {form_data['username']}: {tos_error}")
+
+                    try:
+                        db_enhanced.upsert_crm_contact(
+                            form_data["email"],
+                            username=form_data["username"],
+                            first_name=form_data["first_name"],
+                            last_name=form_data["last_name"] or None,
+                            phone=phone_clean,
+                            zip_code=zip_code or None,
+                            plan_tier=pending_signup.get("plan_tier"),
+                            signup_date=datetime.utcnow(),
+                        )
+                    except Exception as crm_error:
+                        logger.warning(f"CRM upsert failed for {form_data['email']}: {crm_error}")
+
+                    if phone_clean:
+                        try:
+                            db_enhanced.update_notification_preferences(form_data["username"], phone_number=phone_clean)
+                        except Exception as notif_error:
+                            logger.warning(f"Failed to store phone number for {form_data['username']}: {notif_error}")
+
+                    pending_plan = pending_signup.get("plan_tier", "free")
+                    if pending_plan != "free":
+                        try:
+                            db_enhanced.create_or_update_subscription(
+                                username=form_data["username"],
+                                tier=pending_plan,
+                                status='active',
+                                stripe_customer_id=pending_signup.get("stripe_customer_id"),
+                                stripe_subscription_id=pending_signup.get("stripe_subscription_id")
+                            )
+                            db_enhanced.log_subscription_event(
+                                username=form_data["username"],
+                                tier=pending_plan,
+                                action='subscription_created',
+                                stripe_event_id=None,
+                                details='Activated via payment-first onboarding'
+                            )
+                            cache_set(f"settings:{form_data['username']}", None, ttl=0)
+                        except Exception as sub_error:
+                            logger.error(f"Failed to attach subscription after signup: {sub_error}")
+
+                    try:
+                        db_enhanced.complete_pending_signup(pending_id, form_data["username"])
+                    except Exception as complete_error:
+                        logger.warning(f"Failed to mark pending signup complete for {pending_id}: {complete_error}")
+
+                    referral_code_value = (pending_signup.get("referral_code") or "").strip()
+                    if referral_code_value:
+                        try:
+                            db_enhanced.redeem_referral_code(
+                                referral_code_value,
+                                form_data["username"],
+                                metadata={
+                                    "source": "pending_signup",
+                                    "pending_signup_id": pending_id,
+                                    "plan_tier": pending_plan,
+                                },
+                            )
+                        except ValueError as referral_error:
+                            logger.warning(
+                                "Failed to redeem referral code %s for %s: %s",
+                                referral_code_value,
+                                form_data["username"],
+                                referral_error,
+                            )
+
+                    session["pending_signup_id"] = None
+
+                    if is_email_configured():
+                        base_url = request.url_root.rstrip('/')
+                        try:
+                            token = generate_verification_token()
+                            verification_code = db_enhanced.generate_verification_code()
+                            code_hash = db_enhanced.hash_verification_code(form_data["username"], verification_code)
+                            db_enhanced.create_verification_token(
+                                form_data["username"],
+                                token,
+                                expiration_hours=24,
+                                code_hash=code_hash,
+                            )
+                            send_verification_email(
+                                form_data["email"],
+                                form_data["username"],
+                                token,
+                                base_url,
+                                verification_code=verification_code,
+                            )
+                            try:
+                                login_url = f"{base_url}/login"
+                                if not send_welcome_email(form_data["email"], form_data["username"], login_url=login_url):
+                                    logger.warning(f"Welcome email not sent to {form_data['username']}")
+                            except Exception as welcome_error:
+                                logger.warning(f"Failed to send welcome email to {form_data['username']}: {welcome_error}")
+
+                            session["pending_verification_user"] = form_data["username"]
+                            session["pending_verification_email"] = form_data["email"]
+                            flash("Account created! Enter the verification code we sent to your email.", "success")
+                            return redirect(url_for("verify_email_code_page"))
+                        except Exception as email_error:
+                            logger.error(f"Failed to send verification email: {email_error}")
+                            flash("Account created, but we could not send a verification email. You can resend it from the login page.", "warning")
+                    else:
+                        flash("Account created! Email verification is disabled in this environment.", "warning")
+
+                    flash("Welcome to Botifex! Log in to finish setup.", "success")
+                    return redirect(url_for("login"))
+                else:
+                    flash(msg, "error")
+                    return render_template(
+                        "register.html",
+                        form_data=form_data,
+                        terms_checked=True,
+                        error_field=error_field,
+                        pending_id=pending_id,
+                        plan_tier=pending_signup.get("plan_tier"),
+                        payment_status=pending_signup.get("payment_status"),
+                    ), status_code
+
+    return render_template(
+        "register.html",
+        form_data=form_data,
+        terms_checked=terms_checked,
+        error_field=error_field,
+        pending_id=pending_id,
+        plan_tier=pending_signup.get("plan_tier"),
+        payment_status=pending_signup.get("payment_status"),
+    )
 
 @app.route("/terms")
 def terms_of_service():
@@ -1920,10 +2175,16 @@ def apple_touch_icon():
 
 
 # ======================
-# PROFILE HELPERS
+# MEDIA HELPERS
 # ======================
 
-def _save_profile_media_file(file_storage, username: str, media_kind: str) -> str:
+def _save_media_file(
+    file_storage,
+    owner: str,
+    media_kind: str,
+    base_dir: Path,
+    allowed_extensions: Set[str],
+) -> str:
     if file_storage is None:
         raise ValueError("No file provided.")
 
@@ -1932,20 +2193,20 @@ def _save_profile_media_file(file_storage, username: str, media_kind: str) -> st
         raise ValueError("Unsupported file type.")
 
     ext = filename.rsplit(".", 1)[1].lower()
-    if ext not in ALLOWED_PROFILE_MEDIA_EXTENSIONS:
-        allowed = ", ".join(sorted(ALLOWED_PROFILE_MEDIA_EXTENSIONS))
+    if ext not in allowed_extensions:
+        allowed = ", ".join(sorted(allowed_extensions))
         raise ValueError(f"Unsupported file type. Allowed types: {allowed}")
 
     mimetype = (file_storage.mimetype or "").lower()
     if mimetype and not mimetype.startswith("image/"):
         raise ValueError("Only image uploads are allowed.")
 
-    user_dir = PROFILE_MEDIA_ROOT / username
-    user_dir.mkdir(parents=True, exist_ok=True)
+    owner_dir = base_dir / owner
+    owner_dir.mkdir(parents=True, exist_ok=True)
 
     token = secrets.token_hex(8)
     generated_name = f"{media_kind}-{token}.{ext}"
-    destination = user_dir / generated_name
+    destination = owner_dir / generated_name
 
     try:
         file_storage.stream.seek(0)
@@ -1956,6 +2217,26 @@ def _save_profile_media_file(file_storage, username: str, media_kind: str) -> st
 
     relative_path = destination.relative_to(Path(app.root_path) / 'static')
     return f"/static/{relative_path.as_posix()}"
+
+
+def _save_profile_media_file(file_storage, username: str, media_kind: str) -> str:
+    return _save_media_file(
+        file_storage,
+        username,
+        media_kind,
+        PROFILE_MEDIA_ROOT,
+        ALLOWED_PROFILE_MEDIA_EXTENSIONS,
+    )
+
+
+def _save_server_media_file(file_storage, owner: str, media_kind: str) -> str:
+    return _save_media_file(
+        file_storage,
+        owner,
+        media_kind,
+        SERVER_MEDIA_ROOT,
+        ALLOWED_SERVER_MEDIA_EXTENSIONS,
+    )
 
 def _sanitize_optional_string(value, field_name, max_length, errors, *, min_length=0):
     if value is None:
@@ -2240,6 +2521,7 @@ def profile_page():
         if not referral_overview.get("referral"):
             db_enhanced.ensure_referral_code(current_user.id)
             referral_overview = db_enhanced.get_referral_overview(current_user.id)
+        friend_code = db_enhanced.ensure_friend_code(current_user.id)
         def _to_iso(value):
             if isinstance(value, datetime):
                 try:
@@ -2309,6 +2591,7 @@ def profile_page():
             friend_overview=friend_overview,
             streak=streak,
             referral_overview=referral_overview,
+            friend_code=friend_code,
         )
     except Exception as e:
         logger.error(f"Error loading profile page: {e}")
@@ -2338,6 +2621,39 @@ def api_profile_media_upload():
             errors.append(str(exc))
         except Exception as exc:
             logger.error(f"Failed to upload {kind} for {current_user.id}: {exc}")
+            errors.append(f"Failed to upload {kind} image.")
+
+    if not responses:
+        return jsonify({"errors": errors or ["No valid files supplied."]}), 400
+
+    if errors:
+        responses["warnings"] = errors
+
+    return jsonify(responses)
+
+
+@app.route("/api/servers/media/upload", methods=["POST"])
+@csrf.exempt
+@login_required
+@rate_limit('api', max_requests=20)
+def api_servers_media_upload():
+    if not request.files:
+        return jsonify({"error": "No file uploaded."}), 400
+
+    responses: Dict[str, str] = {}
+    errors: List[str] = []
+
+    for kind in ("icon", "banner"):
+        file_obj = request.files.get(kind)
+        if not file_obj:
+            continue
+        try:
+            media_url = _save_server_media_file(file_obj, current_user.id, kind)
+            responses[f"{kind}_url"] = media_url
+        except ValueError as exc:
+            errors.append(str(exc))
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error(f"Failed to upload server {kind} for {current_user.id}: {exc}")
             errors.append(f"Failed to upload {kind} image.")
 
     if not responses:
@@ -2539,6 +2855,69 @@ def api_admin_data_purge(username: str):
         return jsonify({"error": "Unable to purge user data"}), 500
 
     return jsonify({"ok": True})
+
+
+@app.route("/api/crm/contacts", methods=["GET"])
+@login_required
+@rate_limit('api', max_requests=60)
+def api_crm_contacts():
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
+    limit = _bounded_int(request.args.get("limit"), 100, minimum=1, maximum=500)
+    offset = _bounded_int(request.args.get("offset"), 0, minimum=0, maximum=5000)
+    contacts = db_enhanced.get_crm_contacts(limit=limit, offset=offset)
+    return jsonify({"contacts": contacts})
+
+
+@app.route("/api/crm/contacts/<path:email>", methods=["PATCH"])
+@login_required
+@rate_limit('api', max_requests=30)
+def api_crm_contact_update(email):
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
+    payload = request.get_json(silent=True) or {}
+
+    def _parse_dt(value):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
+    contact = db_enhanced.update_crm_contact(
+        email,
+        username=payload.get("username"),
+        first_name=payload.get("first_name"),
+        last_name=payload.get("last_name"),
+        phone=payload.get("phone"),
+        zip_code=payload.get("zip_code"),
+        plan_tier=payload.get("plan_tier"),
+        signup_date=_parse_dt(payload.get("signup_date")),
+        last_payment_at=_parse_dt(payload.get("last_payment_at")),
+    )
+    if not contact:
+        return jsonify({"error": "Contact not found"}), 404
+    return jsonify({"contact": contact})
+
+
+@app.route("/api/crm/engagement/<username>", methods=["POST"])
+@login_required
+@rate_limit('api', max_requests=60)
+def api_crm_engagement(username):
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
+    payload = request.get_json(silent=True) or {}
+    searches_delta = int(payload.get("searches_delta", 0) or 0)
+    alerts_delta = int(payload.get("alerts_delta", 0) or 0)
+    saved_delta = int(payload.get("saved_delta", 0) or 0)
+    db_enhanced.update_crm_engagement(
+        username,
+        searches_delta=searches_delta,
+        alerts_delta=alerts_delta,
+        saved_delta=saved_delta,
+    )
+    return jsonify({"status": "ok"})
 
 
 @app.route("/api/support/tickets", methods=["GET", "POST"])
@@ -2942,6 +3321,80 @@ def api_friend_overview():
         limit = 24
     overview = db_enhanced.get_friend_overview(current_user.id, limit=limit)
     return jsonify({"overview": overview})
+
+
+@app.route("/api/friends/code", methods=["GET", "POST"])
+@login_required
+@rate_limit('api', max_requests=60)
+@csrf.exempt
+def api_friend_code():
+    if request.method == "GET":
+        try:
+            friend_code = db_enhanced.ensure_friend_code(current_user.id)
+        except Exception as exc:
+            logger.error(f"Failed to load friend code for {current_user.id}: {exc}")
+            return jsonify({"error": "Unable to load friend code."}), 500
+        return jsonify({"friend_code": friend_code})
+
+    payload = request.get_json(silent=True) or {}
+    action = (payload.get("action") or "").strip().lower()
+    regenerate_flag = payload.get("regenerate")
+    should_regenerate = bool(regenerate_flag) or action == "regenerate"
+    if not should_regenerate:
+        return jsonify({"error": "Specify regenerate to refresh your friend code."}), 400
+
+    try:
+        friend_code = db_enhanced.regenerate_friend_code(current_user.id)
+    except Exception as exc:
+        logger.error(f"Failed to regenerate friend code for {current_user.id}: {exc}")
+        return jsonify({"error": "Unable to refresh friend code."}), 500
+
+    return jsonify({"friend_code": friend_code})
+
+
+@app.route("/api/friends/code/redeem", methods=["POST"])
+@login_required
+@rate_limit('api', max_requests=30)
+@csrf.exempt
+def api_friend_code_redeem():
+    payload = request.get_json(silent=True) or {}
+    raw_code = payload.get("code") or ""
+    raw_message = payload.get("message")
+
+    sanitized_code = SecurityConfig.sanitize_input(raw_code).strip()
+    sanitized_message = SecurityConfig.sanitize_input(raw_message) if raw_message else None
+
+    if not sanitized_code:
+        return jsonify({"error": "Friend code is required."}), 400
+
+    try:
+        result = db_enhanced.redeem_friend_code(sanitized_code, current_user.id, sanitized_message)
+    except ValueError as exc:
+        message = str(exc)
+        lowered = message.lower()
+        status = 400
+        if "not found" in lowered:
+            status = 404
+        elif "blocked" in lowered:
+            status = 403
+        elif "limit" in lowered:
+            status = 429
+        return jsonify({"error": message}), status
+    except Exception as exc:
+        logger.error(f"Failed to redeem friend code for {current_user.id}: {exc}")
+        return jsonify({"error": "Unable to redeem friend code."}), 500
+
+    overview = db_enhanced.get_friend_overview(current_user.id, limit=24)
+    status_code = 201 if result.get("created") else 200
+
+    response = {
+        "friend_code": result.get("code"),
+        "owner_username": result.get("owner_username"),
+        "request": result.get("request"),
+        "created": result.get("created"),
+        "overview": overview,
+    }
+    return jsonify(response), status_code
 
 
 @app.route("/api/profile/blocks", methods=["GET"])
@@ -5433,32 +5886,47 @@ def stripe_webhook():
         
         # Process the result and update database
         if result.get('status') == 'success':
-            # Checkout completed - update subscription
-            username = result.get('username')
+            username_meta = result.get('username')
             tier = result.get('tier')
             subscription_id = result.get('subscription_id')
             customer_id = result.get('customer_id')
-            
-            if username and tier:
+
+            if username_meta and username_meta.startswith("pending:"):
+                pending_id = username_meta.split("pending:", 1)[1]
+                try:
+                    pending_update = db_enhanced.mark_pending_signup_paid(
+                        pending_id,
+                        customer_id,
+                        subscription_id,
+                        plan_tier=tier,
+                        payment_status='paid'
+                    )
+                    if pending_update:
+                        logger.info(f"Pending signup {pending_id} marked as paid.")
+                    else:
+                        logger.warning(f"Pending signup {pending_id} not found during webhook processing.")
+                except Exception as exc:
+                    logger.error(f"Failed to update pending signup {pending_id}: {exc}")
+            elif username_meta and tier:
                 try:
                     db_enhanced.create_or_update_subscription(
-                        username=username,
+                        username=username_meta,
                         tier=tier,
                         status='active',
                         stripe_customer_id=customer_id,
                         stripe_subscription_id=subscription_id
                     )
-                    cache_set(f"settings:{username}", None, ttl=0)
-                    
+                    cache_set(f"settings:{username_meta}", None, ttl=0)
+
                     db_enhanced.log_subscription_event(
-                        username=username,
+                        username=username_meta,
                         tier=tier,
                         action='subscription_created',
                         stripe_event_id=event['id'],
-                        details=f'Subscription created via Stripe checkout'
+                        details='Subscription created via Stripe checkout'
                     )
-                    
-                    logger.info(f"Subscription activated for {username} - {tier} tier")
+
+                    logger.info(f"Subscription activated for {username_meta} - {tier} tier")
                 except Exception as e:
                     logger.error(f"Failed to update subscription in database: {e}")
                     return jsonify({"error": "Database update failed"}), 500
@@ -5602,6 +6070,43 @@ def api_scraper_metrics_detail(site_name):
 @rate_limit('api', max_requests=60)
 def api_listings():
     return jsonify({"listings": get_listings_from_db(50)})
+
+
+@app.route("/api/listings/search", methods=["GET"])
+@login_required
+@require_subscription_tier('standard')
+@rate_limit('api', max_requests=30)
+def api_listings_search():
+    """Search existing listings by keyword for the current user."""
+    try:
+        raw_keywords = request.args.get('keywords') or request.args.get('keyword') or ""
+        sanitized_input = SecurityConfig.sanitize_input(raw_keywords).replace("\n", ",")
+        keywords = [SecurityConfig.sanitize_input(k) for k in sanitized_input.split(",") if k and k.strip()]
+
+        if not keywords:
+            return jsonify({"error": "Keywords are required to search listings."}), 400
+
+        limit = _bounded_int(request.args.get('limit'), 100, minimum=1, maximum=200)
+        listings = db_enhanced.search_existing_listings(
+            keywords, limit=limit, user_id=current_user.id
+        )
+
+        db_enhanced.log_user_activity(
+            current_user.id,
+            "search_existing_listings",
+            details=f"keywords={','.join(keywords[:5])}",
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent'),
+        )
+
+        return jsonify({
+            "listings": listings,
+            "count": len(listings) if listings else 0,
+            "scope": "existing"
+        })
+    except Exception as e:
+        logger.error(f"Error searching existing listings: {e}")
+        return jsonify({"error": "Failed to search listings"}), 500
 
 @app.route("/api/system-status")
 @login_required
@@ -6051,7 +6556,7 @@ def api_post_seller_listing(listing_id):
         # In a real implementation, this would interface with each marketplace's API
         return jsonify({
             "message": "Posting to marketplaces",
-            "note": "Direct posting to marketplaces requires additional API setup and authentication for each platform. Please manually post for now.",
+            "note": "We opened your selected marketplaces in new tabs so you can finish the listing there. If you do not see them, allow pop-ups for this site and try again.",
             "listing": listing
         }), 200
     

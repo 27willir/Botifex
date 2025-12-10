@@ -9,9 +9,10 @@ import secrets
 import string
 import statistics
 import hashlib
+import uuid
 from collections import defaultdict
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from contextlib import contextmanager
 from queue import Queue, Empty
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -203,6 +204,9 @@ REFERRAL_CODE_ALPHABET = string.ascii_uppercase + string.digits
 REFERRAL_CODE_LENGTH = 8
 REFERRAL_MAX_HITS_FETCH = 10
 REFERRAL_MAX_LANDING_SUMMARY = 5
+
+FRIEND_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+FRIEND_CODE_LENGTH = 8
 
 BOOST_STATUS_ACTIVE = "active"
 BOOST_STATUS_EXPIRED = "expired"
@@ -652,6 +656,52 @@ def _profile_row_to_dict(row: Tuple[Any, ...]) -> Dict[str, Any]:
         "visibility_settings": visibility,
         "created_at": _to_datetime_string(row[12]) if length > 12 else None,
         "updated_at": _to_datetime_string(row[13]) if length > 13 else None,
+    }
+
+
+def _pending_signup_row_to_dict(row: Tuple[Any, ...]) -> Dict[str, Any]:
+    if not row:
+        return {}
+    length = len(row)
+    return {
+        "id": row[0] if length > 0 else None,
+        "email": row[1] if length > 1 else None,
+        "plan_tier": row[2] if length > 2 else None,
+        "status": row[3] if length > 3 else None,
+        "referral_code": row[4] if length > 4 else None,
+        "created_at": _to_datetime_string(row[5]) if length > 5 else None,
+        "updated_at": _to_datetime_string(row[6]) if length > 6 else None,
+        "checkout_session_id": row[7] if length > 7 else None,
+        "stripe_customer_id": row[8] if length > 8 else None,
+        "stripe_subscription_id": row[9] if length > 9 else None,
+        "payment_status": row[10] if length > 10 else None,
+        "payment_history": _load_json(row[11], []) if length > 11 else [],
+        "username": row[12] if length > 12 else None,
+        "completed_at": _to_datetime_string(row[13]) if length > 13 else None,
+    }
+
+
+def _crm_contact_row_to_dict(row: Tuple[Any, ...]) -> Dict[str, Any]:
+    if not row:
+        return {}
+    length = len(row)
+    return {
+        "id": row[0] if length > 0 else None,
+        "email": row[1] if length > 1 else None,
+        "username": row[2] if length > 2 else None,
+        "first_name": row[3] if length > 3 else None,
+        "last_name": row[4] if length > 4 else None,
+        "phone": row[5] if length > 5 else None,
+        "zip_code": row[6] if length > 6 else None,
+        "plan_tier": row[7] if length > 7 else None,
+        "signup_date": _to_datetime_string(row[8]) if length > 8 else None,
+        "last_payment_at": _to_datetime_string(row[9]) if length > 9 else None,
+        "payment_history": _load_json(row[10], []) if length > 10 else [],
+        "searches_made": row[11] if length > 11 and row[11] is not None else 0,
+        "alerts_created": row[12] if length > 12 and row[12] is not None else 0,
+        "saved_listings": row[13] if length > 13 and row[13] is not None else 0,
+        "created_at": _to_datetime_string(row[14]) if length > 14 else None,
+        "updated_at": _to_datetime_string(row[15]) if length > 15 else None,
     }
 
 
@@ -1578,6 +1628,43 @@ def init_db():
                     FOREIGN KEY (source_request_id) REFERENCES friend_requests (id) ON DELETE SET NULL
                 )
             """)
+
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS friend_codes (
+                    owner_username TEXT PRIMARY KEY,
+                    code TEXT UNIQUE NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_used_by TEXT,
+                    last_used_at DATETIME,
+                    FOREIGN KEY (owner_username) REFERENCES users (username) ON DELETE CASCADE,
+                    FOREIGN KEY (last_used_by) REFERENCES users (username) ON DELETE SET NULL
+                )
+            """)
+
+            c.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_friend_codes_code
+                ON friend_codes (code)
+            """)
+
+            try:
+                c.execute("ALTER TABLE friend_codes ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
+
+            try:
+                c.execute("ALTER TABLE friend_codes ADD COLUMN last_used_by TEXT")
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
+
+            try:
+                c.execute("ALTER TABLE friend_codes ADD COLUMN last_used_at DATETIME")
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
+
 
             c.execute("""
                 CREATE INDEX IF NOT EXISTS idx_friendships_owner_created
@@ -2529,6 +2616,61 @@ def init_db():
                 )
             """)
             
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS pending_signups (
+                    id TEXT PRIMARY KEY,
+                    email TEXT NOT NULL,
+                    plan_tier TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'initiated',
+                    referral_code TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME,
+                    checkout_session_id TEXT,
+                    stripe_customer_id TEXT,
+                    stripe_subscription_id TEXT,
+                    payment_status TEXT,
+                    payment_history TEXT,
+                    username TEXT,
+                    completed_at DATETIME
+                )
+            """)
+
+            c.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pending_signups_email
+                ON pending_signups (email)
+            """)
+
+            c.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pending_signups_session
+                ON pending_signups (checkout_session_id)
+            """)
+
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS crm_contacts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT UNIQUE NOT NULL,
+                    username TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    phone TEXT,
+                    zip_code TEXT,
+                    plan_tier TEXT,
+                    signup_date DATETIME,
+                    last_payment_at DATETIME,
+                    payment_history TEXT,
+                    searches_made INTEGER DEFAULT 0,
+                    alerts_created INTEGER DEFAULT 0,
+                    saved_listings INTEGER DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            c.execute("""
+                CREATE INDEX IF NOT EXISTS idx_crm_contacts_username
+                ON crm_contacts (username)
+            """)
+
             # Add subscription columns to users if they don't exist (backward compatibility)
             try:
                 c.execute("ALTER TABLE users ADD COLUMN subscription_tier TEXT DEFAULT 'free'")
@@ -3088,6 +3230,147 @@ def _friendship_row_to_dict(
         "mutual_server_count": int(mutual_server_count or 0),
         "mutual_server_preview": mutual_server_preview or [],
         "last_active_at": last_active_at,
+    }
+
+
+def _generate_friend_code(length: int = FRIEND_CODE_LENGTH) -> str:
+    return "".join(secrets.choice(FRIEND_CODE_ALPHABET) for _ in range(length))
+
+
+def _normalize_friend_code(value: str) -> str:
+    cleaned = (value or "").strip().upper()
+    return re.sub(r"[^A-Z0-9]", "", cleaned)
+
+
+def _friend_code_row_to_dict(row) -> Dict[str, Any]:
+    if not row:
+        return {}
+    return {
+        "owner_username": row[0],
+        "code": row[1],
+        "created_at": _to_datetime_string(row[2]),
+        "updated_at": _to_datetime_string(row[3]),
+        "last_used_by": row[4],
+        "last_used_at": _to_datetime_string(row[5]),
+    }
+
+
+@log_errors()
+def get_friend_code(owner_username: str) -> Optional[Dict[str, Any]]:
+    if not owner_username:
+        return None
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT owner_username,
+                   code,
+                   created_at,
+                   updated_at,
+                   last_used_by,
+                   last_used_at
+            FROM friend_codes
+            WHERE owner_username = ?
+        """, (owner_username,))
+        row = c.fetchone()
+    return _friend_code_row_to_dict(row) if row else None
+
+
+@log_errors()
+def ensure_friend_code(owner_username: str) -> Dict[str, Any]:
+    existing = get_friend_code(owner_username)
+    if existing:
+        return existing
+    return create_friend_code(owner_username)
+
+
+@log_errors()
+def create_friend_code(owner_username: str, regenerate: bool = False) -> Dict[str, Any]:
+    if not owner_username:
+        raise ValueError("Owner username is required.")
+
+    now = datetime.now()
+
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+
+        if regenerate:
+            c.execute("DELETE FROM friend_codes WHERE owner_username = ?", (owner_username,))
+        else:
+            c.execute("SELECT code FROM friend_codes WHERE owner_username = ?", (owner_username,))
+            if c.fetchone():
+                conn.commit()
+                existing = get_friend_code(owner_username)
+                return existing if existing else {}
+
+        code = _generate_friend_code()
+        while True:
+            c.execute("SELECT 1 FROM friend_codes WHERE code = ?", (code,))
+            if not c.fetchone():
+                break
+            code = _generate_friend_code()
+
+        c.execute("""
+            INSERT INTO friend_codes (owner_username, code, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+        """, (owner_username, code, now, now))
+        conn.commit()
+
+    return get_friend_code(owner_username) or {
+        "owner_username": owner_username,
+        "code": code,
+        "created_at": _to_datetime_string(now),
+        "updated_at": _to_datetime_string(now),
+        "last_used_by": None,
+        "last_used_at": None,
+    }
+
+
+@log_errors()
+def regenerate_friend_code(owner_username: str) -> Dict[str, Any]:
+    return create_friend_code(owner_username, regenerate=True)
+
+
+@log_errors()
+def redeem_friend_code(code: str, requester_username: str, message: Optional[str] = None) -> Dict[str, Any]:
+    normalized_code = _normalize_friend_code(code)
+    if not normalized_code:
+        raise ValueError("Friend code is required.")
+    if not requester_username:
+        raise ValueError("Requester username is required.")
+
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT owner_username
+            FROM friend_codes
+            WHERE code = ?
+        """, (normalized_code,))
+        row = c.fetchone()
+
+    if not row:
+        raise ValueError("Friend code not found.")
+
+    owner_username = row[0]
+    if owner_username == requester_username:
+        raise ValueError("You cannot use your own friend code.")
+
+    request_record, created = create_friend_request(requester_username, owner_username, message)
+
+    now = datetime.now()
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            UPDATE friend_codes
+            SET last_used_by = ?, last_used_at = ?, updated_at = ?
+            WHERE owner_username = ?
+        """, (requester_username, now, now, owner_username))
+        conn.commit()
+
+    return {
+        "owner_username": owner_username,
+        "request": request_record,
+        "created": created,
+        "code": normalized_code,
     }
 
 
@@ -4078,6 +4361,12 @@ def respond_friend_request(request_id: int, recipient_username: str, action: str
             visibility="private",
         )
 
+    if action_normalized == "accept":
+        try:
+            ensure_dm_conversation_between(row[1], row[2])
+        except Exception as exc:
+            logger.warning(f"Friend request {request_id} accepted but failed to ensure DM conversation: {exc}")
+
     updated = {
         "id": row[0],
         "requester_username": row[1],
@@ -4327,18 +4616,35 @@ def get_profile_showcase(username: str) -> Dict[str, List[Dict[str, Any]]]:
 def _bootstrap_server_roles(cursor, server_id: int, timestamp: datetime) -> Dict[str, int]:
     role_ids: Dict[str, int] = {}
     for blueprint in DEFAULT_SERVER_ROLE_BLUEPRINT:
-        cursor.execute("""
-            INSERT INTO server_roles (server_id, name, permissions, is_default, sort_order, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            server_id,
-            blueprint["name"],
-            _dump_json(blueprint["permissions"]),
-            bool(blueprint.get("is_default")),
-            blueprint.get("sort_order", 0),
-            timestamp,
-        ))
-        role_ids[blueprint["key"]] = cursor.lastrowid
+        if USE_POSTGRES:
+            cursor.execute("""
+                INSERT INTO server_roles (server_id, name, permissions, is_default, sort_order, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                RETURNING id
+            """, (
+                server_id,
+                blueprint["name"],
+                _dump_json(blueprint["permissions"]),
+                bool(blueprint.get("is_default")),
+                blueprint.get("sort_order", 0),
+                timestamp,
+            ))
+            role_id_row = cursor.fetchone()
+            role_id = role_id_row[0] if role_id_row else None
+        else:
+            cursor.execute("""
+                INSERT INTO server_roles (server_id, name, permissions, is_default, sort_order, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                server_id,
+                blueprint["name"],
+                _dump_json(blueprint["permissions"]),
+                bool(blueprint.get("is_default")),
+                blueprint.get("sort_order", 0),
+                timestamp,
+            ))
+            role_id = cursor.lastrowid
+        role_ids[blueprint["key"]] = role_id
     return role_ids
 
 
@@ -5864,6 +6170,8 @@ def record_user_engagement(username: str,
             last_date = None
             if isinstance(row[3], datetime):
                 last_date = row[3].date()
+            elif isinstance(row[3], date):
+                last_date = row[3]
             elif isinstance(row[3], str):
                 try:
                     last_date = datetime.fromisoformat(row[3]).date()
@@ -5932,6 +6240,8 @@ def get_user_streak(username: str) -> Dict[str, Any]:
     last_engaged = None
     if isinstance(row[3], datetime):
         last_engaged = row[3].date().isoformat()
+    elif isinstance(row[3], date):
+        last_engaged = row[3].isoformat()
     elif isinstance(row[3], str):
         last_engaged = row[3]
 
@@ -8310,39 +8620,75 @@ def create_server(owner_username: str,
             pass
         c = conn.cursor()
         try:
-            c.execute("""
-                INSERT INTO servers (
+            if USE_POSTGRES:
+                c.execute("""
+                    INSERT INTO servers (
+                        owner_username,
+                        name,
+                        slug,
+                        description,
+                        topic_tags,
+                        visibility,
+                        icon_url,
+                        banner_url,
+                        settings,
+                        created_at,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    RETURNING id
+                """, (
                     owner_username,
-                    name,
-                    slug,
-                    description,
-                    topic_tags,
-                    visibility,
+                    cleaned_name,
+                    slug_value,
+                    cleaned_description,
+                    _dump_json(normalized_tags),
+                    normalized_visibility,
                     icon_url,
                     banner_url,
-                    settings,
-                    created_at,
-                    updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                owner_username,
-                cleaned_name,
-                slug_value,
-                cleaned_description,
-                _dump_json(normalized_tags),
-                normalized_visibility,
-                icon_url,
-                banner_url,
-                _dump_json(settings_payload),
-                timestamp,
-                timestamp,
-            ))
-            server_id = c.lastrowid
+                    _dump_json(settings_payload),
+                    timestamp,
+                    timestamp,
+                ))
+                server_row = c.fetchone()
+                server_id = server_row[0] if server_row else None
+                if server_id is None:
+                    raise DatabaseError("Failed to obtain server id after insert")
+            else:
+                c.execute("""
+                    INSERT INTO servers (
+                        owner_username,
+                        name,
+                        slug,
+                        description,
+                        topic_tags,
+                        visibility,
+                        icon_url,
+                        banner_url,
+                        settings,
+                        created_at,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    owner_username,
+                    cleaned_name,
+                    slug_value,
+                    cleaned_description,
+                    _dump_json(normalized_tags),
+                    normalized_visibility,
+                    icon_url,
+                    banner_url,
+                    _dump_json(settings_payload),
+                    timestamp,
+                    timestamp,
+                ))
+                server_id = c.lastrowid
 
             role_ids = _bootstrap_server_roles(c, server_id, timestamp)
             _bootstrap_server_channels(c, server_id, timestamp)
 
             owner_role_id = role_ids.get("owner")
+            if not owner_role_id:
+                raise DatabaseError("Failed to create owner role for server")
             c.execute("""
                 INSERT INTO server_memberships (
                     server_id,
@@ -9537,6 +9883,350 @@ def deactivate_user(username):
         c.execute("UPDATE users SET active = 0 WHERE username = ?", (username,))
         conn.commit()
         logger.info(f"Deactivated user: {username}")
+
+
+# ======================
+# PENDING SIGNUPS & CRM
+# ======================
+
+def _normalize_plan_tier(plan_tier: str) -> str:
+    if not plan_tier:
+        return "free"
+    plan_tier = str(plan_tier).strip().lower()
+    if plan_tier not in {"free", "standard", "pro"}:
+        return "pro" if plan_tier.startswith("pro") else plan_tier
+    return plan_tier
+
+
+@log_errors()
+def create_pending_signup(email: str, plan_tier: str, referral_code: Optional[str] = None) -> Dict[str, Any]:
+    if not email:
+        raise ValueError("email is required for pending signup")
+    pending_id = uuid.uuid4().hex
+    normalized_plan = _normalize_plan_tier(plan_tier)
+    now = datetime.now()
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute(_prepare_sql("""
+            INSERT INTO pending_signups (
+                id, email, plan_tier, status, referral_code, created_at, updated_at,
+                checkout_session_id, stripe_customer_id, stripe_subscription_id,
+                payment_status, payment_history, username, completed_at
+            ) VALUES (?, ?, ?, 'initiated', ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, NULL)
+        """), (
+            pending_id,
+            email.strip(),
+            normalized_plan,
+            referral_code.strip() if referral_code else None,
+            now,
+            now,
+            _dump_json([]),
+        ))
+        conn.commit()
+    return {
+        "id": pending_id,
+        "email": email.strip(),
+        "plan_tier": normalized_plan,
+        "status": "initiated",
+    }
+
+
+@log_errors()
+def update_pending_signup_checkout(pending_id: str, checkout_session_id: str) -> None:
+    if not pending_id or not checkout_session_id:
+        raise ValueError("pending_id and checkout_session_id are required")
+    now = datetime.now()
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute(_prepare_sql("""
+            UPDATE pending_signups
+            SET checkout_session_id = ?, status = 'checkout_created', updated_at = ?
+            WHERE id = ?
+        """), (checkout_session_id, now, pending_id))
+        conn.commit()
+
+
+@log_errors()
+def mark_pending_signup_paid(
+    pending_id: str,
+    stripe_customer_id: Optional[str],
+    stripe_subscription_id: Optional[str],
+    *,
+    plan_tier: Optional[str] = None,
+    payment_status: str = "paid"
+) -> Optional[Dict[str, Any]]:
+    if not pending_id:
+        raise ValueError("pending_id required")
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute(_prepare_sql("""
+            SELECT id, email, plan_tier, status, referral_code, created_at, updated_at,
+                   checkout_session_id, stripe_customer_id, stripe_subscription_id,
+                   payment_status, payment_history, username, completed_at
+            FROM pending_signups
+            WHERE id = ?
+        """), (pending_id,))
+        row = c.fetchone()
+        if not row:
+            return None
+        record = _pending_signup_row_to_dict(row)
+        history = record.get("payment_history", [])
+        now = datetime.now()
+        history.append({
+            "status": payment_status,
+            "recorded_at": now.isoformat(),
+            "stripe_customer_id": stripe_customer_id,
+            "stripe_subscription_id": stripe_subscription_id,
+        })
+        normalized_plan = _normalize_plan_tier(plan_tier or record.get("plan_tier"))
+        c.execute(_prepare_sql("""
+            UPDATE pending_signups
+            SET status = ?, stripe_customer_id = ?, stripe_subscription_id = ?,
+                payment_status = ?, payment_history = ?, plan_tier = ?, updated_at = ?
+            WHERE id = ?
+        """), (
+            payment_status,
+            stripe_customer_id,
+            stripe_subscription_id,
+            payment_status,
+            _dump_json(history),
+            normalized_plan,
+            now,
+            pending_id,
+        ))
+        conn.commit()
+
+    # Update CRM contact with payment timestamp
+    upsert_crm_contact(
+        record.get("email"),
+        plan_tier=normalized_plan,
+        last_payment_at=now,
+        payment_history=history,
+    )
+    return {
+        "id": pending_id,
+        "email": record.get("email"),
+        "plan_tier": normalized_plan,
+        "status": payment_status,
+        "stripe_customer_id": stripe_customer_id,
+        "stripe_subscription_id": stripe_subscription_id,
+    }
+
+
+@log_errors()
+def get_pending_signup(pending_id: str) -> Optional[Dict[str, Any]]:
+    if not pending_id:
+        return None
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute(_prepare_sql("""
+            SELECT id, email, plan_tier, status, referral_code, created_at, updated_at,
+                   checkout_session_id, stripe_customer_id, stripe_subscription_id,
+                   payment_status, payment_history, username, completed_at
+            FROM pending_signups
+            WHERE id = ?
+        """), (pending_id,))
+        row = c.fetchone()
+    return _pending_signup_row_to_dict(row) if row else None
+
+
+@log_errors()
+def get_pending_signup_by_session(session_id: str) -> Optional[Dict[str, Any]]:
+    if not session_id:
+        return None
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute(_prepare_sql("""
+            SELECT id, email, plan_tier, status, referral_code, created_at, updated_at,
+                   checkout_session_id, stripe_customer_id, stripe_subscription_id,
+                   payment_status, payment_history, username, completed_at
+            FROM pending_signups
+            WHERE checkout_session_id = ?
+        """), (session_id,))
+        row = c.fetchone()
+    return _pending_signup_row_to_dict(row) if row else None
+
+
+@log_errors()
+def complete_pending_signup(pending_id: str, username: str) -> None:
+    now = datetime.now()
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute(_prepare_sql("""
+            UPDATE pending_signups
+            SET status = 'completed', username = ?, completed_at = ?, updated_at = ?
+            WHERE id = ?
+        """), (username, now, now, pending_id))
+        conn.commit()
+
+
+@log_errors()
+def upsert_crm_contact(
+    email: Optional[str],
+    *,
+    username: Optional[str] = None,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+    phone: Optional[str] = None,
+    zip_code: Optional[str] = None,
+    plan_tier: Optional[str] = None,
+    signup_date: Optional[datetime] = None,
+    last_payment_at: Optional[datetime] = None,
+    payment_history: Optional[List[Dict[str, Any]]] = None,
+    searches_made: Optional[int] = None,
+    alerts_created: Optional[int] = None,
+    saved_listings: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
+    if not email:
+        return None
+    email = email.strip()
+    now = datetime.now()
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute(_prepare_sql("""
+            SELECT id, email, username, first_name, last_name, phone, zip_code,
+                   plan_tier, signup_date, last_payment_at, payment_history,
+                   searches_made, alerts_created, saved_listings, created_at, updated_at
+            FROM crm_contacts
+            WHERE LOWER(email) = LOWER(?)
+        """), (email,))
+        existing = c.fetchone()
+
+        if existing:
+            updates = []
+            params = []
+            if username is not None:
+                updates.append("username = ?")
+                params.append(username)
+            if first_name is not None:
+                updates.append("first_name = ?")
+                params.append(first_name)
+            if last_name is not None:
+                updates.append("last_name = ?")
+                params.append(last_name)
+            if phone is not None:
+                updates.append("phone = ?")
+                params.append(phone)
+            if zip_code is not None:
+                updates.append("zip_code = ?")
+                params.append(zip_code)
+            if plan_tier is not None:
+                updates.append("plan_tier = ?")
+                params.append(_normalize_plan_tier(plan_tier))
+            if signup_date is not None:
+                updates.append("signup_date = ?")
+                params.append(signup_date)
+            if last_payment_at is not None:
+                updates.append("last_payment_at = ?")
+                params.append(last_payment_at)
+            if payment_history is not None:
+                updates.append("payment_history = ?")
+                params.append(_dump_json(payment_history))
+            if searches_made is not None:
+                updates.append("searches_made = ?")
+                params.append(int(searches_made))
+            if alerts_created is not None:
+                updates.append("alerts_created = ?")
+                params.append(int(alerts_created))
+            if saved_listings is not None:
+                updates.append("saved_listings = ?")
+                params.append(int(saved_listings))
+            if updates:
+                updates.append("updated_at = ?")
+                params.append(now)
+                params.append(email)
+                c.execute(_prepare_sql(f"""
+                    UPDATE crm_contacts
+                    SET {', '.join(updates)}
+                    WHERE LOWER(email) = LOWER(?)
+                """), params)
+        else:
+            c.execute(_prepare_sql("""
+                INSERT INTO crm_contacts (
+                    email, username, first_name, last_name, phone, zip_code,
+                    plan_tier, signup_date, last_payment_at, payment_history,
+                    searches_made, alerts_created, saved_listings, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (
+                email,
+                username,
+                first_name,
+                last_name,
+                phone,
+                zip_code,
+                _normalize_plan_tier(plan_tier) if plan_tier else None,
+                signup_date,
+                last_payment_at,
+                _dump_json(payment_history or []),
+                searches_made or 0,
+                alerts_created or 0,
+                saved_listings or 0,
+                now,
+                now,
+            ))
+        conn.commit()
+
+        c.execute(_prepare_sql("""
+            SELECT id, email, username, first_name, last_name, phone, zip_code,
+                   plan_tier, signup_date, last_payment_at, payment_history,
+                   searches_made, alerts_created, saved_listings, created_at, updated_at
+            FROM crm_contacts
+            WHERE LOWER(email) = LOWER(?)
+        """), (email,))
+        row = c.fetchone()
+    return _crm_contact_row_to_dict(row) if row else None
+
+
+@log_errors()
+def get_crm_contacts(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute(_prepare_sql("""
+            SELECT id, email, username, first_name, last_name, phone, zip_code,
+                   plan_tier, signup_date, last_payment_at, payment_history,
+                   searches_made, alerts_created, saved_listings, created_at, updated_at
+            FROM crm_contacts
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """), (limit, offset))
+        rows = c.fetchall()
+    return [_crm_contact_row_to_dict(row) for row in rows]
+
+
+@log_errors()
+def update_crm_contact(email: str, **fields) -> Optional[Dict[str, Any]]:
+    if not email:
+        return None
+    return upsert_crm_contact(email, **fields)
+
+
+@log_errors()
+def update_crm_engagement(
+    username: str,
+    *,
+    searches_delta: int = 0,
+    alerts_delta: int = 0,
+    saved_delta: int = 0
+) -> None:
+    if not username:
+        return
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute(_prepare_sql("""
+            UPDATE crm_contacts
+            SET searches_made = searches_made + ?,
+                alerts_created = alerts_created + ?,
+                saved_listings = saved_listings + ?,
+                updated_at = ?
+            WHERE username = ?
+        """), (
+            searches_delta,
+            alerts_delta,
+            saved_delta,
+            datetime.now(),
+            username,
+        ))
+        conn.commit()
 
 
 # ======================
@@ -12525,6 +13215,55 @@ def get_listings(limit=100, user_id=None):
             """, (limit,))
         rows = c.fetchall()
         return rows
+
+
+@log_errors()
+def search_existing_listings(keywords, limit=100, user_id=None):
+    """Search existing listings for a user by keyword."""
+    if not keywords:
+        return []
+
+    if isinstance(keywords, str):
+        terms = [part.strip() for part in keywords.split(",") if part and part.strip()]
+    else:
+        terms = [str(part).strip() for part in keywords if part and str(part).strip()]
+
+    if not terms:
+        return []
+
+    try:
+        limit_val = int(limit)
+    except (TypeError, ValueError):
+        limit_val = 100
+    limit_val = max(1, min(limit_val, 200))
+
+    normalized_terms = [term.lower() for term in terms]
+    clauses = " OR ".join("LOWER(title) LIKE ?" for _ in normalized_terms)
+
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        where_clauses = []
+        params: List[Any] = []
+
+        if user_id:
+            where_clauses.append("user_id = ?")
+            params.append(user_id)
+
+        where_clauses.append(f"({clauses})")
+        query = """
+            SELECT id, title, price, link, image_url, source, created_at
+            FROM listings
+            WHERE {conditions}
+            ORDER BY created_at DESC
+            LIMIT ?
+        """.format(conditions=" AND ".join(where_clauses))
+
+        params.extend([f"%{term}%" for term in normalized_terms])
+        params.append(limit_val)
+        c.execute(query, params)
+        return c.fetchall()
+
+
 @log_errors()
 def get_listing_by_id(listing_id: int) -> Optional[Dict[str, Any]]:
     """Return a single listing by ID."""

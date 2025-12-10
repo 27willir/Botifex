@@ -432,69 +432,98 @@ def check_ebay(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None)
                 logger.warning("eBay RSS fallback did not return any items after block page")
                 return []
             
-            # Parse with BeautifulSoup for better HTML handling
-            soup = BeautifulSoup(response.text, 'html.parser')
+            # Use robust HTML parsing with fallback parsers
+            from scrapers.common import parse_html_with_fallback
+            try:
+                soup = parse_html_with_fallback(
+                    response.text,
+                    parser_order=('html.parser', 'lxml'),
+                    raw_bytes=response.content,
+                    site_name=SITE_NAME,
+                )
+            except Exception as parse_error:
+                logger.warning(f"eBay: HTML parsing failed, trying BeautifulSoup fallback: {parse_error}")
+                soup = BeautifulSoup(response.text, 'html.parser')
             
-            # eBay uses different HTML structures, try multiple patterns - expanded
-            log_parse_attempt(SITE_NAME, 1, "s-item__wrapper divs")
-            items = soup.find_all('div', class_='s-item__wrapper')
-            if not items:
-                log_parse_attempt(SITE_NAME, 2, "s-item list items")
-                items = soup.find_all('li', class_='s-item')
+            # Helper function for extracting items from listing links
+            def _extract_from_listing_links(soup):
+                """Extract items from listing links as fallback."""
+                link_elements = soup.find_all('a', href=lambda x: x and '/itm/' in str(x) if x else False)
+                if not link_elements:
+                    return []
+                items_found = []
+                seen_links = set()
+                for link_elem in link_elements:
+                    href = link_elem.get('href', '')
+                    if href and href not in seen_links:
+                        seen_links.add(href)
+                        parent = link_elem.find_parent(['li', 'div', 'article', 'section'])
+                        if parent and parent not in items_found:
+                            items_found.append(parent)
+                return items_found
             
-            if not items:
-                log_parse_attempt(SITE_NAME, 3, "generic s-item pattern")
-                items = soup.find_all('div', attrs={'class': lambda x: x and 's-item' in x if x else False})
+            # eBay uses different HTML structures, try multiple patterns - expanded with better fallbacks
+            items = []
+            parse_strategies = [
+                (1, "s-item__wrapper divs", lambda: soup.find_all('div', class_='s-item__wrapper')),
+                (2, "s-item list items", lambda: soup.find_all('li', class_='s-item')),
+                (3, "generic s-item pattern", lambda: soup.find_all('div', attrs={'class': lambda x: x and 's-item' in str(x).lower() if x else False})),
+                (4, "srp-results items", lambda: soup.find_all('div', class_='srp-results') or soup.find_all('ul', class_='srp-results')),
+                (5, "items with data-view", lambda: soup.find_all('div', attrs={'data-view': lambda x: x and 'mi:1686' in str(x) if x else False})),
+                (6, "ul.srp-results direct children", lambda: [ul for ul in soup.find_all('ul', class_='srp-results') if ul][0].find_all('li', recursive=False) if soup.find_all('ul', class_='srp-results') else []),
+                (7, "div with data-view='mi:1686'", lambda: soup.find_all('div', attrs={'data-view': 'mi:1686'})),
+                (8, "links with href containing /itm/", lambda: _extract_from_listing_links(soup)),
+            ]
             
-            if not items:
-                log_parse_attempt(SITE_NAME, 4, "srp-results items")
-                items = soup.find_all('div', class_='srp-results') or soup.find_all('ul', class_='srp-results')
-                if items:
-                    # Extract items from results container
-                    items = items[0].find_all('li', class_='s-item') if items else []
-            
-            if not items:
-                log_parse_attempt(SITE_NAME, 5, "items with data-view")
-                items = soup.find_all('div', attrs={'data-view': lambda x: x and 'mi:1686' in str(x) if x else False})
-            
-            if not items:
-                log_parse_attempt(SITE_NAME, 6, "links with href containing /itm/")
-                # Try to extract from listing links directly
-                link_elements = soup.find_all('a', href=lambda x: x and '/itm/' in x if x else False)
-                if link_elements:
-                    # Create pseudo-items from parent containers
-                    items = []
-                    seen_links = set()
-                    for link_elem in link_elements:
-                        href = link_elem.get('href', '')
-                        if href and href not in seen_links:
-                            seen_links.add(href)
-                            parent = link_elem.find_parent(['li', 'div'])
-                            if parent and parent not in items:
-                                items.append(parent)
+            for method_num, description, strategy in parse_strategies:
+                log_parse_attempt(SITE_NAME, method_num, description)
+                try:
+                    items = strategy()
+                    if items:
+                        logger.debug(f"eBay: Found {len(items)} items using method {method_num} ({description})")
+                        break
+                except Exception as e:
+                    logger.debug(f"eBay: Method {method_num} failed: {e}")
+                    continue
 
+            # Try JSON-LD extraction if HTML parsing failed
             json_items = []
             json_ld_items = []
             if not items:
-                log_parse_attempt(SITE_NAME, 7, "JSON-LD itemListElement")
+                log_parse_attempt(SITE_NAME, 9, "JSON-LD itemListElement")
                 json_items = [entry for entry in _parse_json_listings(soup) if entry.get('title') and entry.get('link')]
                 if not json_items:
+                    log_parse_attempt(SITE_NAME, 10, "Common JSON-LD extractor")
                     json_ld_items = extract_json_ld_items(response.text)
                     if not json_ld_items:
-                        # Log HTML snippet for debugging
-                        html_snippet = response.text[:2000].replace('\n', ' ').replace('\r', ' ')
-                        logger.debug(f"eBay HTML snippet (first 2000 chars): {html_snippet}")
-                        # Check for common class names
-                        import re
-                        found_classes = set()
-                        for match in re.findall(r'class=["\']([^"\']+)["\']', response.text[:5000]):
-                            found_classes.update(match.split())
-                        logger.debug(f"eBay found class names: {sorted(found_classes)[:20]}")
-                        log_selector_failure(SITE_NAME, "combined selectors", "s-item patterns", "listing items")
-                        logger.warning("eBay: No items found with HTML or JSON-LD selectors")
-                        metrics.success = True
-                        metrics.listings_found = 0
-                        return []
+                        # Try extracting from script tags with inline JSON
+                        log_parse_attempt(SITE_NAME, 11, "Inline JSON in script tags")
+                        for script in soup.find_all('script', type='application/json'):
+                            try:
+                                data = json.loads(script.string)
+                                if isinstance(data, dict):
+                                    items_data = data.get('items') or data.get('results') or data.get('listings', [])
+                                    if items_data:
+                                        json_items.extend([item for item in items_data if isinstance(item, dict) and item.get('title')])
+                                        break
+                            except (json.JSONDecodeError, TypeError, AttributeError):
+                                continue
+                        
+                        if not json_items and not json_ld_items:
+                            # Log HTML snippet for debugging
+                            html_snippet = response.text[:2000].replace('\n', ' ').replace('\r', ' ')
+                            logger.debug(f"eBay HTML snippet (first 2000 chars): {html_snippet}")
+                            # Check for common class names
+                            import re
+                            found_classes = set()
+                            for match in re.findall(r'class=["\']([^"\']+)["\']', response.text[:5000]):
+                                found_classes.update(match.split())
+                            logger.debug(f"eBay found class names: {sorted(found_classes)[:20]}")
+                            log_selector_failure(SITE_NAME, "combined selectors", "s-item patterns + JSON-LD", "listing items")
+                            logger.warning("eBay: No items found with HTML or JSON-LD selectors")
+                            metrics.success = True
+                            metrics.listings_found = 0
+                            return []
             
             logger.debug(f"Found {len(items) if items else len(json_items) if json_items else len(json_ld_items)} eBay items to process")
             
@@ -581,23 +610,45 @@ def check_ebay(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None)
                         if not link:
                             continue
 
-                        price_elem = (
-                            item.find('span', class_='s-item__price') or
-                            item.find('span', attrs={'class': lambda x: x and 'price' in x.lower() if x else False})
-                        )
-                        price_val = _parse_price_value(price_elem.get_text(strip=True)) if price_elem else None
-
+                        # Enhanced price extraction with multiple fallbacks
+                        price_val = None
+                        price_selectors = [
+                            item.find('span', class_='s-item__price'),
+                            item.find('span', class_='s-item__price--last'),
+                            item.find('span', attrs={'class': lambda x: x and 'price' in str(x).lower() if x else False}),
+                            item.find('div', attrs={'class': lambda x: x and 'price' in str(x).lower() if x else False}),
+                        ]
+                        for price_elem in price_selectors:
+                            if price_elem:
+                                price_text = price_elem.get_text(strip=True)
+                                price_val = _parse_price_value(price_text)
+                                if price_val is not None:
+                                    break
+                        
+                        # Enhanced image extraction with multiple fallbacks
                         image_url = None
-                        img_elem = item.find('img', class_='s-item__image-img') or item.find('img')
-                        if img_elem:
-                            image_url = img_elem.get('src') or img_elem.get('data-src')
-                            if image_url and image_url.startswith('//'):
-                                image_url = f"https:{image_url}"
-                            if image_url and image_url.startswith('http'):
-                                if any(token in image_url for token in ('s-l64', 's-l50', 'data:')):
-                                    image_url = img_elem.get('data-src') or image_url
-                                    if image_url and image_url.startswith('//'):
+                        img_selectors = [
+                            item.find('img', class_='s-item__image-img'),
+                            item.find('img', attrs={'data-src': True}),
+                            item.find('img', src=lambda x: x and 'ebayimg' in str(x) if x else False),
+                            item.find('img'),
+                        ]
+                        for img_elem in img_selectors:
+                            if img_elem:
+                                image_url = (img_elem.get('data-src') or 
+                                            img_elem.get('data-lazy') or
+                                            img_elem.get('src') or
+                                            img_elem.get('data-original'))
+                                if image_url:
+                                    if image_url.startswith('//'):
                                         image_url = f"https:{image_url}"
+                                    elif not image_url.startswith('http'):
+                                        continue
+                                    # Skip placeholder images
+                                    if any(token in image_url.lower() for token in ('s-l64', 's-l50', 'data:', 'placeholder', '1x1')):
+                                        continue
+                                    # Found valid image
+                                    break
 
                         handle_candidate(title, link, price_val, image_url)
                     except Exception as e:

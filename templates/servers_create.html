@@ -217,6 +217,73 @@
         box-shadow: 0 10px 26px rgba(59, 130, 246, 0.22);
     }
 
+    .btn.small {
+        padding: 8px 18px;
+        font-size: 0.85rem;
+    }
+
+    .media-upload-group {
+        display: grid;
+        gap: 12px;
+    }
+
+    .upload-dropzone {
+        border: 2px dashed rgba(59, 130, 246, 0.45);
+        border-radius: 16px;
+        background: rgba(15, 23, 42, 0.6);
+        padding: 24px 20px;
+        min-height: 160px;
+        display: grid;
+        gap: 12px;
+        align-items: center;
+        justify-items: center;
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+    }
+
+    .upload-dropzone.dragover {
+        border-color: rgba(96, 165, 250, 0.9);
+        background: rgba(30, 64, 175, 0.45);
+        transform: scale(1.01);
+    }
+
+    .upload-dropzone img {
+        max-width: 100%;
+        max-height: 180px;
+        border-radius: 12px;
+        box-shadow: 0 16px 32px rgba(37, 99, 235, 0.28);
+        display: none;
+    }
+
+    .upload-instructions {
+        color: #9ca3af;
+        font-size: 0.95rem;
+        line-height: 1.4;
+    }
+
+    .upload-status {
+        display: none;
+        font-size: 0.9rem;
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        background: rgba(37, 99, 235, 0.18);
+        color: #bae6fd;
+    }
+
+    .upload-status.success {
+        border-color: rgba(16, 185, 129, 0.4);
+        background: rgba(22, 163, 74, 0.2);
+        color: #bbf7d0;
+    }
+
+    .upload-status.error {
+        border-color: rgba(239, 68, 68, 0.45);
+        background: rgba(190, 24, 93, 0.2);
+        color: #fecaca;
+    }
+
     @media (max-width: 720px) {
         form {
             padding: 24px;
@@ -307,15 +374,32 @@
                 <i class="fas fa-image"></i>
                 <span>Branding</span>
             </div>
+            <div class="upload-status" id="serverMediaStatus" role="status" aria-live="polite"></div>
             <div class="field-group">
-                <label for="icon_url">Icon URL</label>
-                <input id="icon_url" name="icon_url" type="text" value="{{ form_data.get('icon_url', '') }}" placeholder="https://cdn.example.com/server-icon.png">
-                <p class="field-hint">Square image works best (min 256×256). Use an absolute URL.</p>
+                <label for="icon_url">Server Icon</label>
+                <div class="media-upload-group">
+                    <div class="upload-dropzone" id="iconDropzone">
+                        <img id="iconPreview" alt="Server icon preview" style="display:none; width:96px; height:96px; object-fit:cover;">
+                        <div class="upload-instructions">Drag & Drop an icon image (PNG, JPG, WEBP) or click Browse.</div>
+                        <button type="button" class="btn btn-secondary small" id="iconBrowseBtn"><i class="fas fa-folder-open"></i> Browse</button>
+                        <input type="file" id="iconFileInput" accept="image/*" hidden>
+                    </div>
+                    <input id="icon_url" name="icon_url" type="text" value="{{ form_data.get('icon_url', '') }}" placeholder="https://cdn.example.com/server-icon.png">
+                    <p class="field-hint">Square image works best (min 256x256). Paste a URL or upload directly.</p>
+                </div>
             </div>
             <div class="field-group">
-                <label for="banner_url">Banner URL</label>
-                <input id="banner_url" name="banner_url" type="text" value="{{ form_data.get('banner_url', '') }}" placeholder="https://cdn.example.com/server-banner.jpg">
-                <p class="field-hint">Displayed on server headers (1600×400 recommended).</p>
+                <label for="banner_url">Banner Image</label>
+                <div class="media-upload-group">
+                    <div class="upload-dropzone" id="bannerDropzone" style="min-height: 200px;">
+                        <img id="bannerPreview" alt="Server banner preview" style="display:none; width:100%; max-height:200px; object-fit:cover;">
+                        <div class="upload-instructions">Drag & Drop a banner image or click Browse.</div>
+                        <button type="button" class="btn btn-secondary small" id="bannerBrowseBtn"><i class="fas fa-folder-open"></i> Browse</button>
+                        <input type="file" id="bannerFileInput" accept="image/*" hidden>
+                    </div>
+                    <input id="banner_url" name="banner_url" type="text" value="{{ form_data.get('banner_url', '') }}" placeholder="https://cdn.example.com/server-banner.jpg">
+                    <p class="field-hint">Displayed on server headers (1600x400 recommended). Paste a URL or upload directly.</p>
+                </div>
             </div>
         </section>
 
@@ -346,5 +430,173 @@
         </div>
     </form>
 </main>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const csrfTokenInput = document.querySelector('input[name="csrf_token"]');
+    const csrfToken = csrfTokenInput ? csrfTokenInput.value : null;
+
+    const statusMessage = document.getElementById('serverMediaStatus');
+    const iconDropzone = document.getElementById('iconDropzone');
+    const iconFileInput = document.getElementById('iconFileInput');
+    const iconBrowseBtn = document.getElementById('iconBrowseBtn');
+    const iconPreview = document.getElementById('iconPreview');
+    const iconUrlInput = document.getElementById('icon_url');
+    const bannerDropzone = document.getElementById('bannerDropzone');
+    const bannerFileInput = document.getElementById('bannerFileInput');
+    const bannerBrowseBtn = document.getElementById('bannerBrowseBtn');
+    const bannerPreview = document.getElementById('bannerPreview');
+    const bannerUrlInput = document.getElementById('banner_url');
+
+    let statusTimeout = null;
+
+    function setStatus(message, variant) {
+        if (!statusMessage) {
+            return;
+        }
+        if (statusTimeout) {
+            clearTimeout(statusTimeout);
+            statusTimeout = null;
+        }
+        if (!message) {
+            statusMessage.textContent = '';
+            statusMessage.classList.remove('success', 'error');
+            statusMessage.style.display = 'none';
+            return;
+        }
+        statusMessage.textContent = message;
+        statusMessage.classList.remove('success', 'error');
+        if (variant === 'success') {
+            statusMessage.classList.add('success');
+        } else if (variant === 'error') {
+            statusMessage.classList.add('error');
+        }
+        statusMessage.style.display = 'block';
+
+        if (variant && variant !== 'info') {
+            statusTimeout = window.setTimeout(() => {
+                statusMessage.style.display = 'none';
+            }, variant === 'error' ? 6000 : 3500);
+        }
+    }
+
+    function updateMediaPreview(kind, url) {
+        if (kind === 'icon' && iconPreview) {
+            if (url) {
+                iconPreview.src = url;
+                iconPreview.style.display = 'block';
+            } else {
+                iconPreview.src = '';
+                iconPreview.style.display = 'none';
+            }
+        }
+        if (kind === 'banner' && bannerPreview) {
+            if (url) {
+                bannerPreview.src = url;
+                bannerPreview.style.display = 'block';
+            } else {
+                bannerPreview.src = '';
+                bannerPreview.style.display = 'none';
+            }
+        }
+    }
+
+    async function uploadServerMedia(kind, file) {
+        if (!file) {
+            return;
+        }
+        const formData = new FormData();
+        formData.append(kind, file);
+        const headers = csrfToken ? { 'X-CSRFToken': csrfToken } : {};
+
+        setStatus('Uploading image...', 'info');
+
+        try {
+            const response = await fetch('/api/servers/media/upload', {
+                method: 'POST',
+                headers,
+                body: formData,
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                const errorMessage = data.error || (Array.isArray(data.errors) ? data.errors.join(', ') : null) || 'Upload failed.';
+                throw new Error(errorMessage);
+            }
+            if (kind === 'icon' && data.icon_url && iconUrlInput) {
+                iconUrlInput.value = data.icon_url;
+                updateMediaPreview('icon', data.icon_url);
+            }
+            if (kind === 'banner' && data.banner_url && bannerUrlInput) {
+                bannerUrlInput.value = data.banner_url;
+                updateMediaPreview('banner', data.banner_url);
+            }
+            if (Array.isArray(data.warnings) && data.warnings.length) {
+                setStatus(data.warnings.join(', '), 'error');
+            } else {
+                setStatus('Image uploaded successfully.', 'success');
+            }
+        } catch (error) {
+            const message = error && error.message ? error.message : 'Upload failed.';
+            setStatus(message, 'error');
+        }
+    }
+
+    function attachDropzone(dropzone, fileInput, kind) {
+        if (!dropzone || !fileInput) {
+            return;
+        }
+        dropzone.addEventListener('dragover', event => {
+            event.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+        dropzone.addEventListener('drop', event => {
+            event.preventDefault();
+            dropzone.classList.remove('dragover');
+            const file = event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files[0] : null;
+            if (file) {
+                uploadServerMedia(kind, file);
+                fileInput.value = '';
+            }
+        });
+        dropzone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files && fileInput.files[0];
+            if (file) {
+                uploadServerMedia(kind, file);
+            }
+        });
+    }
+
+    if (iconBrowseBtn && iconFileInput) {
+        iconBrowseBtn.addEventListener('click', event => {
+            event.preventDefault();
+            iconFileInput.click();
+        });
+    }
+    if (bannerBrowseBtn && bannerFileInput) {
+        bannerBrowseBtn.addEventListener('click', event => {
+            event.preventDefault();
+            bannerFileInput.click();
+        });
+    }
+
+    attachDropzone(iconDropzone, iconFileInput, 'icon');
+    attachDropzone(bannerDropzone, bannerFileInput, 'banner');
+
+    const iconUrl = iconUrlInput && typeof iconUrlInput.value === 'string' ? iconUrlInput.value.trim() : '';
+    const bannerUrl = bannerUrlInput && typeof bannerUrlInput.value === 'string' ? bannerUrlInput.value.trim() : '';
+
+    if (iconUrl) {
+        updateMediaPreview('icon', iconUrl);
+    }
+    if (bannerUrl) {
+        updateMediaPreview('banner', bannerUrl);
+    }
+});
+</script>
 {% endblock %}
 

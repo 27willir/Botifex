@@ -1045,6 +1045,15 @@
         <button type="button" onclick="saveCurrentSearch()" style="margin-left: 10px; background: linear-gradient(135deg, #28a745, #20c997); border: none; padding: 10px 20px; border-radius: 8px; color: white; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.3s;">
             <i class="fas fa-save"></i> Save as Search
         </button>
+        {% if user_tier in ['standard', 'pro'] %}
+        <button type="button" id="searchExistingButton" onclick="searchExistingListings()" style="margin-left: 10px; background: linear-gradient(135deg, #17a2b8, #0dcaf0); border: none; padding: 10px 20px; border-radius: 8px; color: white; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.3s;">
+            <i class="fas fa-search"></i> Search Existing Listings
+        </button>
+        {% else %}
+        <button type="button" onclick="window.location.href='/subscription/plans'" title="Upgrade to Standard to search existing listings" style="margin-left: 10px; background: linear-gradient(135deg, #6c757d, #868e96); border: none; padding: 10px 20px; border-radius: 8px; color: white; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.3s;">
+            <i class="fas fa-search"></i> Search Existing Listings
+        </button>
+        {% endif %}
     </form>
 
     <!-- Saved Searches Section -->
@@ -1187,6 +1196,11 @@
             });
         }
 
+        const canSearchExistingListings = {{ (user_tier in ['standard', 'pro']) | tojson }};
+        const manualSearchResetMs = 60000;
+        let manualSearchActive = false;
+        let manualSearchResetTimer = null;
+
         // Store interval IDs for cleanup
         let statusInterval = null;
         let listingsInterval = null;
@@ -1294,9 +1308,118 @@
                 });
         }
 
+        function renderListingsTable(listings, options = {}) {
+            const {
+                highlightNew = true,
+                emptyMessage = 'No listings available.'
+            } = options;
+
+            const tbody = document.getElementById("listings_table");
+            if (!tbody) {
+                console.warn('Listings table not found');
+                return;
+            }
+
+            tbody.innerHTML = "";
+
+            if (!Array.isArray(listings) || listings.length === 0) {
+                const emptyRow = document.createElement("tr");
+                const emptyCell = document.createElement("td");
+                emptyCell.colSpan = 7;
+                emptyCell.textContent = emptyMessage;
+                emptyCell.style.textAlign = "center";
+                emptyCell.style.color = "rgba(255, 255, 255, 0.6)";
+                emptyRow.appendChild(emptyCell);
+                tbody.appendChild(emptyRow);
+                return;
+            }
+
+            listings.forEach(l => {
+                if (!Array.isArray(l) || l.length < 7) {
+                    console.warn('Invalid listing data:', l);
+                    return;
+                }
+
+                const [listingId, title, price, link, imageUrl, source, createdAt] = l;
+
+                const tr = document.createElement("tr");
+                tr.setAttribute('data-listing-id', listingId || '');
+
+                const titleCell = document.createElement("td");
+                titleCell.textContent = title || '';
+
+                const priceCell = document.createElement("td");
+                priceCell.textContent = price || '';
+
+                const sourceCell = document.createElement("td");
+                sourceCell.textContent = source || '';
+
+                const linkCell = document.createElement("td");
+                if (link) {
+                    const linkAnchor = document.createElement("a");
+                    linkAnchor.href = link;
+                    linkAnchor.textContent = "Link";
+                    linkAnchor.target = "_blank";
+                    linkAnchor.rel = "noopener noreferrer";
+                    linkCell.appendChild(linkAnchor);
+                }
+
+                const imageCell = document.createElement("td");
+                if (imageUrl) {
+                    const img = document.createElement("img");
+                    img.src = imageUrl;
+                    img.width = 80;
+                    img.alt = "Listing image";
+                    img.onerror = function() { this.style.display = 'none'; };
+                    imageCell.appendChild(img);
+                }
+
+                const dateCell = document.createElement("td");
+                dateCell.textContent = createdAt || '';
+
+                const actionsCell = document.createElement("td");
+                const favoriteBtn = document.createElement("button");
+                favoriteBtn.className = "favorite-btn";
+                favoriteBtn.title = "Add to Favorites";
+                favoriteBtn.onclick = function() {
+                    toggleFavorite(listingId, title, price, link, imageUrl, source);
+                };
+                const icon = document.createElement("i");
+                icon.className = "far fa-star";
+                favoriteBtn.appendChild(icon);
+                actionsCell.appendChild(favoriteBtn);
+
+                tr.appendChild(titleCell);
+                tr.appendChild(priceCell);
+                tr.appendChild(sourceCell);
+                tr.appendChild(linkCell);
+                tr.appendChild(imageCell);
+                tr.appendChild(dateCell);
+                tr.appendChild(actionsCell);
+
+                if (link) {
+                    const alreadyKnown = knownListings.has(link);
+                    if (highlightNew && !alreadyKnown) {
+                        tr.style.backgroundColor = "#00ff9944";
+                        setTimeout(() => {
+                            if (tr.style) {
+                                tr.style.backgroundColor = "";
+                            }
+                        }, 3000);
+                    }
+                    knownListings.add(link);
+                }
+
+                tbody.appendChild(tr);
+            });
+        }
+
         // Function to update listings
         function updateListings() {
-            // Add timeout to prevent hanging requests
+            if (manualSearchActive) {
+                return;
+            }
+
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
             
@@ -1312,99 +1435,10 @@
                     if (!data || !Array.isArray(data.listings)) {
                         throw new Error('Invalid listings data');
                     }
-                    
-                    const tbody = document.getElementById("listings_table");
-                    if (!tbody) {
-                        console.warn('Listings table not found');
-                        return;
-                    }
-                    
-                    tbody.innerHTML = ""; // clear current rows
-                    
-                    data.listings.forEach(l => {
-                        if (!Array.isArray(l) || l.length < 7) {
-                            console.warn('Invalid listing data:', l);
-                            return;
-                        }
-                        
-                        const listingId = l[0] || '';
-                        const title = l[1] || '';
-                        const price = l[2] || '';
-                        const link = l[3] || '';
-                        const imageUrl = l[4] || '';
-                        const source = l[5] || '';
-                        const createdAt = l[6] || '';
-                        
-                        const tr = document.createElement("tr");
-                        tr.setAttribute('data-listing-id', listingId);
-                        
-                        // Create cells with proper escaping
-                        const titleCell = document.createElement("td");
-                        titleCell.textContent = title;
-                        
-                        const priceCell = document.createElement("td");
-                        priceCell.textContent = price;
-                        
-                        const sourceCell = document.createElement("td");
-                        sourceCell.textContent = source;
-                        
-                        const linkCell = document.createElement("td");
-                        if (link) {
-                            const linkAnchor = document.createElement("a");
-                            linkAnchor.href = link;
-                            linkAnchor.textContent = "Link";
-                            linkAnchor.target = "_blank";
-                            linkAnchor.rel = "noopener noreferrer";
-                            linkCell.appendChild(linkAnchor);
-                        }
-                        
-                        const imageCell = document.createElement("td");
-                        if (imageUrl) {
-                            const img = document.createElement("img");
-                            img.src = imageUrl;
-                            img.width = 80;
-                            img.alt = "Listing image";
-                            img.onerror = function() { this.style.display = 'none'; };
-                            imageCell.appendChild(img);
-                        }
-                        
-                        const dateCell = document.createElement("td");
-                        dateCell.textContent = createdAt;
-                        
-                        // Actions cell with favorite button
-                        const actionsCell = document.createElement("td");
-                        const favoriteBtn = document.createElement("button");
-                        favoriteBtn.className = "favorite-btn";
-                        favoriteBtn.title = "Add to Favorites";
-                        favoriteBtn.onclick = function() {
-                            toggleFavorite(listingId, title, price, link, imageUrl, source);
-                        };
-                        const icon = document.createElement("i");
-                        icon.className = "far fa-star";
-                        favoriteBtn.appendChild(icon);
-                        actionsCell.appendChild(favoriteBtn);
-                        
-                        // Append all cells
-                        tr.appendChild(titleCell);
-                        tr.appendChild(priceCell);
-                        tr.appendChild(sourceCell);
-                        tr.appendChild(linkCell);
-                        tr.appendChild(imageCell);
-                        tr.appendChild(dateCell);
-                        tr.appendChild(actionsCell);
-                        
-                        // Highlight new listings
-                        if (link && !knownListings.has(link)) {
-                            tr.style.backgroundColor = "#00ff9944";
-                            setTimeout(() => {
-                                if (tr.style) {
-                                    tr.style.backgroundColor = "";
-                                }
-                            }, 3000);
-                            knownListings.add(link);
-                        }
-                        
-                        tbody.appendChild(tr);
+
+                    renderListingsTable(data.listings, {
+                        highlightNew: true,
+                        emptyMessage: 'No listings yet'
                     });
                 })
                 .catch(err => {
@@ -1416,6 +1450,81 @@
                     }
                     // Don't show notification for every failed update
                 });
+        }
+
+        async function searchExistingListings(options = {}) {
+            if (!canSearchExistingListings) {
+                showNotification('Upgrade to the Standard plan to search existing listings.', 'warning');
+                return null;
+            }
+
+            const button = document.getElementById('searchExistingButton');
+            if (button) {
+                button.disabled = true;
+            }
+
+            try {
+                const hasOverride = Object.prototype.hasOwnProperty.call(options, 'keywords');
+                const overrideKeywords = hasOverride ? options.keywords : document.querySelector('input[name="keywords"]').value;
+                const keywords = (overrideKeywords || '').trim();
+
+                if (!keywords) {
+                    showNotification('Enter keywords before searching existing listings.', 'warning');
+                    return null;
+                }
+
+                const params = new URLSearchParams();
+                params.set('keywords', keywords);
+                if (options.limit) {
+                    params.set('limit', options.limit);
+                }
+
+                const response = await fetch(`/api/listings/search?${params.toString()}`);
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    const message = data && data.error ? data.error : 'Failed to search listings';
+                    throw new Error(message);
+                }
+
+                renderListingsTable(data.listings || [], {
+                    highlightNew: false,
+                    emptyMessage: 'No existing listings matched your keywords.'
+                });
+
+                manualSearchActive = true;
+                if (manualSearchResetTimer) {
+                    clearTimeout(manualSearchResetTimer);
+                }
+                manualSearchResetTimer = setTimeout(() => {
+                    manualSearchActive = false;
+                    manualSearchResetTimer = null;
+                    updateListings();
+                }, manualSearchResetMs);
+
+                if (!options.suppressSuccess) {
+                    const total = typeof data.count === 'number'
+                        ? data.count
+                        : (Array.isArray(data.listings) ? data.listings.length : 0);
+                    showNotification(
+                        `Found ${total} existing listing${total === 1 ? '' : 's'}. Auto-refresh paused for ${manualSearchResetMs / 1000}s.`,
+                        'success'
+                    );
+                }
+
+                return data;
+            } catch (error) {
+                console.error('Error searching listings:', error);
+                showNotification(error.message || 'Failed to search existing listings', 'error');
+                if (!manualSearchResetTimer) {
+                    manualSearchActive = false;
+                }
+                return null;
+            } finally {
+                if (button) {
+                    button.disabled = false;
+                }
+            }
         }
 
         // Utility function to escape HTML
@@ -2007,8 +2116,28 @@
                     if (search.max_price) document.querySelector('input[name="max_price"]').value = search.max_price;
                     if (search.location) document.querySelector('input[name="location"]').value = search.location;
                     if (search.radius) document.querySelector('input[name="radius"]').value = search.radius;
-                    
-                    showNotification(`Loaded search: ${search.name}`, 'success');
+
+                    const activeKeywords = document.querySelector('input[name="keywords"]').value;
+                    let searchResult = null;
+                    if (canSearchExistingListings && activeKeywords) {
+                        searchResult = await searchExistingListings({
+                            keywords: activeKeywords,
+                            suppressSuccess: true
+                        });
+                    }
+
+                    let matchSuffix = '';
+                    if (searchResult) {
+                        const matchCount = typeof searchResult.count === 'number'
+                            ? searchResult.count
+                            : (Array.isArray(searchResult.listings) ? searchResult.listings.length : null);
+                        if (matchCount !== null) {
+                            matchSuffix = ` (${matchCount} match${matchCount === 1 ? '' : 'es'})`;
+                        }
+                    }
+
+                    const pauseInfo = searchResult ? ` Auto-refresh paused ${manualSearchResetMs / 1000}s.` : '';
+                    showNotification(`Loaded search: ${search.name}${matchSuffix}${pauseInfo}`, 'success');
                 }
             } catch (error) {
                 console.error('Error running saved search:', error);
@@ -2035,6 +2164,11 @@
                 clearInterval(listingsInterval);
                 listingsInterval = null;
             }
+            if (manualSearchResetTimer) {
+                clearTimeout(manualSearchResetTimer);
+                manualSearchResetTimer = null;
+            }
+            manualSearchActive = false;
         }
 
         // Start polling when page loads

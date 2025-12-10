@@ -1,0 +1,184 @@
+{% extends "marketing_base.html" %}
+{% block title %}Botifex Overview | Consumer Marketplace Search Reinvented{% endblock %}
+{% block meta_description %}Botifex provides a consolidated marketplace search experience for consumers with unified alerts, analytics, and payment-first onboarding. Explore the full overview before you activate your plan.{% endblock %}
+{% block page_styles %}
+    .overview-hero {
+        text-align: center;
+        padding-top: 6.5rem;
+    }
+
+    .overview-hero h1 {
+        font-size: clamp(2.6rem, 4vw, 3.8rem);
+        font-weight: 800;
+        margin-bottom: 1rem;
+    }
+
+    .overview-hero p {
+        color: rgba(255, 255, 255, 0.75);
+        max-width: 780px;
+        margin: 0 auto 2.2rem;
+        font-size: 1.08rem;
+    }
+
+    .pill-list {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.8rem;
+        margin-bottom: 2.6rem;
+    }
+
+    .pill {
+        padding: 0.6rem 1.2rem;
+        border-radius: 999px;
+        background: rgba(0, 191, 255, 0.14);
+        border: 1px solid rgba(0, 191, 255, 0.32);
+        color: #00cdfb;
+        font-weight: 600;
+    }
+
+    .split-layout {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 2.4rem;
+        align-items: start;
+        margin-top: 3rem;
+    }
+
+    .panel {
+        background: rgba(26, 26, 46, 0.82);
+        border-radius: 18px;
+        padding: 2.6rem;
+        border: 1px solid rgba(0, 191, 255, 0.2);
+    }
+
+    .panel h2 {
+        font-size: 2rem;
+        margin-bottom: 1rem;
+    }
+
+    .panel p {
+        color: rgba(255, 255, 255, 0.76);
+        margin-bottom: 1.2rem;
+    }
+
+    .mini-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1.6rem;
+        margin-top: 2.4rem;
+    }
+
+    .mini-card {
+        background: rgba(18, 22, 39, 0.8);
+        border-radius: 14px;
+        padding: 1.8rem;
+        border: 1px solid rgba(0, 191, 255, 0.18);
+    }
+
+    .mini-card h3 {
+        font-size: 1.3rem;
+        margin-bottom: 0.8rem;
+    }
+
+    .callout {
+        background: rgba(0, 191, 255, 0.12);
+        border: 1px solid rgba(0, 191, 255, 0.3);
+        border-radius: 20px;
+        padding: 2.4rem;
+        margin-top: 3rem;
+        text-align: center;
+    }
+{% endblock %}
+
+{% block content %}
+<section class="overview-hero">
+    <h1>Understand Botifex in Minutes</h1>
+    <p>
+        Consumers use Botifex to replace manual marketplace refreshes with a single search hub, immediate alerts, and smarter decision data.
+        The experience is tuned for buyers who want speed and clarity without enterprise baggage.
+    </p>
+    <div class="pill-list">
+        <span class="pill">Payment-first onboarding</span>
+        <span class="pill">Unified search and alerting</span>
+        <span class="pill">Deal intelligence</span>
+        <span class="pill">Consumer-grade simplicity</span>
+    </div>
+    <div class="cta-stack">
+        <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+        <a class="secondary-btn" href="{{ url_for('marketing_how_it_works') }}">Review How It Works</a>
+    </div>
+</section>
+
+<section>
+    <div class="split-layout">
+        <div class="panel">
+            <h2>From Search to Decision</h2>
+            <p>
+                Botifex streams marketplace listings into a single feed while preserving the filters shoppers care about most—
+                keywords, price bands, distance, and listing freshness. Alerts arrive instantly, and daily digests recap what changed while you were offline.
+            </p>
+            <p>
+                Every major heading on this page links to deeper content. When you see <a href="{{ url_for('marketing_how_it_works') }}">How It Works</a>,
+                <a href="{{ url_for('marketing_pricing') }}">Pricing</a>, <a href="{{ url_for('marketing_roadmap') }}">Roadmap</a>,
+                <a href="{{ url_for('marketing_about') }}">About</a>, or <a href="{{ url_for('marketing_contact') }}">Contact</a>,
+                you can jump directly to the expanded subpage.
+            </p>
+            <a class="tertiary-link" href="{{ url_for('marketing_pricing') }}">See how plans differ →</a>
+        </div>
+        <div class="panel">
+            <h2>Why Payment First?</h2>
+            <p>
+                The fastest consumers want activation, not lengthy account forms. Stripe checkout captures your plan choice securely.
+                Immediately after payment you complete a streamlined account creation flow with your first name, optional last name, phone number,
+                ZIP code, email, and password—no duplicate billing steps. It’s the quickest path to live alerts.
+            </p>
+            <a class="primary-btn inline-cta" href="{{ url_for('start_plan') }}">Go to the payment-first flow</a>
+        </div>
+    </div>
+</section>
+
+<section style="background: rgba(0, 123, 255, 0.06);">
+    <div class="section-header">
+        <h2>Core Experience Pillars</h2>
+        <p>Every pillar keeps consumers ahead of the competition on popular marketplaces.</p>
+    </div>
+    <div class="mini-grid">
+        <div class="mini-card">
+            <h3>Discovery</h3>
+            <p>Unify searches across all supported marketplaces with reusable filters and keyword groups.</p>
+            <a class="tertiary-link" href="{{ url_for('marketing_how_it_works') }}">See search workflow →</a>
+        </div>
+        <div class="mini-card">
+            <h3>Alerts</h3>
+            <p>Choose real-time inbox alerts, SMS nudges, or quiet-mode digests so you’re notified on your terms.</p>
+            <a class="tertiary-link" href="{{ url_for('marketing_pricing') }}">View which plans include SMS →</a>
+        </div>
+        <div class="mini-card">
+            <h3>Decisions</h3>
+            <p>Use pricing trends, deal velocity, and saved notes to know when to buy and what to skip.</p>
+            <a class="tertiary-link" href="{{ url_for('marketing_roadmap') }}">See upcoming analytics →</a>
+        </div>
+        <div class="mini-card">
+            <h3>Organization</h3>
+            <p>Favorites, saved searches, and cross-platform management keep your wish lists tidy.</p>
+            <a class="tertiary-link" href="{{ url_for('marketing_about') }}">Read why we built it this way →</a>
+        </div>
+    </div>
+</section>
+
+<section>
+    <div class="callout">
+        <h2 style="font-size: 2.1rem; margin-bottom: 1rem;">Activate in Minutes</h2>
+        <p style="color: rgba(255,255,255,0.74); max-width: 640px; margin: 0 auto 2rem;">
+            Pick your plan, pay securely, then complete your account. Your <a href="{{ url_for('marketing_contact') }}">Contact</a>
+            questions are always welcome, and the <a href="{{ url_for('marketing_roadmap') }}">Roadmap</a> shows what’s next.
+        </p>
+        <div class="cta-stack" style="justify-content: center;">
+            <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+            <a class="secondary-btn" href="{{ url_for('marketing_how_it_works') }}">Preview the step-by-step flow</a>
+        </div>
+    </div>
+</section>
+{% endblock %}
+

@@ -1,0 +1,207 @@
+{% extends "marketing_base.html" %}
+{% block title %}Botifex Pricing | Pick Your Consumer Plan{% endblock %}
+{% block meta_description %}Choose between Free, Standard, and Pro Botifex plans. Pricing includes payment-first signup, marketplace coverage, refresh speeds, and alert features tailored for consumers.{% endblock %}
+{% block page_styles %}
+    .pricing-hero {
+        padding-top: 6.5rem;
+        text-align: center;
+    }
+
+    .pricing-table {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+        gap: 2.2rem;
+        margin-top: 3rem;
+    }
+
+    .plan-card {
+        background: rgba(26, 26, 46, 0.82);
+        border-radius: 22px;
+        padding: 3rem 2.4rem;
+        border: 1px solid rgba(0, 191, 255, 0.22);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .plan-card.featured {
+        border-color: #00cdfb;
+        box-shadow: 0 24px 54px rgba(0, 191, 255, 0.32);
+    }
+
+    .plan-card h2 {
+        font-size: 2.1rem;
+        margin-bottom: 0.4rem;
+    }
+
+    .price {
+        font-size: 3.4rem;
+        font-weight: 900;
+        margin-bottom: 1.2rem;
+    }
+
+    .plan-card ul {
+        list-style: none;
+        margin: 1.8rem 0 2.4rem;
+    }
+
+    .plan-card li {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        color: rgba(255, 255, 255, 0.78);
+        margin-bottom: 0.8rem;
+    }
+
+    .plan-card li i {
+        color: #00ff9d;
+    }
+
+    .comparison-table {
+        margin-top: 4rem;
+        overflow-x: auto;
+        border-radius: 16px;
+        border: 1px solid rgba(0, 191, 255, 0.22);
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        background: rgba(18, 22, 38, 0.82);
+    }
+
+    th, td {
+        padding: 1rem 1.4rem;
+        border-bottom: 1px solid rgba(0, 191, 255, 0.16);
+        text-align: left;
+    }
+
+    th {
+        background: rgba(0, 191, 255, 0.1);
+    }
+
+    .fine-print {
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 0.9rem;
+        margin-top: 1rem;
+    }
+{% endblock %}
+
+{% block content %}
+<section class="pricing-hero">
+    <h1>Plans for Every Level of Deal Hunting</h1>
+    <p style="max-width: 720px; margin: 0 auto; color: rgba(255,255,255,0.74);">
+        Each plan begins with a secure payment, then routes you to account creation. Upgrade or downgrade later from the dashboard.
+    </p>
+    <div class="cta-stack" style="justify-content: center; margin-top: 2rem;">
+        <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+        <a class="secondary-btn" href="{{ url_for('marketing_how_it_works') }}">Review How It Works</a>
+    </div>
+</section>
+
+<section>
+    <div class="pricing-table">
+        <div class="plan-card">
+            <h2>Free</h2>
+            <div class="price">$0<span style="font-size: 1rem; color: rgba(255,255,255,0.6);">/mo</span></div>
+            <p style="color: rgba(255,255,255,0.7);">Discover Botifex with essential coverage.</p>
+            <ul>
+                <li><i class="fas fa-check"></i>Covers Craigslist + eBay</li>
+                <li><i class="fas fa-check"></i>2 saved searches</li>
+                <li><i class="fas fa-check"></i>10-minute refresh cycle</li>
+                <li><i class="fas fa-minus-circle" style="color: #ff6b6b;"></i>No email or SMS alerts</li>
+            </ul>
+            <a class="secondary-btn" href="{{ url_for('start_plan', plan='free') }}">Go to payment-first flow</a>
+        </div>
+        <div class="plan-card featured">
+            <h2>Standard</h2>
+            <div class="price">$9.99<span style="font-size: 1rem; color: rgba(255,255,255,0.6);">/mo</span></div>
+            <p style="color: rgba(255,255,255,0.7);">Ideal for active shoppers who need faster alerts.</p>
+            <ul>
+                <li><i class="fas fa-check"></i>Add Facebook Marketplace + KSL</li>
+                <li><i class="fas fa-check"></i>10 keywords, 5-minute refresh</li>
+                <li><i class="fas fa-check"></i>Email alerts and daily digest</li>
+                <li><i class="fas fa-minus-circle" style="color: #ff6b6b;"></i>No Poshmark or Mercari</li>
+            </ul>
+            <a class="primary-btn" href="{{ url_for('start_plan', plan='standard') }}">Start Your Standard Plan</a>
+        </div>
+        <div class="plan-card">
+            <h2>Pro</h2>
+            <div class="price">$39.99<span style="font-size: 1rem; color: rgba(255,255,255,0.6);">/mo</span></div>
+            <p style="color: rgba(255,255,255,0.7);">Maximum coverage, analytics, and speed.</p>
+            <ul>
+                <li><i class="fas fa-check"></i>All six marketplaces</li>
+                <li><i class="fas fa-check"></i>Unlimited keywords &amp; saved searches</li>
+                <li><i class="fas fa-check"></i>90-second refresh, email + SMS alerts</li>
+                <li><i class="fas fa-check"></i>Deal analytics &amp; future API access</li>
+            </ul>
+            <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+        </div>
+    </div>
+</section>
+
+<section style="background: rgba(0, 123, 255, 0.06);">
+    <div class="section-header">
+        <h2>Feature Comparison</h2>
+        <p>Know exactly what’s included before you pay.</p>
+    </div>
+    <div class="comparison-table">
+        <table>
+            <thead>
+                <tr>
+                    <th>Capability</th>
+                    <th>Free</th>
+                    <th>Standard</th>
+                    <th>Pro</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Marketplaces</td>
+                    <td>Craigslist, eBay</td>
+                    <td>+ Facebook Marketplace, KSL</td>
+                    <td>All six (incl. Poshmark, Mercari)</td>
+                </tr>
+                <tr>
+                    <td>Refresh Interval</td>
+                    <td>10 minutes</td>
+                    <td>5 minutes</td>
+                    <td>90 seconds</td>
+                </tr>
+                <tr>
+                    <td>Alerts</td>
+                    <td>Dashboard only</td>
+                    <td>Email + daily digest</td>
+                    <td>Email + SMS + digest</td>
+                </tr>
+                <tr>
+                    <td>Analytics</td>
+                    <td>Basic listing stats</td>
+                    <td>Limited trends</td>
+                    <td>Full deal intelligence</td>
+                </tr>
+                <tr>
+                    <td>Saved Searches</td>
+                    <td>2</td>
+                    <td>10</td>
+                    <td>Unlimited</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <p class="fine-print">All plans can be cancelled anytime. Access settings and upgrades/downgrades inside the dashboard.</p>
+</section>
+
+<section>
+    <div class="cta-banner">
+        <h2 style="font-size: 2.2rem; margin-bottom: 1rem;">Activate the Plan That Fits You</h2>
+        <p style="color: rgba(255,255,255,0.74); max-width: 640px; margin: 0 auto 2rem;">
+            Join the payment-first flow, finish account creation, and see why shoppers choose Botifex.
+        </p>
+        <div class="cta-stack" style="justify-content: center;">
+            <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+            <a class="secondary-btn" href="{{ url_for('marketing_contact') }}">Talk to us before purchasing</a>
+        </div>
+    </div>
+</section>
+{% endblock %}
+

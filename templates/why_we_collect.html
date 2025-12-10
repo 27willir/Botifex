@@ -1,0 +1,25 @@
+{% extends "marketing_base.html" %}
+{% block title %}Why We Collect This Information | Botifex Transparency{% endblock %}
+{% block meta_description %}Learn why Botifex collects first name, optional last name, phone number, and ZIP code during account creation. We use this data to tailor coverage and never sell user data.{% endblock %}
+{% block content %}
+<section style="padding-top: 6.5rem; max-width: 900px; margin: 0 auto;">
+    <h1 style="text-align: center; margin-bottom: 1.5rem;">Why We Collect This Information</h1>
+    <p style="color: rgba(255, 255, 255, 0.75); margin-bottom: 1.2rem;">
+        Botifex asks for first name, optional last name, phone number, and ZIP code during account creation for three key reasons:
+    </p>
+    <ol style="color: rgba(255, 255, 255, 0.75); margin-left: 1.4rem; margin-bottom: 1.6rem;">
+        <li style="margin-bottom: 0.8rem;">ZIP codes help us understand where users are located so we can optimize marketplace coverage and alert timing.</li>
+        <li style="margin-bottom: 0.8rem;">Phone numbers allow us to deliver SMS alerts (available on Pro) and verify that real shoppers are joining.</li>
+        <li style="margin-bottom: 0.8rem;">Names allow support staff to assist you quickly and keep communication personal.</li>
+    </ol>
+    <p style="color: rgba(255, 255, 255, 0.75); margin-bottom: 1.2rem;">
+        We do not sell user data. Information is used internally to tailor marketing, product improvements, and service coverage for Botifex members.
+        If you have questions, reach out via the <a href="{{ url_for('marketing_contact') }}">Contact</a> page.
+    </p>
+    <div class="cta-stack" style="justify-content: center; margin-top: 2.4rem;">
+        <a class="primary-btn" href="{{ url_for('start_plan', plan='pro') }}">Start Your Pro Plan</a>
+        <a class="secondary-btn" href="{{ url_for('marketing_how_it_works') }}">See How It Works</a>
+    </div>
+</section>
+{% endblock %}
+

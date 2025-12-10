@@ -77,6 +77,58 @@
     color: #5dddff;
     transform: translateX(-4px);
 }
+
+.settings-pre {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(0, 191, 255, 0.15);
+    border-radius: 10px;
+    padding: 12px 16px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: "Fira Code", "Menlo", monospace;
+    font-size: 13px;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.subscription-meta-table {
+    width: 100%;
+    margin-top: 16px;
+}
+
+.subscription-meta-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(0, 191, 255, 0.08);
+}
+
+.subscription-meta-table td:first-child {
+    width: 240px;
+    color: rgba(255, 255, 255, 0.6);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 1px;
+}
+
+.subscription-meta-table code {
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 13px;
+}
+
+.empty-state {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.6);
+    padding: 40px;
+}
+
+.empty-state i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    display: block;
+    color: rgba(255, 255, 255, 0.4);
+}
 {% endblock %}
 
 {% block content %}
@@ -119,6 +171,14 @@
             <label>Total Listings</label>
             <div class="value">{{ user.listing_count }}</div>
         </div>
+        <div class="info-item">
+            <label>Subscription Tier</label>
+            <div class="value">{{ (user.subscription_tier or 'free')|upper }}</div>
+        </div>
+        <div class="info-item">
+            <label>Subscription Status</label>
+            <div class="value">{{ (user.subscription_status or 'unknown')|upper }}</div>
+        </div>
     </div>
 </div>
 
@@ -155,8 +215,77 @@
 </div>
 
 <div class="section">
+    <h2><i class="fas fa-id-card"></i> Subscription Details</h2>
+    {% if subscription %}
+    <table class="subscription-meta-table">
+        <tbody>
+            <tr>
+                <td>Tier</td>
+                <td>{{ (subscription.tier or 'free')|upper }}</td>
+            </tr>
+            <tr>
+                <td>Status</td>
+                <td>{{ (subscription.status or 'inactive')|upper }}</td>
+            </tr>
+            <tr>
+                <td>Current Period</td>
+                <td>
+                    {{ subscription.current_period_start or 'N/A' }}
+                    →
+                    {{ subscription.current_period_end or 'N/A' }}
+                </td>
+            </tr>
+            <tr>
+                <td>Renews Automatically</td>
+                <td>
+                    {% if subscription.cancel_at_period_end %}
+                        No — set to cancel at period end
+                    {% else %}
+                        Yes
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Stripe Customer ID</td>
+                <td>
+                    {% if subscription.stripe_customer_id %}
+                        <code>{{ subscription.stripe_customer_id }}</code>
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Stripe Subscription ID</td>
+                <td>
+                    {% if subscription.stripe_subscription_id %}
+                        <code>{{ subscription.stripe_subscription_id }}</code>
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Created</td>
+                <td>{{ subscription.created_at or 'N/A' }}</td>
+            </tr>
+            <tr>
+                <td>Last Updated</td>
+                <td>{{ subscription.updated_at or 'N/A' }}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <i class="fas fa-id-card-alt"></i>
+        No subscription data found.
+    </div>
+    {% endif %}
+</div>
+
+<div class="section">
     <h2><i class="fas fa-cog"></i> User Settings</h2>
-    {% if settings %}
+    {% if settings_items %}
     <table>
         <thead>
             <tr>
@@ -165,19 +294,64 @@
             </tr>
         </thead>
         <tbody>
-            {% for key, value in settings.items() %}
+            {% for item in settings_items %}
             <tr>
-                <td><strong>{{ key }}</strong></td>
-                <td>{{ value }}</td>
+                <td><strong>{{ item.key }}</strong></td>
+                <td>
+                    {% if item.is_preformatted %}
+                    <pre class="settings-pre">{{ item.value }}</pre>
+                    {% else %}
+                    {{ item.value }}
+                    {% endif %}
+                </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
     {% else %}
-    <p style="text-align: center; color: rgba(255, 255, 255, 0.6); padding: 40px;">
-        <i class="fas fa-inbox" style="font-size: 48px; margin-bottom: 16px; display: block;"></i>
+    <div class="empty-state">
+        <i class="fas fa-inbox"></i>
         No settings configured
-    </p>
+    </div>
+    {% endif %}
+</div>
+
+<div class="section">
+    <h2><i class="fas fa-clipboard-list"></i> Subscription History</h2>
+    {% if subscription_history %}
+    <table>
+        <thead>
+            <tr>
+                <th>Action</th>
+                <th>Tier</th>
+                <th>Details</th>
+                <th>Stripe Event</th>
+                <th>Timestamp</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for event in subscription_history %}
+            <tr>
+                <td><strong>{{ event.action or '-' }}</strong></td>
+                <td>{{ event.tier or '-' }}</td>
+                <td>{{ event.details or '-' }}</td>
+                <td>
+                    {% if event.stripe_event_id %}
+                        <code>{{ event.stripe_event_id }}</code>
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td>{{ event.created_at or '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <i class="fas fa-clipboard-list"></i>
+        No subscription events recorded
+    </div>
     {% endif %}
 </div>
 

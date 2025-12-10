@@ -3,6 +3,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from functools import wraps
 from datetime import datetime, timedelta, date
+import json
 import db_enhanced
 from utils import logger, get_chrome_diagnostics
 from rate_limiter import reset_user_rate_limits
@@ -127,6 +128,63 @@ def _format_scraper_metrics(metrics):
         formatted['last_run_display'] = None
 
     return formatted
+
+
+def _format_settings_for_display(settings: dict | None):
+    """Prepare user settings for admin display with light normalization."""
+    if not settings:
+        return []
+
+    display_entries = []
+    for key in sorted(settings.keys()):
+        raw_value = settings.get(key)
+        parsed_value = raw_value
+        is_preformatted = False
+
+        if isinstance(raw_value, (dict, list)):
+            parsed_value = raw_value
+        elif isinstance(raw_value, str):
+            candidate = raw_value.strip()
+            if candidate:
+                try:
+                    parsed_candidate = json.loads(candidate)
+                    parsed_value = parsed_candidate
+                except (json.JSONDecodeError, TypeError):
+                    lowered = candidate.lower()
+                    if lowered in {"true", "false"}:
+                        parsed_value = lowered == "true"
+                    else:
+                        try:
+                            parsed_value = int(candidate)
+                        except ValueError:
+                            try:
+                                parsed_value = float(candidate)
+                            except ValueError:
+                                parsed_value = raw_value
+            else:
+                parsed_value = ""
+
+        if isinstance(parsed_value, (dict, list)):
+            display_value = json.dumps(parsed_value, indent=2, sort_keys=True)
+            is_preformatted = True
+        elif isinstance(parsed_value, bool):
+            display_value = "Yes" if parsed_value else "No"
+        elif parsed_value is None:
+            display_value = "—"
+        else:
+            display_value = str(parsed_value)
+            if "\n" in display_value or len(display_value) > 80:
+                is_preformatted = True
+
+        display_entries.append(
+            {
+                "key": key,
+                "value": display_value,
+                "is_preformatted": is_preformatted,
+            }
+        )
+
+    return display_entries
 
 # Debug route to check user role
 @admin_bp.route('/check-role')
@@ -310,6 +368,16 @@ def user_detail(username):
         
         # Get user settings
         settings = db_enhanced.get_settings(username)
+        settings_items = _format_settings_for_display(settings)
+
+        # Get subscription details
+        subscription_raw = db_enhanced.get_user_subscription(username)
+        subscription = _format_subscription_record(subscription_raw)
+
+        subscription_history = db_enhanced.get_subscription_history(username, limit=50)
+        for event in subscription_history:
+            if event.get('created_at'):
+                event['created_at'] = _format_timestamp(event['created_at'], mode='datetime_minutes')
         
         # Get user listings count
         listing_count = db_enhanced.get_listing_count(user_id=username)
@@ -323,12 +391,17 @@ def user_detail(username):
             'last_login': _format_timestamp(user.get('last_login'), mode='datetime_minutes'),
             'login_count': user.get('login_count'),
             'listing_count': listing_count,
+            'subscription_tier': subscription.get('tier', 'free'),
+            'subscription_status': subscription.get('status', 'inactive'),
         }
         
         return render_template('admin/user_detail.html', 
                              user=user_data, 
                              activity=activity,
-                             settings=settings)
+                             settings=settings,
+                             settings_items=settings_items,
+                             subscription=subscription,
+                             subscription_history=subscription_history)
     
     except Exception as e:
         logger.error(f"Error loading user detail: {e}")
@@ -871,3 +944,210 @@ def api_scraper_details(scraper_name):
     except Exception as e:
         logger.error(f"Error getting details for {scraper_name}: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+# ======================
+# CRM MANAGEMENT
+# ======================
+
+@admin_bp.route('/crm')
+@login_required
+@admin_required
+def crm():
+    """CRM - Customer Relationship Management dashboard"""
+    try:
+        # Get search/filter parameters
+        search_query = request.args.get('search', '').strip()
+        plan_filter = request.args.get('plan', '')
+        sort_by = request.args.get('sort', 'created_at')
+        sort_order = request.args.get('order', 'desc')
+        
+        # Get all CRM contacts
+        contacts = db_enhanced.get_crm_contacts(limit=1000, offset=0)
+        
+        # Apply filters
+        if search_query:
+            search_lower = search_query.lower()
+            contacts = [
+                c for c in contacts
+                if (c.get('email', '').lower().find(search_lower) >= 0 or
+                    c.get('username', '').lower().find(search_lower) >= 0 or
+                    (c.get('first_name', '') or '').lower().find(search_lower) >= 0 or
+                    (c.get('last_name', '') or '').lower().find(search_lower) >= 0)
+            ]
+        
+        if plan_filter:
+            contacts = [c for c in contacts if c.get('plan_tier') == plan_filter]
+        
+        # Sort
+        reverse = sort_order.lower() == 'desc'
+        if sort_by == 'created_at':
+            contacts.sort(key=lambda x: x.get('created_at') or '', reverse=reverse)
+        elif sort_by == 'email':
+            contacts.sort(key=lambda x: (x.get('email') or '').lower(), reverse=reverse)
+        elif sort_by == 'plan_tier':
+            contacts.sort(key=lambda x: x.get('plan_tier') or '', reverse=reverse)
+        elif sort_by == 'searches':
+            contacts.sort(key=lambda x: x.get('searches_made', 0), reverse=reverse)
+        
+        # Get statistics
+        stats = {
+            'total': len(contacts),
+            'free': sum(1 for c in contacts if c.get('plan_tier') == 'free' or not c.get('plan_tier')),
+            'standard': sum(1 for c in contacts if c.get('plan_tier') == 'standard'),
+            'pro': sum(1 for c in contacts if c.get('plan_tier') == 'pro'),
+            'active_searches': sum(c.get('searches_made', 0) for c in contacts),
+            'total_alerts': sum(c.get('alerts_created', 0) for c in contacts),
+        }
+        
+        # Format timestamps
+        for contact in contacts:
+            if contact.get('created_at'):
+                contact['created_at'] = _format_timestamp(contact['created_at'], mode='datetime_minutes')
+            if contact.get('signup_date'):
+                contact['signup_date'] = _format_timestamp(contact['signup_date'], mode='date')
+            if contact.get('last_payment_at'):
+                contact['last_payment_at'] = _format_timestamp(contact['last_payment_at'], mode='datetime_minutes')
+        
+        return render_template('admin/crm.html',
+                             contacts=contacts,
+                             stats=stats,
+                             search_query=search_query,
+                             plan_filter=plan_filter,
+                             sort_by=sort_by,
+                             sort_order=sort_order)
+    
+    except Exception as e:
+        logger.error(f"Error loading CRM page: {e}")
+        flash("Error loading CRM dashboard", "error")
+        return redirect(url_for('admin.dashboard'))
+
+
+@admin_bp.route('/crm/<path:email>')
+@login_required
+@admin_required
+def crm_contact_detail(email):
+    """CRM contact detail page"""
+    try:
+        # Decode URL-encoded email if needed
+        from urllib.parse import unquote
+        email = unquote(email)
+        
+        # Get CRM contact
+        contact = db_enhanced.upsert_crm_contact(email)
+        
+        if not contact:
+            flash("Contact not found", "error")
+            return redirect(url_for('admin.crm'))
+        
+        # Get user data if username exists
+        user_data = None
+        if contact.get('username'):
+            user_data = db_enhanced.get_user_by_username(contact['username'])
+            if user_data:
+                user_data['created_at'] = _format_timestamp(user_data.get('created_at'), mode='datetime_minutes')
+                user_data['last_login'] = _format_timestamp(user_data.get('last_login'), mode='datetime_minutes')
+        
+        # Get subscription data
+        subscription = None
+        if contact.get('username'):
+            subscription = db_enhanced.get_user_subscription(contact['username'])
+            if subscription:
+                subscription = _format_subscription_record(subscription)
+        
+        # Get subscription history
+        subscription_history = []
+        if contact.get('username'):
+            subscription_history = db_enhanced.get_subscription_history(contact['username'], limit=50)
+            for event in subscription_history:
+                if event.get('created_at'):
+                    event['created_at'] = _format_timestamp(event['created_at'], mode='datetime_minutes')
+        
+        # Get user activity
+        activity = []
+        if contact.get('username'):
+            activity_raw = db_enhanced.get_user_activity(contact['username'], limit=100)
+            activity = _normalize_activity_records(activity_raw, timestamp_index=3)
+        
+        # Get user listings count
+        listing_count = 0
+        if contact.get('username'):
+            listing_count = db_enhanced.get_listing_count(user_id=contact['username'])
+        
+        # Get saved searches count
+        saved_searches = []
+        if contact.get('username'):
+            saved_searches = db_enhanced.get_saved_searches(contact['username'])
+        
+        # Get price alerts
+        price_alerts = []
+        if contact.get('username'):
+            price_alerts = db_enhanced.get_price_alerts(contact['username'])
+        
+        # Format contact timestamps
+        if contact.get('created_at'):
+            contact['created_at'] = _format_timestamp(contact['created_at'], mode='datetime_minutes')
+        if contact.get('updated_at'):
+            contact['updated_at'] = _format_timestamp(contact['updated_at'], mode='datetime_minutes')
+        if contact.get('signup_date'):
+            contact['signup_date'] = _format_timestamp(contact['signup_date'], mode='date')
+        if contact.get('last_payment_at'):
+            contact['last_payment_at'] = _format_timestamp(contact['last_payment_at'], mode='datetime_minutes')
+        
+        return render_template('admin/crm_detail.html',
+                             contact=contact,
+                             user=user_data,
+                             subscription=subscription,
+                             subscription_history=subscription_history,
+                             activity=activity,
+                             listing_count=listing_count,
+                             saved_searches=saved_searches,
+                             price_alerts=price_alerts)
+    
+    except Exception as e:
+        logger.error(f"Error loading CRM contact detail: {e}")
+        flash("Error loading contact details", "error")
+        return redirect(url_for('admin.crm'))
+
+
+@admin_bp.route('/crm/<path:email>/update', methods=['POST'])
+@login_required
+@admin_required
+def crm_update_contact(email):
+    """Update CRM contact information"""
+    try:
+        # Decode URL-encoded email if needed
+        from urllib.parse import unquote
+        email = unquote(email)
+        first_name = request.form.get('first_name', '').strip() or None
+        last_name = request.form.get('last_name', '').strip() or None
+        phone = request.form.get('phone', '').strip() or None
+        zip_code = request.form.get('zip_code', '').strip() or None
+        
+        contact = db_enhanced.update_crm_contact(
+            email,
+            first_name=first_name,
+            last_name=last_name,
+            phone=phone,
+            zip_code=zip_code
+        )
+        
+        if not contact:
+            flash("Contact not found", "error")
+            return redirect(url_for('admin.crm'))
+        
+        db_enhanced.log_user_activity(
+            current_user.id,
+            'crm_update_contact',
+            f"Updated CRM contact: {email}",
+            request.remote_addr,
+            request.headers.get('User-Agent')
+        )
+        
+        flash("Contact updated successfully", "success")
+        return redirect(url_for('admin.crm_contact_detail', email=email))
+    
+    except Exception as e:
+        logger.error(f"Error updating CRM contact: {e}")
+        flash("Error updating contact", "error")
+        return redirect(url_for('admin.crm_contact_detail', email=email))
