@@ -14,7 +14,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from utils import logger
-from db_enhanced import get_pool, init_db
+from db_enhanced import get_pool, init_db, USE_POSTGRES
 
 def optimize_database():
     """Optimize database for production performance"""
@@ -30,28 +30,39 @@ def optimize_database():
         with pool.get_connection() as conn:
             c = conn.cursor()
             
-            # Optimize database settings for production
-            optimizations = [
-                "PRAGMA journal_mode=WAL",
-                "PRAGMA synchronous=NORMAL", 
-                "PRAGMA cache_size=20000",
-                "PRAGMA temp_store=MEMORY",
-                "PRAGMA mmap_size=268435456",
-                "PRAGMA busy_timeout=2000",
-                "PRAGMA foreign_keys=ON",
-                "PRAGMA read_uncommitted=1",
-                "PRAGMA locking_mode=NORMAL",
-                "PRAGMA wal_autocheckpoint=1000",
-                "PRAGMA optimize"
-            ]
-            
-            for pragma in optimizations:
+            if USE_POSTGRES:
+                # PostgreSQL-specific optimizations
+                logger.info("Applying PostgreSQL optimizations...")
                 try:
-                    c.execute(pragma)
-                except sqlite3.OperationalError as e:
-                    logger.warning(f"Failed to set {pragma}: {e}")
+                    # Analyze tables for better query planning
+                    c.execute("ANALYZE")
+                    logger.info("PostgreSQL ANALYZE completed")
+                except Exception as e:
+                    logger.warning(f"Failed to run ANALYZE: {e}")
+            else:
+                # SQLite-specific optimizations
+                logger.info("Applying SQLite optimizations...")
+                optimizations = [
+                    "PRAGMA journal_mode=WAL",
+                    "PRAGMA synchronous=NORMAL", 
+                    "PRAGMA cache_size=20000",
+                    "PRAGMA temp_store=MEMORY",
+                    "PRAGMA mmap_size=268435456",
+                    "PRAGMA busy_timeout=2000",
+                    "PRAGMA foreign_keys=ON",
+                    "PRAGMA read_uncommitted=1",
+                    "PRAGMA locking_mode=NORMAL",
+                    "PRAGMA wal_autocheckpoint=1000",
+                    "PRAGMA optimize"
+                ]
+                
+                for pragma in optimizations:
+                    try:
+                        c.execute(pragma)
+                    except sqlite3.OperationalError as e:
+                        logger.warning(f"Failed to set {pragma}: {e}")
             
-            # Create indexes for better performance
+            # Create indexes for better performance (works for both databases)
             indexes = [
                 "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
                 "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)",
@@ -64,10 +75,13 @@ def optimize_database():
             for index_sql in indexes:
                 try:
                     c.execute(index_sql)
-                except sqlite3.OperationalError as e:
+                except (sqlite3.OperationalError, Exception) as e:
                     logger.warning(f"Failed to create index: {e}")
             
-            conn.commit()
+            if not USE_POSTGRES:
+                # Only commit for SQLite (PostgreSQL auto-commits in this context)
+                conn.commit()
+            
             logger.info("Database optimization completed")
             
     except Exception as e:
