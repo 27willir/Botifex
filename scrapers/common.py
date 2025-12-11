@@ -94,6 +94,337 @@ _JSON_LD_SCRIPT_RE = re.compile(
 # Price cleanup regex
 _PRICE_CLEAN_RE = re.compile(r"[^0-9.]")
 
+# ======================
+# RESPONSE VALIDATION CONFIG
+# ======================
+# Expected HTML selectors that indicate valid search results pages
+EXPECTED_SELECTORS = {
+    "ebay": [
+        ".s-item", ".s-item__wrapper", ".srp-results", 
+        '[data-view="mi:1686"]', ".s-item__link"
+    ],
+    "craigslist": [
+        ".cl-static-search-result", ".result-row", 
+        '[data-pid]', ".cl-search-result", ".result-info"
+    ],
+    "mercari": [
+        '[data-testid="ItemTile"]', '[data-testid="item-tile"]',
+        'a[href*="/item/"]', ".mer-item", ".merItemTile"
+    ],
+    "ksl": [
+        ".listing", ".listing-item", ".listing-card",
+        'a[href*="/item/"]', ".item-card"
+    ],
+    "poshmark": [
+        ".tile", ".listing", "[data-test='tile']",
+        'a[href*="/listing/"]', ".posh-item"
+    ],
+    "facebook": [
+        '[data-testid="marketplace-search-result"]',
+        'a[href*="/marketplace/item/"]', ".x1lliihq"
+    ],
+}
+
+# Minimum expected response sizes (bytes) - REDUCED to avoid false positives
+# Some valid "no results" pages are small, so we're more lenient now
+MIN_RESPONSE_SIZES = {
+    "ebay": 5000,       # Reduced from 15000 - RSS responses are smaller
+    "craigslist": 2000, # Reduced from 5000 - RSS/simple pages are small
+    "mercari": 3000,    # Reduced from 10000
+    "ksl": 3000,        # Reduced from 8000
+    "poshmark": 3000,   # Reduced from 10000
+    "facebook": 5000,   # Reduced from 20000
+    "default": 2000,    # Reduced from 5000
+}
+
+# Block/challenge page indicators
+BLOCK_INDICATORS = {
+    # Common across sites
+    "common": [
+        "captcha", "are you a robot", "verify you are human",
+        "unusual traffic", "access denied", "blocked",
+        "security check", "please wait", "checking your browser",
+        "enable javascript", "browser verification", "rate limit",
+        "too many requests", "forbidden", "temporarily unavailable",
+    ],
+    # Cloudflare-specific
+    "cloudflare": [
+        "cf-browser-verification", "cf-ray", "cloudflare",
+        "__cf_chl_", "challenge-platform", "ray id",
+        "just a moment", "ddos protection",
+    ],
+    # DataDome
+    "datadome": [
+        "datadome", "dd.js", "dd-cid",
+    ],
+    # PerimeterX
+    "perimeterx": [
+        "px-captcha", "_pxhd", "perimeterx",
+    ],
+    # Imperva/Incapsula
+    "imperva": [
+        "incapsula", "imperva", "_incap_",
+    ],
+    # Site-specific
+    "ebay": [
+        "pardon our interruption", "bot protection",
+        "why did this happen", "attention required",
+    ],
+    "craigslist": [
+        "blocked | craigslist", "we have detected unusual activity",
+        "unusual traffic from your computer",
+    ],
+    "mercari": [
+        "for security reasons", "bot detection",
+    ],
+    "ksl": [
+        "unusual activity", "slow down",
+    ],
+}
+
+# CAPTCHA image URL patterns
+CAPTCHA_IMAGE_PATTERNS = [
+    r"captcha", r"recaptcha", r"hcaptcha", r"funcaptcha",
+    r"/challenge/", r"/verify/", r"arkose",
+]
+
+
+# ======================
+# RESPONSE VALIDATION FUNCTIONS
+# ======================
+def validate_response_structure(response, site_name: str) -> Tuple[bool, str]:
+    """
+    Validate that a response contains expected content structure.
+    
+    IMPORTANT: This function is now MORE LENIENT to reduce false positives.
+    We only reject if we're VERY confident it's a block, not just because
+    we can't find expected selectors.
+    
+    Args:
+        response: requests.Response object
+        site_name: Name of the scraper site
+        
+    Returns:
+        tuple: (is_valid: bool, reason: str)
+    """
+    if response is None:
+        return False, "no_response"
+    
+    # Check status code - only reject on definite error codes
+    if response.status_code in (403, 429, 503):
+        return False, f"status_code:{response.status_code}"
+    
+    # Accept redirects and other 2xx/3xx codes
+    if response.status_code >= 400:
+        return False, f"status_code:{response.status_code}"
+    
+    # Get response text safely
+    text_lower = ""
+    try:
+        text_lower = response.text.lower() if hasattr(response, 'text') else ""
+    except Exception:
+        pass
+    
+    content_length = len(response.content) if hasattr(response, 'content') else 0
+    
+    # ONLY check for definite block indicators - these are high confidence
+    high_confidence_blocks = [
+        "captcha",
+        "cf-browser-verification",
+        "checking your browser",
+        "enable javascript and cookies",
+        "please verify you are a human",
+        "pardon our interruption",
+        "access denied",
+        "blocked",
+        "unusual traffic",
+    ]
+    
+    for indicator in high_confidence_blocks:
+        if indicator in text_lower:
+            # Double-check it's not a false positive by looking for listing content
+            listing_indicators = ["price", "item", "listing", "product", "$", "buy", "sell"]
+            if any(li in text_lower for li in listing_indicators):
+                # Has listing content, probably not a block
+                continue
+            return False, f"high_confidence_block:{indicator}"
+    
+    # Check for very small responses that are definitely blocks
+    # But only if they also lack any HTML structure
+    if content_length < 500:
+        if "<html" not in text_lower and "<!doctype" not in text_lower:
+            return False, f"response_too_small:{content_length}"
+    
+    # Check for no results pages - these are VALID
+    no_results_indicators = [
+        "no results", "no items", "no listings", 
+        "0 results", "nothing found", "no matches",
+        "didn't find", "no products", "try different",
+        "couldn't find", "empty", "sorry"
+    ]
+    if any(ind in text_lower for ind in no_results_indicators):
+        return True, "no_results_page"
+    
+    # If we have substantial content (>1KB) and no block indicators, it's valid
+    if content_length > 1000:
+        return True, "valid"
+    
+    # For smaller responses, check if it looks like HTML
+    if "<html" in text_lower or "<!doctype" in text_lower:
+        return True, "valid_html"
+    
+    # Default to valid - let the parser try to extract listings
+    # Better to try and fail than to reject valid responses
+    return True, "assumed_valid"
+
+
+def detect_block_type(response, site_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Detect the type of block/challenge page.
+    
+    Args:
+        response: requests.Response object
+        site_name: Name of the scraper site
+        
+    Returns:
+        dict with block details or None if not blocked
+    """
+    if response is None:
+        return {"type": "no_response", "severity": "high"}
+    
+    text_lower = response.text.lower() if hasattr(response, 'text') else ""
+    
+    # Check for Cloudflare
+    if any(ind in text_lower for ind in BLOCK_INDICATORS.get("cloudflare", [])):
+        return {
+            "type": "cloudflare",
+            "severity": "high",
+            "requires_js": True,
+            "cooldown_hint": 300,
+        }
+    
+    # Check for DataDome
+    if any(ind in text_lower for ind in BLOCK_INDICATORS.get("datadome", [])):
+        return {
+            "type": "datadome",
+            "severity": "high",
+            "requires_js": True,
+            "cooldown_hint": 600,
+        }
+    
+    # Check for PerimeterX
+    if any(ind in text_lower for ind in BLOCK_INDICATORS.get("perimeterx", [])):
+        return {
+            "type": "perimeterx",
+            "severity": "high",
+            "requires_js": True,
+            "cooldown_hint": 600,
+        }
+    
+    # Check for Imperva
+    if any(ind in text_lower for ind in BLOCK_INDICATORS.get("imperva", [])):
+        return {
+            "type": "imperva",
+            "severity": "high",
+            "requires_js": True,
+            "cooldown_hint": 600,
+        }
+    
+    # Check for CAPTCHA
+    for pattern in CAPTCHA_IMAGE_PATTERNS:
+        if re.search(pattern, text_lower):
+            return {
+                "type": "captcha",
+                "severity": "high",
+                "requires_js": True,
+                "requires_human": True,
+                "cooldown_hint": 900,
+            }
+    
+    # Check for rate limiting (429)
+    if response.status_code == 429:
+        retry_after = response.headers.get("Retry-After", 60)
+        try:
+            retry_after = int(retry_after)
+        except (ValueError, TypeError):
+            retry_after = 60
+        return {
+            "type": "rate_limit",
+            "severity": "medium",
+            "cooldown_hint": retry_after,
+        }
+    
+    # Check for 403 Forbidden
+    if response.status_code == 403:
+        return {
+            "type": "forbidden",
+            "severity": "high",
+            "cooldown_hint": 180,
+        }
+    
+    # Check common block indicators
+    for indicator in BLOCK_INDICATORS.get("common", []):
+        if indicator in text_lower:
+            return {
+                "type": "generic_block",
+                "severity": "medium",
+                "indicator": indicator,
+                "cooldown_hint": 120,
+            }
+    
+    # Check site-specific
+    for indicator in BLOCK_INDICATORS.get(site_name, []):
+        if indicator in text_lower:
+            return {
+                "type": f"{site_name}_block",
+                "severity": "medium",
+                "indicator": indicator,
+                "cooldown_hint": 180,
+            }
+    
+    return None
+
+
+def is_zero_results_page(response, site_name: str) -> bool:
+    """
+    Check if the response is a valid "no results" page (not a block).
+    
+    Args:
+        response: requests.Response object
+        site_name: Name of the scraper site
+        
+    Returns:
+        bool: True if this is a legitimate no-results page
+    """
+    if response is None:
+        return False
+    
+    text_lower = response.text.lower() if hasattr(response, 'text') else ""
+    
+    # First ensure it's not a block page
+    block_info = detect_block_type(response, site_name)
+    if block_info:
+        return False
+    
+    # Check for no-results indicators
+    no_results_patterns = [
+        r"no results?\s*found",
+        r"0 results?",
+        r"no items?\s*found",
+        r"no listings?\s*found",
+        r"no matches?\s*found",
+        r"nothing\s*found",
+        r"your search .* did not match",
+        r"we couldn'?t find",
+        r"no .* available",
+    ]
+    
+    for pattern in no_results_patterns:
+        if re.search(pattern, text_lower):
+            return True
+    
+    return False
+
 
 # ======================
 # USER AGENT MANAGEMENT
@@ -451,6 +782,241 @@ def check_rate_limit(response, site_name):
     return False, 0
 
 
+# ======================
+# FALLBACK REQUEST STRATEGIES
+# ======================
+class RequestStrategy:
+    """Defines a request strategy for the cascade."""
+    
+    def __init__(
+        self,
+        name: str,
+        use_mobile: bool = False,
+        use_proxy: bool = False,
+        fresh_session: bool = False,
+        custom_headers: Optional[Dict[str, str]] = None,
+        url_transform: Optional[Callable[[str], str]] = None,
+    ):
+        self.name = name
+        self.use_mobile = use_mobile
+        self.use_proxy = use_proxy
+        self.fresh_session = fresh_session
+        self.custom_headers = custom_headers or {}
+        self.url_transform = url_transform
+
+
+# Default fallback chains per site
+FALLBACK_CHAINS = {
+    "ebay": [
+        RequestStrategy("normal"),
+        RequestStrategy("fresh_session", fresh_session=True),
+        RequestStrategy("mobile", use_mobile=True),
+        RequestStrategy("mobile_fresh", use_mobile=True, fresh_session=True),
+        RequestStrategy("proxy", use_proxy=True),
+        RequestStrategy("rss", url_transform=lambda u: u + ("&" if "?" in u else "?") + "_rss=1"),
+    ],
+    "craigslist": [
+        RequestStrategy("normal"),
+        RequestStrategy("fresh_session", fresh_session=True),
+        RequestStrategy("mobile", use_mobile=True, url_transform=lambda u: u.replace("/search/", "/mob/")),
+        RequestStrategy("proxy", use_proxy=True),
+    ],
+    "mercari": [
+        RequestStrategy("normal"),
+        RequestStrategy("fresh_session", fresh_session=True),
+        RequestStrategy("mobile", use_mobile=True),
+        RequestStrategy("proxy", use_proxy=True),
+        RequestStrategy("mobile_proxy", use_mobile=True, use_proxy=True),
+    ],
+    "ksl": [
+        RequestStrategy("normal"),
+        RequestStrategy("fresh_session", fresh_session=True),
+        RequestStrategy("mobile", use_mobile=True),
+        RequestStrategy("proxy", use_proxy=True),
+    ],
+    "poshmark": [
+        RequestStrategy("normal"),
+        RequestStrategy("fresh_session", fresh_session=True),
+        RequestStrategy("mobile", use_mobile=True),
+        RequestStrategy("proxy", use_proxy=True),
+    ],
+    "facebook": [
+        RequestStrategy("normal"),
+        RequestStrategy("fresh_session", fresh_session=True),
+        RequestStrategy("mobile", use_mobile=True),
+        RequestStrategy("proxy", use_proxy=True),
+    ],
+    "default": [
+        RequestStrategy("normal"),
+        RequestStrategy("fresh_session", fresh_session=True),
+        RequestStrategy("mobile", use_mobile=True),
+        RequestStrategy("proxy", use_proxy=True),
+    ],
+}
+
+
+def make_request_with_cascade(
+    url: str,
+    site_name: str,
+    session=None,
+    referer: Optional[str] = None,
+    origin: Optional[str] = None,
+    session_initialize_url: Optional[str] = None,
+    username: Optional[str] = None,
+    validate_response: bool = True,
+    fallback_chain: Optional[List[RequestStrategy]] = None,
+    **kwargs,
+):
+    """
+    Make HTTP request with automatic cascade through fallback strategies.
+    
+    Tries each strategy in the fallback chain until one succeeds.
+    Enhanced with better logging and timing.
+    
+    Args:
+        url: URL to request
+        site_name: Name of scraper site
+        session: Optional requests.Session object
+        referer: Optional Referer header value
+        origin: Optional Origin header value
+        session_initialize_url: URL to use when recreating sessions
+        username: Optional username for per-user session isolation
+        validate_response: Whether to validate response structure
+        fallback_chain: Custom fallback chain, or use default for site
+        **kwargs: Additional arguments to pass to requests.get()
+        
+    Returns:
+        tuple: (response, strategy_used) or (None, None) if all failed
+    """
+    chain = fallback_chain or FALLBACK_CHAINS.get(site_name, FALLBACK_CHAINS["default"])
+    
+    # Log the request attempt for diagnostics
+    logger.debug(f"{site_name}: Starting cascade request to {url[:80]}...")
+    
+    for idx, strategy in enumerate(chain):
+        try:
+            # Transform URL if strategy requires
+            request_url = url
+            if strategy.url_transform:
+                try:
+                    request_url = strategy.url_transform(url)
+                    logger.debug(f"{site_name}: Strategy '{strategy.name}' transformed URL")
+                except Exception:
+                    request_url = url
+            
+            # Get appropriate session
+            current_session = session
+            if strategy.fresh_session:
+                logger.debug(f"{site_name}: Creating fresh session for strategy '{strategy.name}'")
+                current_session = reset_session(site_name, initialize_url=session_initialize_url, username=username)
+            
+            # Build headers
+            if strategy.use_mobile:
+                headers = anti_blocking.build_mobile_headers(site_name, referer=referer)
+            else:
+                headers = anti_blocking.build_headers(
+                    site_name, referer=referer, origin=origin,
+                    session_id=f"{site_name}:{username or 'default'}"
+                )
+            
+            # Merge custom headers
+            headers.update(strategy.custom_headers)
+            
+            # Get proxy if strategy requires
+            proxy = None
+            if strategy.use_proxy:
+                proxy = anti_blocking.get_proxy(site_name)
+                if proxy:
+                    logger.debug(f"{site_name}: Using proxy for strategy '{strategy.name}'")
+            
+            # Make request
+            request_kwargs = dict(kwargs)
+            request_kwargs["headers"] = headers
+            request_kwargs.setdefault("timeout", 45)  # Increased from 30
+            
+            if proxy:
+                request_kwargs["proxies"] = {"http": proxy, "https": proxy}
+            
+            # Pre-request wait with progressive delay
+            base_wait = anti_blocking.pre_request_wait(site_name)
+            wait_time = anti_blocking.get_progressive_delay(site_name, base_wait) if base_wait > 0 else 0
+            
+            if wait_time > 0:
+                logger.debug(f"{site_name}: Waiting {wait_time:.1f}s before request (strategy {idx+1}/{len(chain)})")
+                time.sleep(wait_time)
+            
+            start_time = time.time()
+            anti_blocking.record_request_start(site_name)
+            
+            requester = current_session if current_session else requests
+            response = requester.get(request_url, **request_kwargs)
+            
+            response_time = time.time() - start_time
+            content_len = len(response.content) if hasattr(response, 'content') else 0
+            
+            # DIAGNOSTIC LOGGING - always log response details
+            logger.info(f"{site_name}: [{strategy.name}] status={response.status_code}, size={content_len}B, time={response_time:.2f}s")
+            
+            # Only do soft validation - let the scraper try to parse
+            if validate_response:
+                is_valid, reason = validate_response_structure(response, site_name)
+                if not is_valid and "high_confidence" in reason:
+                    # Only reject on high-confidence blocks
+                    logger.warning(f"{site_name}: Strategy '{strategy.name}' blocked: {reason}")
+                    anti_blocking.record_failure(site_name)
+                    if proxy:
+                        anti_blocking.mark_proxy_failure(proxy, is_block=True)
+                    
+                    # Add extra delay before next attempt
+                    time.sleep(random.uniform(2.0, 5.0))
+                    continue
+            
+            # Check for blocks - but be lenient
+            block_info = detect_block_type(response, site_name)
+            if block_info and block_info.get("severity") == "high":
+                logger.warning(f"{site_name}: Strategy '{strategy.name}' detected high-severity block: {block_info['type']}")
+                anti_blocking.record_block(site_name, block_info["type"], block_info.get("cooldown_hint"))
+                if proxy:
+                    anti_blocking.mark_proxy_failure(proxy, is_block=True)
+                
+                # Add extra delay before next attempt
+                time.sleep(random.uniform(3.0, 8.0))
+                continue
+            
+            # Success!
+            anti_blocking.record_success(site_name, response_time)
+            if proxy:
+                anti_blocking.mark_proxy_success(proxy, response_time)
+            if current_session:
+                _save_session_cookies(current_session, site_name, username)
+            
+            logger.info(f"{site_name}: Request succeeded with strategy '{strategy.name}'")
+            
+            # Simulate reading time after successful request
+            reading_time = anti_blocking.simulate_reading_time(site_name)
+            if reading_time > 0:
+                time.sleep(reading_time)
+            
+            return response, strategy.name
+            
+        except requests.exceptions.Timeout as e:
+            logger.warning(f"{site_name}: Strategy '{strategy.name}' timed out: {e}")
+            anti_blocking.record_failure(site_name)
+            continue
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"{site_name}: Strategy '{strategy.name}' request failed: {e}")
+            anti_blocking.record_failure(site_name)
+            if strategy.use_proxy and proxy:
+                anti_blocking.mark_proxy_failure(proxy)
+            continue
+        except Exception as e:
+            logger.error(f"{site_name}: Strategy '{strategy.name}' unexpected error: {e}")
+            continue
+    
+    logger.error(f"{site_name}: All {len(chain)} strategies exhausted for {url[:60]}...")
+    return None, None
+
+
 def make_request_with_retry(
     url,
     site_name,
@@ -462,6 +1028,7 @@ def make_request_with_retry(
     rotate_headers=True,
     extra_headers=None,
     username=None,
+    use_cascade=False,
     **kwargs,
 ):
     """
@@ -478,11 +1045,19 @@ def make_request_with_retry(
         rotate_headers: Whether to regenerate browser headers on each attempt
         extra_headers: Additional headers to merge into the generated set
         username: Optional username for per-user session isolation
+        use_cascade: If True, use cascade fallback system instead of simple retry
         **kwargs: Additional arguments to pass to requests.get()
         
     Returns:
         requests.Response object or None if all retries failed
     """
+    # Use cascade system if requested
+    if use_cascade:
+        response, _ = make_request_with_cascade(
+            url, site_name, session=session, referer=referer, origin=origin,
+            session_initialize_url=session_initialize_url, username=username, **kwargs
+        )
+        return response
     requester = session if session else requests
     base_kwargs = dict(kwargs)
     session_to_use = session

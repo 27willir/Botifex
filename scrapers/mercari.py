@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 import urllib.parse
 import re
+from typing import Any, Dict, List, Optional
 
 from bs4 import BeautifulSoup
 
@@ -24,20 +25,157 @@ from scrapers.common import (
     load_settings,
     get_session,
     make_request_with_retry,
+    make_request_with_cascade,
     validate_image_url,
     check_recursion_guard,
     set_recursion_guard,
     log_selector_failure,
     log_parse_attempt,
     get_seen_listings_lock,
+    validate_response_structure,
+    detect_block_type,
+    is_zero_results_page,
+    RequestStrategy,
+    reset_session,
 )
 from scrapers.metrics import ScraperMetrics
 from scrapers import anti_blocking
+from scrapers import health_monitor
 
 
 SITE_NAME = "mercari"
 BASE_URL = "https://www.mercari.com"
 SEARCH_PATH = "/search"
+
+# Mercari-specific fallback chain with mobile and proxy rotation
+MERCARI_FALLBACK_CHAIN = [
+    RequestStrategy("normal"),
+    RequestStrategy("fresh_session", fresh_session=True),
+    RequestStrategy("mobile", use_mobile=True),
+    RequestStrategy("proxy", use_proxy=True),
+    RequestStrategy("mobile_proxy", use_mobile=True, use_proxy=True),
+    RequestStrategy("fresh_mobile", use_mobile=True, fresh_session=True),
+]
+
+# Cookie warmup endpoints - visit these to establish valid session
+WARMUP_URLS = [
+    "https://www.mercari.com/",
+    "https://www.mercari.com/sell/",
+]
+
+
+def _warmup_session(session, username=None) -> bool:
+    """
+    Warm up Mercari session by visiting homepage to establish cookies.
+    This helps avoid bot detection on first search request.
+    """
+    try:
+        for url in WARMUP_URLS[:1]:  # Just visit homepage
+            headers = anti_blocking.build_headers(SITE_NAME, referer=None)
+            response = session.get(url, headers=headers, timeout=15)
+            if response.status_code == 200:
+                logger.debug(f"Mercari: Session warmup successful")
+                time.sleep(random.uniform(0.5, 1.5))  # Human-like delay
+                return True
+        return False
+    except Exception as e:
+        logger.debug(f"Mercari: Session warmup failed: {e}")
+        return False
+
+
+def _try_search_api(keywords: List[str], min_price: int, max_price: int, session, username=None) -> List[Dict]:
+    """
+    Try to fetch listings directly from Mercari's search API endpoints.
+    This is more reliable than scraping HTML when available.
+    """
+    results = []
+    
+    # Try multiple API endpoints
+    api_endpoints = [
+        # Public search API
+        {
+            "url": "https://www.mercari.com/v1/api",
+            "method": "POST",
+            "payload": {
+                "operationName": "searchProducts",
+                "variables": {
+                    "query": " ".join(keywords),
+                    "minPrice": min_price,
+                    "maxPrice": max_price,
+                    "status": ["on_sale"],
+                    "sort": "created_time",
+                    "order": "desc",
+                    "limit": 50,
+                }
+            },
+        },
+        # Alternative search endpoint
+        {
+            "url": f"https://www.mercari.com/search/",
+            "method": "GET",
+            "params": {
+                "keyword": " ".join(keywords),
+                "minPrice": min_price,
+                "maxPrice": max_price,
+                "itemConditions": "new,like_new,good",
+                "sortBy": "created_time",
+            },
+        },
+    ]
+    
+    for endpoint in api_endpoints:
+        try:
+            # Add delay between API attempts
+            time.sleep(random.uniform(1.0, 2.0))
+            
+            headers = anti_blocking.build_headers(SITE_NAME, referer=BASE_URL)
+            
+            if endpoint["method"] == "POST":
+                headers["Content-Type"] = "application/json"
+                headers["Accept"] = "application/json"
+                response = session.post(
+                    endpoint["url"],
+                    json=endpoint.get("payload"),
+                    headers=headers,
+                    timeout=20
+                )
+            else:
+                response = session.get(
+                    endpoint["url"],
+                    params=endpoint.get("params"),
+                    headers=headers,
+                    timeout=20
+                )
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    items = (
+                        data.get("data", {}).get("search", {}).get("items", []) or
+                        data.get("items", []) or
+                        data.get("results", [])
+                    )
+                    
+                    for item in items:
+                        if isinstance(item, dict):
+                            results.append({
+                                "title": item.get("name") or item.get("title"),
+                                "link": f"{BASE_URL}/item/{item.get('id')}/" if item.get('id') else item.get("url"),
+                                "price": _parse_price_value(item.get("price")),
+                                "image": item.get("thumbnails", [{}])[0].get("url") if item.get("thumbnails") else item.get("image"),
+                            })
+                    
+                    if results:
+                        logger.debug(f"Mercari: API endpoint returned {len(results)} items")
+                        return results
+                except (json.JSONDecodeError, KeyError):
+                    continue
+                    
+        except Exception as e:
+            logger.debug(f"Mercari: API endpoint {endpoint['url'][:50]} failed: {e}")
+            continue
+    
+    return results
 
 
 def _user_key(user_id):
@@ -242,15 +380,22 @@ def _coerce_html_listing(node):
 
 def _parse_html_results(soup):
     """Gather listing dictionaries using multiple HTML selector strategies."""
+    # Updated for December 2024 Mercari layout
     selectors = [
-        (1, "data-testid item tiles", lambda: soup.select('[data-testid="ItemTile"], [data-testid="item-tile"]')),
-        (2, "modern anchor cards", lambda: soup.select('a[href*="/item/"]')),
-        (3, "legacy item-box divs", lambda: soup.find_all("div", class_="item-box")),
+        # Current Mercari selectors (Next.js based)
+        (1, "data-testid item tiles", lambda: soup.select('[data-testid="ItemTile"], [data-testid="item-tile"], [data-testid="SearchResults"] [data-testid]')),
+        (2, "modern anchor cards", lambda: soup.select('a[href*="/item/m"]')),  # Mercari item IDs start with 'm'
+        # Next.js hydration data containers
+        (3, "next-data item containers", lambda: soup.find_all("div", attrs={"data-hydration-id": True})),
         (4, "div.merItemTile", lambda: soup.find_all("div", class_="merItemTile")),
-        (5, "article.merItemTile", lambda: soup.find_all("article", class_="merItemTile")),
-        (6, "div.mer-item", lambda: soup.find_all("div", class_=lambda x: x and "mer-item" in str(x).lower() if x else False)),
-        (7, "section.item-tile", lambda: soup.find_all("section", class_=lambda x: x and "item-tile" in str(x).lower() if x else False)),
+        (5, "article elements", lambda: soup.find_all("article")),
+        # Broader fallbacks
+        (6, "div with item in class", lambda: soup.find_all("div", class_=lambda x: x and "item" in str(x).lower() if x else False)),
+        (7, "section.item-tile", lambda: soup.find_all("section", class_=lambda x: x and "item" in str(x).lower() if x else False)),
         (8, "links with /item/ in href", lambda: soup.find_all("a", href=lambda x: x and "/item/" in str(x) if x else False)),
+        # Card-based layouts
+        (9, "div.card patterns", lambda: soup.find_all("div", class_=lambda x: x and "card" in str(x).lower() if x else False)),
+        (10, "product grid items", lambda: soup.select('[class*="ProductGrid"] > div, [class*="product-grid"] > div')),
     ]
 
     listings = []
@@ -342,15 +487,55 @@ def check_mercari(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=No
                 params["longitude"] = lon
                 params["distance"] = int(miles_to_km(radius))
 
-            full_url = base_url + "?" + urllib.parse.urlencode(params)
+            # Use randomized param order to avoid fingerprinting
+            full_url = base_url + "?" + anti_blocking.randomize_params_order(params)
 
             # Get persistent session with initialization
             session = get_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
             
+            # Warm up session if it's new or has been idle
+            _warmup_session(session, username=user_id)
+            
             # Add extra delay before Mercari requests to avoid detection
             time.sleep(random.uniform(1.5, 3.0))
             
-            response = make_request_with_retry(
+            start_time = time.time()
+            
+            # First try API endpoints (more reliable when available)
+            api_results = _try_search_api(keywords, min_price, max_price, session, user_id)
+            if api_results:
+                logger.debug(f"Mercari: Using GraphQL API results ({len(api_results)} items)")
+                # Process API results directly
+                for item in api_results:
+                    link = item.get("link")
+                    if not link or not is_new_listing(link, user_seen, SITE_NAME):
+                        continue
+                    
+                    title = item.get("title", "").strip()
+                    price_val = item.get("price")
+                    
+                    if price_val and (price_val < min_price or price_val > max_price):
+                        continue
+                    
+                    if not any(k in title.lower() for k in [k.lower() for k in keywords]):
+                        continue
+                    
+                    normalized_link = normalize_url(link)
+                    with lock:
+                        user_seen[normalized_link] = datetime.now()
+                    
+                    send_discord_message(title, link, price_val, item.get("image"), user_id=user_id)
+                    results.append(item)
+                
+                if results:
+                    save_seen_listings(user_seen, SITE_NAME, username=user_id)
+                    health_monitor.record_success(SITE_NAME, time.time() - start_time, "graphql_api")
+                    metrics.success = True
+                    metrics.listings_found = len(results)
+                    return results
+            
+            # Fall back to HTML scraping with cascade
+            response, strategy_used = make_request_with_cascade(
                 full_url,
                 SITE_NAME,
                 session=session,
@@ -358,16 +543,45 @@ def check_mercari(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=No
                 origin=BASE_URL,
                 session_initialize_url=BASE_URL,
                 username=user_id,
-                max_retries=5,  # More retries for Mercari
+                fallback_chain=MERCARI_FALLBACK_CHAIN,
             )
+            
+            response_time = time.time() - start_time
 
             if not response:
-                metrics.error = "Failed to fetch page after retries"
-                logger.warning("Mercari request exhausted retries without success")
-                # Reset session after failure to get fresh cookies
-                from scrapers.common import reset_session
-                reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
-                return []
+                metrics.error = "Failed to fetch page after all fallbacks"
+                logger.warning("Mercari request exhausted all fallback strategies")
+                health_monitor.record_failure(SITE_NAME, "all_fallbacks_exhausted")
+                
+                # Try browser fallback as last resort
+                try:
+                    from scrapers.browser_fallback import fetch_with_browser_sync, is_browser_available
+                    if is_browser_available():
+                        logger.info("Mercari: Attempting browser fallback")
+                        html_content = fetch_with_browser_sync(full_url, SITE_NAME)
+                        if html_content:
+                            class MockResponse:
+                                def __init__(self, text):
+                                    self.text = text
+                                    self.content = text.encode('utf-8')
+                                    self.status_code = 200
+                            response = MockResponse(html_content)
+                            strategy_used = "browser"
+                            logger.info("Mercari: Browser fallback succeeded")
+                except ImportError:
+                    pass
+                except Exception as browser_error:
+                    logger.debug(f"Mercari: Browser fallback failed: {browser_error}")
+                
+                if not response:
+                    reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
+                    return []
+            
+            # Record successful request
+            health_monitor.record_success(SITE_NAME, response_time, strategy_used)
+            
+            if strategy_used:
+                logger.debug(f"Mercari: Request succeeded using strategy '{strategy_used}'")
             
             # Use robust HTML parsing with fallback parsers
             from scrapers.common import parse_html_with_fallback
@@ -402,16 +616,27 @@ def check_mercari(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=No
 
             if not listings_by_link:
                 log_selector_failure(SITE_NAME, "html/json", "search results", "posts")
-                text_snippet = soup.get_text(separator=" ").lower()[:2000]
-                block_keywords = (
-                    "please verify",
-                    "access denied",
-                    "unusual traffic",
-                    "bot detection",
-                    "slow down",
-                )
-                if any(keyword in text_snippet for keyword in block_keywords):
-                    anti_blocking.record_block(SITE_NAME, "keyword:mercari-block", cooldown_hint=150)
+                
+                # Check if it's a block or just no results
+                block_info = detect_block_type(response, SITE_NAME)
+                if block_info:
+                    block_type = block_info.get("type", "unknown")
+                    cooldown_hint = block_info.get("cooldown_hint", 150)
+                    
+                    logger.warning(f"Mercari: Block detected - type: {block_type}")
+                    anti_blocking.record_block(SITE_NAME, f"block:{block_type}", cooldown_hint=cooldown_hint)
+                    health_monitor.record_block(SITE_NAME, block_type)
+                    metrics.error = f"Block detected: {block_type}"
+                    reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
+                    return []
+                
+                # Check if it's a valid no-results page
+                if is_zero_results_page(response, SITE_NAME):
+                    logger.info(f"Mercari: No listings match criteria. Next check in {check_interval}s...")
+                    metrics.success = True
+                    metrics.listings_found = 0
+                    return []
+                
                 logger.warning("Mercari: No items found with HTML or JSON selectors")
                 metrics.success = True
                 metrics.listings_found = 0

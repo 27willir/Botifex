@@ -1151,3 +1151,73 @@ def crm_update_contact(email):
         logger.error(f"Error updating CRM contact: {e}")
         flash("Error updating contact", "error")
         return redirect(url_for('admin.crm_contact_detail', email=email))
+
+
+# ======================
+# VISITOR ANALYTICS
+# ======================
+
+@admin_bp.route('/visitors')
+@login_required
+@admin_required
+def visitor_analytics():
+    """Landing page visitor analytics dashboard"""
+    try:
+        hours = request.args.get('hours', 72, type=int)
+        if hours not in [24, 48, 72, 168]:  # 1, 2, 3, or 7 days
+            hours = 72
+        
+        # Get visitor statistics
+        stats = db_enhanced.get_visitor_stats(hours=hours)
+        
+        # Get visitor sessions
+        sessions = db_enhanced.get_visitor_sessions(hours=hours, limit=500)
+        
+        # Format timestamps for display
+        for session in sessions:
+            if session.get('started_at'):
+                session['started_at_display'] = _format_timestamp(session['started_at'], mode='datetime_minutes')
+            if session.get('last_heartbeat'):
+                session['last_heartbeat_display'] = _format_timestamp(session['last_heartbeat'], mode='datetime_minutes')
+            # Format duration
+            duration_secs = session.get('duration_seconds', 0)
+            if duration_secs >= 3600:
+                session['duration_display'] = f"{duration_secs // 3600}h {(duration_secs % 3600) // 60}m"
+            elif duration_secs >= 60:
+                session['duration_display'] = f"{duration_secs // 60}m {duration_secs % 60}s"
+            else:
+                session['duration_display'] = f"{duration_secs}s"
+        
+        # Get hourly data for chart
+        hourly_data = db_enhanced.get_visitor_hourly_counts(hours=hours)
+        
+        return render_template('admin/visitors.html',
+                             stats=stats,
+                             sessions=sessions,
+                             hourly_data=json.dumps(hourly_data),
+                             selected_hours=hours)
+    
+    except Exception as e:
+        logger.error(f"Error loading visitor analytics: {e}")
+        flash("Error loading visitor analytics", "error")
+        return redirect(url_for('admin.dashboard'))
+
+
+@admin_bp.route('/api/visitor-stats')
+@login_required
+@admin_required
+def api_visitor_stats():
+    """Get visitor statistics (API)"""
+    try:
+        hours = request.args.get('hours', 72, type=int)
+        stats = db_enhanced.get_visitor_stats(hours=hours)
+        hourly_data = db_enhanced.get_visitor_hourly_counts(hours=hours)
+        
+        return jsonify({
+            'stats': stats,
+            'hourly_data': hourly_data
+        })
+    
+    except Exception as e:
+        logger.error(f"Error getting visitor stats: {e}")
+        return jsonify({'error': str(e)}), 500

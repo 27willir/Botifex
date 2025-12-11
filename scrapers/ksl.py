@@ -12,11 +12,14 @@ from location_utils import get_location_coords
 from scrapers.common import (
     human_delay, normalize_url, is_new_listing, save_seen_listings,
     load_seen_listings, validate_listing, load_settings, get_session,
-    make_request_with_retry, validate_image_url, check_recursion_guard,
-    set_recursion_guard, log_selector_failure, log_parse_attempt,
-    get_seen_listings_lock, extract_json_ld_items
+    make_request_with_retry, make_request_with_cascade, validate_image_url, 
+    check_recursion_guard, set_recursion_guard, log_selector_failure, 
+    log_parse_attempt, get_seen_listings_lock, extract_json_ld_items,
+    reset_session, validate_response_structure, detect_block_type,
+    is_zero_results_page, RequestStrategy
 )
 from scrapers import anti_blocking
+from scrapers import health_monitor
 from scrapers.metrics import ScraperMetrics
 
 # ======================
@@ -24,6 +27,15 @@ from scrapers.metrics import ScraperMetrics
 # ======================
 SITE_NAME = "ksl"
 BASE_URL = "https://classifieds.ksl.com"
+
+# KSL-specific fallback chain
+KSL_FALLBACK_CHAIN = [
+    RequestStrategy("normal"),
+    RequestStrategy("fresh_session", fresh_session=True),
+    RequestStrategy("mobile", use_mobile=True),
+    RequestStrategy("proxy", use_proxy=True),
+    RequestStrategy("mobile_proxy", use_mobile=True, use_proxy=True),
+]
 
 
 def _user_key(user_id):
@@ -123,18 +135,20 @@ def check_ksl(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None):
                 params["longitude"] = lon
                 params["miles"] = radius
             
-            full_url = base_url + "?" + urllib.parse.urlencode(params)
+            # Use randomized param order to avoid fingerprinting
+            full_url = base_url + "?" + anti_blocking.randomize_params_order(params)
 
             # Get persistent session with initialization
             session = get_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
             
             # Add extra delay before KSL requests to avoid detection
-            import time
             import random
             time.sleep(random.uniform(1.0, 2.5))
             
-            # Make request with automatic retry and rate limit detection
-            response = make_request_with_retry(
+            start_time = time.time()
+            
+            # Use cascade fallback system for maximum reliability
+            response, strategy_used = make_request_with_cascade(
                 full_url,
                 SITE_NAME,
                 session=session,
@@ -142,16 +156,23 @@ def check_ksl(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None):
                 origin=BASE_URL,
                 session_initialize_url=BASE_URL,
                 username=user_id,
-                max_retries=5,  # More retries for KSL
+                fallback_chain=KSL_FALLBACK_CHAIN,
             )
             
+            response_time = time.time() - start_time
+            
             if not response:
-                metrics.error = "Failed to fetch page after retries"
-                logger.warning("KSL request exhausted retries without success")
-                # Reset session after failure to get fresh cookies
-                from scrapers.common import reset_session
+                metrics.error = "Failed to fetch page after all fallbacks"
+                logger.warning("KSL request exhausted all fallback strategies")
+                health_monitor.record_failure(SITE_NAME, "all_fallbacks_exhausted")
                 reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
                 return []
+            
+            # Record successful request
+            health_monitor.record_success(SITE_NAME, response_time, strategy_used)
+            
+            if strategy_used:
+                logger.debug(f"KSL: Request succeeded using strategy '{strategy_used}'")
             
             # Use robust HTML parsing with fallback
             tree = None
@@ -186,16 +207,20 @@ def check_ksl(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None):
                             posts_found.append(parent)
                 return posts_found
             
-            # Try multiple XPath patterns for robustness - expanded
+            # Try multiple XPath patterns for robustness - updated for December 2024 KSL layout
             posts = []
             parse_strategies = [
+                # Current KSL React-based selectors
                 (1, "listing class sections", lambda: tree.xpath('//section[contains(@class,"listing")]') if hasattr(tree, 'xpath') else []),
-                (2, "listing-item divs", lambda: tree.xpath('//div[contains(@class,"listing-item")]') if hasattr(tree, 'xpath') else []),
-                (3, "listing article elements", lambda: tree.xpath('//article[contains(@class,"listing")]') if hasattr(tree, 'xpath') else []),
-                (4, "div.listing-card", lambda: tree.xpath('//div[contains(@class,"listing-card")]') if hasattr(tree, 'xpath') else []),
-                (5, "div.item-card", lambda: tree.xpath('//div[contains(@class,"item-card")]') if hasattr(tree, 'xpath') else []),
-                (6, "article.item", lambda: tree.xpath('//article[contains(@class,"item")]') if hasattr(tree, 'xpath') else []),
-                (7, "links with href containing /item/", lambda: _extract_from_listing_links(tree)),
+                (2, "listing-item divs", lambda: tree.xpath('//div[contains(@class,"listing-item") or contains(@class,"ListingItem")]') if hasattr(tree, 'xpath') else []),
+                (3, "listing article elements", lambda: tree.xpath('//article[contains(@class,"listing") or contains(@class,"Listing")]') if hasattr(tree, 'xpath') else []),
+                (4, "div.listing-card or card", lambda: tree.xpath('//div[contains(@class,"listing-card") or contains(@class,"ListingCard") or contains(@class,"Card")]') if hasattr(tree, 'xpath') else []),
+                (5, "div.item-card", lambda: tree.xpath('//div[contains(@class,"item-card") or contains(@class,"ItemCard")]') if hasattr(tree, 'xpath') else []),
+                (6, "article.item", lambda: tree.xpath('//article[contains(@class,"item") or contains(@class,"Item")]') if hasattr(tree, 'xpath') else []),
+                # React data attributes
+                (7, "elements with data-testid", lambda: tree.xpath('//*[@data-testid and (contains(@data-testid,"listing") or contains(@data-testid,"item"))]') if hasattr(tree, 'xpath') else []),
+                (8, "div with listing link", lambda: tree.xpath('//div[.//a[contains(@href,"/listing/") or contains(@href,"/item/")]]') if hasattr(tree, 'xpath') else []),
+                (9, "links with href containing /listing/", lambda: _extract_from_listing_links(tree)),
             ]
             
             for method_num, description, strategy in parse_strategies:
@@ -211,19 +236,30 @@ def check_ksl(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None):
             
             json_ld_items = []
             if not posts:
-                log_parse_attempt(SITE_NAME, 4, "JSON-LD itemListElement fallback")
+                log_parse_attempt(SITE_NAME, 8, "JSON-LD itemListElement fallback")
                 json_ld_items = extract_json_ld_items(response.text)
                 if not json_ld_items:
                     log_selector_failure(SITE_NAME, "json-ld", "itemListElement", "posts")
-                    snippet = (response.text[:2000] if getattr(response, "text", None) else "").lower()
-                    block_keywords = (
-                        "are you a robot",
-                        "unusual activity",
-                        "blocked",
-                        "slow down",
-                    )
-                    if any(keyword in snippet for keyword in block_keywords):
-                        anti_blocking.record_block(SITE_NAME, "keyword:ksl-block", cooldown_hint=120)
+                    
+                    # Check if it's a block or just no results
+                    block_info = detect_block_type(response, SITE_NAME)
+                    if block_info:
+                        block_type = block_info.get("type", "unknown")
+                        cooldown_hint = block_info.get("cooldown_hint", 120)
+                        
+                        logger.warning(f"KSL: Block detected - type: {block_type}")
+                        anti_blocking.record_block(SITE_NAME, f"block:{block_type}", cooldown_hint=cooldown_hint)
+                        health_monitor.record_block(SITE_NAME, block_type)
+                        metrics.error = f"Block detected: {block_type}"
+                        reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
+                        return []
+                    
+                    # Check if it's a valid no-results page
+                    if is_zero_results_page(response, SITE_NAME):
+                        logger.info(f"KSL: No listings match criteria. Next check in {check_interval}s...")
+                        metrics.success = True
+                        metrics.listings_found = 0
+                        return []
 
                     logger.warning("KSL: No posts found with HTML or JSON-LD selectors")
                     metrics.success = True  # Not an error, just no results

@@ -876,6 +876,63 @@ def marketing_contact():
     """Contact landing page"""
     return marketing_render("marketing_contact.html")
 
+
+# ======================
+# VISITOR TRACKING API
+# ======================
+
+@app.route("/api/track/visit", methods=["POST"])
+@csrf.exempt
+@rate_limit('api', max_requests=60, window_minutes=1)
+def api_track_visit():
+    """Record a visitor session for analytics"""
+    import uuid as uuid_module
+    data = request.get_json(silent=True) or {}
+    
+    session_id = data.get('session_id') or str(uuid_module.uuid4())
+    page_path = data.get('page_path', request.referrer or '/')
+    
+    # Get real IP (handle proxies)
+    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if ip_address and ',' in ip_address:
+        ip_address = ip_address.split(',')[0].strip()
+    
+    user_agent = request.headers.get('User-Agent', '')[:500]
+    referrer = data.get('referrer', request.referrer or '')[:500]
+    
+    try:
+        db_enhanced.record_visitor_session(
+            session_id=session_id,
+            ip_address=ip_address,
+            page_path=page_path,
+            user_agent=user_agent,
+            referrer=referrer
+        )
+        return jsonify({'success': True, 'session_id': session_id})
+    except Exception as e:
+        logger.error(f"Error recording visitor session: {e}")
+        return jsonify({'success': False, 'error': 'Failed to record visit'}), 500
+
+
+@app.route("/api/track/heartbeat", methods=["POST"])
+@csrf.exempt
+@rate_limit('api', max_requests=120, window_minutes=1)
+def api_track_heartbeat():
+    """Update visitor session heartbeat to track duration"""
+    data = request.get_json(silent=True) or {}
+    session_id = data.get('session_id')
+    
+    if not session_id:
+        return jsonify({'success': False, 'error': 'No session ID'}), 400
+    
+    try:
+        db_enhanced.update_visitor_heartbeat(session_id)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error updating heartbeat: {e}")
+        return jsonify({'success': False, 'error': 'Failed to update heartbeat'}), 500
+
+
 @app.route("/why-we-collect")
 def why_we_collect():
     """Explain why additional fields are collected"""
@@ -1509,6 +1566,15 @@ def register():
                         )
                     except Exception as crm_error:
                         logger.warning(f"CRM upsert failed for {form_data['email']}: {crm_error}")
+
+                    # Mark visitor as converted for analytics
+                    try:
+                        ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+                        if ip_address and ',' in ip_address:
+                            ip_address = ip_address.split(',')[0].strip()
+                        db_enhanced.mark_visitor_converted_by_ip(ip_address, form_data["username"])
+                    except Exception as visitor_error:
+                        logger.debug(f"Visitor conversion tracking failed: {visitor_error}")
 
                     if phone_clean:
                         try:

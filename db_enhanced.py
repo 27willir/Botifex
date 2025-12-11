@@ -526,6 +526,72 @@ def _serialize_membership_row(row: Tuple[Any, ...]) -> Dict[str, Any]:
     return membership
 
 
+def _convert_insert_or_syntax(statement):
+    """
+    Convert SQLite-specific INSERT OR IGNORE / INSERT OR REPLACE to PostgreSQL syntax.
+    """
+    import re
+    
+    # Pattern to match INSERT OR IGNORE statements
+    ignore_pattern = r'INSERT\s+OR\s+IGNORE\s+INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)'
+    
+    # Pattern to match INSERT OR REPLACE statements  
+    replace_pattern = r'INSERT\s+OR\s+REPLACE\s+INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)'
+    
+    statement_upper = statement.upper()
+    
+    if 'INSERT OR IGNORE' in statement_upper:
+        # For INSERT OR IGNORE, we need to determine the conflict target
+        # For now, we'll convert to a simple ON CONFLICT DO NOTHING
+        # This requires the table to have appropriate unique constraints
+        match = re.search(ignore_pattern, statement, re.IGNORECASE | re.DOTALL)
+        if match:
+            table_name = match.group(1)
+            columns = match.group(2)
+            values = match.group(3)
+            
+            # Build the PostgreSQL equivalent
+            new_statement = f"INSERT INTO {table_name} ({columns}) VALUES ({values}) ON CONFLICT DO NOTHING"
+            return new_statement
+    
+    elif 'INSERT OR REPLACE' in statement_upper:
+        # For INSERT OR REPLACE, convert to INSERT ... ON CONFLICT ... DO UPDATE SET
+        match = re.search(replace_pattern, statement, re.IGNORECASE | re.DOTALL)
+        if match:
+            table_name = match.group(1)
+            columns = match.group(2).strip()
+            values = match.group(3).strip()
+            
+            # Split columns to build the UPDATE clause
+            col_list = [c.strip() for c in columns.split(',')]
+            
+            # Determine conflict target based on table name and known constraints
+            conflict_target = ""
+            if table_name == "server_tip_dismissals":
+                # PRIMARY KEY (tip_id, username)
+                conflict_target = "tip_id, username"
+            elif table_name == "settings":
+                # UNIQUE(username, key)
+                conflict_target = "username, key"
+            elif table_name == "keyword_trends":
+                # No explicit unique constraint, but logical key is (keyword, date, source, user_id)
+                conflict_target = "keyword, date, source, user_id"
+            elif table_name == "rate_limits":
+                # UNIQUE(username, endpoint, window_start)
+                conflict_target = "username, endpoint"
+            else:
+                # Default: use first column (often an ID or unique key)
+                conflict_target = col_list[0] if col_list else ""
+            
+            # For REPLACE, we need to update all columns except the conflict target
+            # Build SET clause: col1 = EXCLUDED.col1, col2 = EXCLUDED.col2, ...
+            update_clause = ', '.join([f"{col} = EXCLUDED.{col}" for col in col_list])
+            
+            new_statement = f"INSERT INTO {table_name} ({columns}) VALUES ({values}) ON CONFLICT ({conflict_target}) DO UPDATE SET {update_clause}"
+            return new_statement
+    
+    return statement
+
 def _prepare_sql(statement):
     """Translate SQLite-specific SQL to PostgreSQL-compatible SQL when needed."""
     if not USE_POSTGRES or not isinstance(statement, str):
@@ -546,6 +612,13 @@ def _prepare_sql(statement):
     converted = statement
     for old, new in replacements:
         converted = converted.replace(old, new)
+    
+    # Handle INSERT OR IGNORE / INSERT OR REPLACE - these need special handling
+    # because they require rewriting the entire INSERT statement
+    if "INSERT OR" in converted.upper():
+        # Convert INSERT OR IGNORE to INSERT ... ON CONFLICT DO NOTHING
+        # Convert INSERT OR REPLACE to INSERT ... ON CONFLICT DO UPDATE
+        converted = _convert_insert_or_syntax(converted)
 
     stripped = converted.lstrip()
     if stripped.upper().startswith("ALTER TABLE"):
@@ -2465,6 +2538,7 @@ def init_db():
                     date DATE,
                     source TEXT,
                     user_id TEXT,
+                    UNIQUE(keyword, date, source, user_id),
                     FOREIGN KEY (user_id) REFERENCES users (username) ON DELETE CASCADE
                 )
             """)
@@ -2567,6 +2641,30 @@ def init_db():
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # Visitor sessions table for landing page analytics
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS visitor_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT UNIQUE NOT NULL,
+                    ip_address TEXT NOT NULL,
+                    user_agent TEXT,
+                    referrer TEXT,
+                    page_path TEXT NOT NULL,
+                    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_heartbeat DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    duration_seconds INTEGER DEFAULT 0,
+                    created_account BOOLEAN DEFAULT 0,
+                    created_username TEXT
+                )
+            """)
+            
+            try:
+                c.execute("CREATE INDEX IF NOT EXISTS idx_visitor_sessions_started_at ON visitor_sessions (started_at)")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_visitor_sessions_ip ON visitor_sessions (ip_address)")
+            except Exception as e:
+                if not _ignore_duplicate_schema_error(conn, e):
+                    raise
             
             # Favorites/Bookmarks
             c.execute("""
@@ -2702,6 +2800,7 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_trends_date ON keyword_trends(date)",
                 "CREATE INDEX IF NOT EXISTS idx_trends_keyword ON keyword_trends(keyword)",
                 "CREATE INDEX IF NOT EXISTS idx_trends_user_id ON keyword_trends(user_id)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_keyword_trends_unique ON keyword_trends(keyword, date, source, user_id)",
                 "CREATE INDEX IF NOT EXISTS idx_market_stats_date ON market_stats(date)",
                 "CREATE INDEX IF NOT EXISTS idx_rate_limits_username ON rate_limits(username)",
                 "CREATE INDEX IF NOT EXISTS idx_rate_limits_endpoint ON rate_limits(endpoint)",
@@ -3164,15 +3263,10 @@ def _sanitize_friend_request_message(message: Optional[str]) -> Optional[str]:
     return text
 def _insert_friendship_row(conn, owner_username: str, friend_username: str, created_at: datetime, source_request_id: Optional[int]):
     statement = """
-        INSERT OR IGNORE INTO friendships (owner_username, friend_username, created_at, source_request_id)
+        INSERT INTO friendships (owner_username, friend_username, created_at, source_request_id)
         VALUES (?, ?, ?, ?)
+        ON CONFLICT (owner_username, friend_username) DO NOTHING
     """
-    if USE_POSTGRES:
-        statement = """
-            INSERT INTO friendships (owner_username, friend_username, created_at, source_request_id)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT (owner_username, friend_username) DO NOTHING
-        """
     cursor = conn.cursor()
     cursor.execute(statement, (owner_username, friend_username, created_at, source_request_id))
 
@@ -5050,8 +5144,9 @@ def add_channel_message_reaction(message_id: int, username: str, reaction_type: 
     with get_pool().get_connection() as conn:
         c = conn.cursor()
         c.execute("""
-            INSERT OR IGNORE INTO message_reactions (message_id, username, reaction_type, created_at)
+            INSERT INTO message_reactions (message_id, username, reaction_type, created_at)
             VALUES (?, ?, ?, ?)
+            ON CONFLICT (message_id, username, reaction_type) DO NOTHING
         """, (message_id, username, reaction, now))
         conn.commit()
 
@@ -7634,8 +7729,9 @@ def create_dm_conversation(creator_username: str, participant_usernames: Sequenc
         for username in participants:
             role = "owner" if username == creator_username else "member"
             c.execute("""
-                INSERT OR IGNORE INTO dm_participants (conversation_id, username, role, joined_at, last_active_at)
+                INSERT INTO dm_participants (conversation_id, username, role, joined_at, last_active_at)
                 VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (conversation_id, username) DO NOTHING
             """, (conversation_id, username, role, now, now if username == creator_username else None))
 
         c.execute("""
@@ -8344,8 +8440,9 @@ def add_dm_message_reaction(message_id: int, username: str, reaction_type: str) 
     with get_pool().get_connection() as conn:
         c = conn.cursor()
         c.execute("""
-            INSERT OR IGNORE INTO dm_message_reactions (message_id, username, reaction_type, created_at)
+            INSERT INTO dm_message_reactions (message_id, username, reaction_type, created_at)
             VALUES (?, ?, ?, ?)
+            ON CONFLICT (message_id, username, reaction_type) DO NOTHING
         """, (message_id, username, reaction, now))
         conn.commit()
 
@@ -13053,8 +13150,9 @@ def save_listing(title, price, link, image_url=None, source=None, user_id=None,
             # First, try to insert the listing
             now = datetime.now()
             c.execute("""
-                INSERT OR IGNORE INTO listings (title, price, link, image_url, source, created_at, premium_placement, premium_until, user_id)
+                INSERT INTO listings (title, price, link, image_url, source, created_at, premium_placement, premium_until, user_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (link) DO NOTHING
             """, (title, price, link, image_url, source, now, premium_placement, premium_until, user_id))
             
             # Check if we got a new row (lastrowid > 0 means successful insert)
@@ -15047,6 +15145,190 @@ def get_active_price_alerts():
 
 
 # ======================
+# VISITOR ANALYTICS
+# ======================
+
+@log_errors()
+def record_visitor_session(session_id: str, ip_address: str, page_path: str, 
+                          user_agent: str = None, referrer: str = None) -> bool:
+    """Record a new visitor session for landing page analytics"""
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        try:
+            c.execute("""
+                INSERT INTO visitor_sessions (session_id, ip_address, page_path, user_agent, referrer)
+                VALUES (?, ?, ?, ?, ?)
+            """, (session_id, ip_address, page_path, user_agent, referrer))
+            conn.commit()
+            return True
+        except Exception as e:
+            # Session already exists - update last heartbeat instead
+            if "UNIQUE constraint" in str(e) or "duplicate key" in str(e).lower():
+                return update_visitor_heartbeat(session_id)
+            raise
+
+
+@log_errors()
+def update_visitor_heartbeat(session_id: str) -> bool:
+    """Update visitor session heartbeat and calculate duration"""
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute(_prepare_sql("""
+            UPDATE visitor_sessions 
+            SET last_heartbeat = CURRENT_TIMESTAMP,
+                duration_seconds = CAST((JULIANDAY(CURRENT_TIMESTAMP) - JULIANDAY(started_at)) * 86400 AS INTEGER)
+            WHERE session_id = ?
+        """), (session_id,))
+        conn.commit()
+        return c.rowcount > 0
+
+
+@log_errors()
+def mark_visitor_converted(session_id: str, username: str) -> bool:
+    """Mark a visitor session as having created an account"""
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            UPDATE visitor_sessions 
+            SET created_account = 1, created_username = ?
+            WHERE session_id = ?
+        """, (username, session_id))
+        conn.commit()
+        return c.rowcount > 0
+
+
+@log_errors()
+def mark_visitor_converted_by_ip(ip_address: str, username: str) -> bool:
+    """Mark the most recent visitor session from an IP as having created an account"""
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        c.execute(_prepare_sql("""
+            UPDATE visitor_sessions 
+            SET created_account = 1, created_username = ?
+            WHERE id = (
+                SELECT id FROM visitor_sessions 
+                WHERE ip_address = ? AND created_account = 0
+                ORDER BY started_at DESC 
+                LIMIT 1
+            )
+        """), (username, ip_address))
+        conn.commit()
+        return c.rowcount > 0
+
+
+@log_errors()
+def get_visitor_sessions(hours: int = 72, limit: int = 500) -> List[Dict[str, Any]]:
+    """Get visitor sessions for the specified time period"""
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        c.execute("""
+            SELECT 
+                session_id, ip_address, user_agent, referrer, page_path,
+                started_at, last_heartbeat, duration_seconds,
+                created_account, created_username
+            FROM visitor_sessions
+            WHERE started_at > ?
+            ORDER BY started_at DESC
+            LIMIT ?
+        """, (cutoff_time, limit))
+        
+        rows = c.fetchall()
+        return [{
+            'session_id': row[0],
+            'ip_address': row[1],
+            'user_agent': row[2],
+            'referrer': row[3],
+            'page_path': row[4],
+            'started_at': row[5] if isinstance(row[5], datetime) else (datetime.fromisoformat(row[5]) if row[5] else None),
+            'last_heartbeat': row[6] if isinstance(row[6], datetime) else (datetime.fromisoformat(row[6]) if row[6] else None),
+            'duration_seconds': row[7] or 0,
+            'created_account': bool(row[8]),
+            'created_username': row[9]
+        } for row in rows]
+
+
+@log_errors()
+def get_visitor_stats(hours: int = 72) -> Dict[str, Any]:
+    """Get aggregated visitor statistics"""
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        
+        # Total visits
+        c.execute("""
+            SELECT COUNT(*) FROM visitor_sessions WHERE started_at > ?
+        """, (cutoff_time,))
+        total_visits = c.fetchone()[0]
+        
+        # Unique IPs
+        c.execute("""
+            SELECT COUNT(DISTINCT ip_address) FROM visitor_sessions WHERE started_at > ?
+        """, (cutoff_time,))
+        unique_visitors = c.fetchone()[0]
+        
+        # Conversions (created accounts)
+        c.execute("""
+            SELECT COUNT(*) FROM visitor_sessions WHERE started_at > ? AND created_account = 1
+        """, (cutoff_time,))
+        conversions = c.fetchone()[0]
+        
+        # Average duration
+        c.execute("""
+            SELECT AVG(duration_seconds) FROM visitor_sessions WHERE started_at > ? AND duration_seconds > 0
+        """, (cutoff_time,))
+        avg_duration = c.fetchone()[0] or 0
+        
+        return {
+            'total_visits': total_visits,
+            'unique_visitors': unique_visitors,
+            'conversions': conversions,
+            'conversion_rate': round((conversions / total_visits * 100) if total_visits > 0 else 0, 2),
+            'avg_duration_seconds': round(avg_duration, 0)
+        }
+
+
+@log_errors()
+def get_visitor_hourly_counts(hours: int = 72) -> List[Dict[str, Any]]:
+    """Get hourly visitor counts for chart data"""
+    with get_pool().get_connection() as conn:
+        c = conn.cursor()
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        
+        if USE_POSTGRES:
+            c.execute("""
+                SELECT 
+                    DATE_TRUNC('hour', started_at) as hour,
+                    COUNT(*) as visit_count,
+                    COUNT(DISTINCT ip_address) as unique_visitors,
+                    SUM(CASE WHEN created_account = true THEN 1 ELSE 0 END) as conversions
+                FROM visitor_sessions
+                WHERE started_at > %s
+                GROUP BY DATE_TRUNC('hour', started_at)
+                ORDER BY hour ASC
+            """, (cutoff_time,))
+        else:
+            c.execute("""
+                SELECT 
+                    strftime('%Y-%m-%d %H:00:00', started_at) as hour,
+                    COUNT(*) as visit_count,
+                    COUNT(DISTINCT ip_address) as unique_visitors,
+                    SUM(CASE WHEN created_account = 1 THEN 1 ELSE 0 END) as conversions
+                FROM visitor_sessions
+                WHERE started_at > ?
+                GROUP BY strftime('%Y-%m-%d %H:00:00', started_at)
+                ORDER BY hour ASC
+            """, (cutoff_time,))
+        
+        rows = c.fetchall()
+        return [{
+            'hour': row[0] if isinstance(row[0], str) else row[0].strftime('%Y-%m-%d %H:00:00'),
+            'visit_count': row[1],
+            'unique_visitors': row[2],
+            'conversions': row[3] or 0
+        } for row in rows]
+
+
 def close_database():
     """Close all database connections"""
     global _connection_pool

@@ -14,18 +14,23 @@ from location_utils import get_location_coords, miles_to_km
 from scrapers.common import (
     human_delay, normalize_url, is_new_listing, save_seen_listings,
     load_seen_listings, validate_listing, load_settings, get_session,
-    make_request_with_retry, validate_image_url, check_recursion_guard,
-    set_recursion_guard, log_selector_failure, log_parse_attempt,
-    get_seen_listings_lock, extract_json_ld_items, reset_session
+    make_request_with_retry, make_request_with_cascade, validate_image_url, 
+    check_recursion_guard, set_recursion_guard, log_selector_failure, 
+    log_parse_attempt, get_seen_listings_lock, extract_json_ld_items, 
+    reset_session, validate_response_structure, detect_block_type,
+    is_zero_results_page, RequestStrategy
 )
 from scrapers.metrics import ScraperMetrics
 from scrapers import anti_blocking
+from scrapers import health_monitor
 
 # ======================
 # CONFIGURATION
 # ======================
 SITE_NAME = "ebay"
 BASE_URL = "https://www.ebay.com"
+BROWSE_API_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+
 _BLOCK_KEYWORDS = {
     "are you a robot",
     "unusual activity",
@@ -35,7 +40,36 @@ _BLOCK_KEYWORDS = {
     "verify you are human",
     "pardon our interruption",
     "why did this happen",
+    "attention required",
+    "security challenge",
+    "bot protection",
 }
+
+# Enhanced selector patterns for robustness
+_ITEM_SELECTORS = [
+    ("s-item__wrapper", "div", "class"),
+    ("s-item", "li", "class"),
+    ("s-item", "div", "class"),
+    ("srp-results", "ul", "class"),
+    ("mi:1686", "div", "data-view"),
+]
+
+# eBay-specific fallback chain - RSS FIRST as it's least likely to be blocked
+def _transform_to_rss(url: str) -> str:
+    """Transform eBay search URL to RSS format."""
+    if "_rss=" in url:
+        return url
+    joiner = "&" if "?" in url else "?"
+    return f"{url}{joiner}_rss=1"
+
+EBAY_FALLBACK_CHAIN = [
+    RequestStrategy("rss", url_transform=_transform_to_rss),  # RSS first - most reliable
+    RequestStrategy("normal"),
+    RequestStrategy("fresh_session", fresh_session=True),
+    RequestStrategy("mobile", use_mobile=True),
+    RequestStrategy("proxy", use_proxy=True),
+    RequestStrategy("mobile_proxy", use_mobile=True, use_proxy=True),
+]
 
 
 def _user_key(user_id):
@@ -344,6 +378,7 @@ def check_ebay(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None)
     
     # Use metrics tracking
     with ScraperMetrics(SITE_NAME) as metrics:
+        start_time = time.time()
         try:
             if not running_flags.get(flag_key, True):
                 metrics.error = "stopped"
@@ -356,15 +391,14 @@ def check_ebay(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None)
             else:
                 logger.warning(f"Could not geocode location '{location}', using default")
             
-            # Build eBay search URL
-            # eBay uses _nkw for keyword, _udlo for min price, _udhi for max price
+            # Build eBay search URL with randomized param order
             base_url = "https://www.ebay.com/sch/i.html"
             params = {
                 "_nkw": " ".join(keywords),  # Search keywords
                 "_udlo": min_price,  # Min price
                 "_udhi": max_price,  # Max price
                 "_sop": 10,  # Sort by: newly listed
-                "LH_ItemCondition": 3000,  # Used condition (can be adjusted)
+                "LH_ItemCondition": 3000,  # Used condition
                 "_ipg": 50  # Items per page
             }
             
@@ -372,16 +406,17 @@ def check_ebay(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None)
             if location_coords:
                 lat, lon = location_coords
                 radius_km = int(miles_to_km(radius))
-                params["_sadis"] = radius_km  # Search distance in km
-                params["_stpos"] = f"{lat},{lon}"  # Search position (lat,lon)
+                params["_sadis"] = radius_km
+                params["_stpos"] = f"{lat},{lon}"
             
-            full_url = base_url + "?" + urllib.parse.urlencode(params)
+            # Use randomized param order to avoid fingerprinting
+            full_url = base_url + "?" + anti_blocking.randomize_params_order(params)
 
             # Get persistent session
             session = get_session(SITE_NAME, BASE_URL, username=user_id)
             
-            # Make request with automatic retry and rate limit detection
-            response = make_request_with_retry(
+            # Use cascade fallback system for maximum reliability
+            response, strategy_used = make_request_with_cascade(
                 full_url,
                 SITE_NAME,
                 session=session,
@@ -389,24 +424,86 @@ def check_ebay(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None)
                 origin=BASE_URL,
                 session_initialize_url=BASE_URL,
                 username=user_id,
+                fallback_chain=EBAY_FALLBACK_CHAIN,
             )
             
-            if not response:
-                metrics.error = "Failed to fetch page after retries"
-                logger.warning("eBay request exhausted retries without success")
-                return []
+            response_time = time.time() - start_time
             
-            # Check for bot detection or blocking in response
-            response_text_lower = response.text.lower()
-            if any(keyword in response_text_lower for keyword in _BLOCK_KEYWORDS):
-                logger.warning("eBay: Block page detected (bot protection triggered)")
-                anti_blocking.record_block(SITE_NAME, "keyword:ebay-block", cooldown_hint=300)
-                metrics.error = "Bot protection page detected"
+            if not response:
+                metrics.error = "Failed to fetch page after all fallbacks"
+                logger.warning("eBay request exhausted all fallback strategies")
+                health_monitor.record_failure(SITE_NAME, "all_fallbacks_exhausted")
+                
+                # Try direct RSS request as emergency fallback
+                logger.info("eBay: Attempting direct RSS fallback")
+                rss_candidates = _fetch_rss_fallback(full_url, session, username=user_id)
+                if rss_candidates:
+                    logger.info(f"eBay: Direct RSS fallback recovered {len(rss_candidates)} items")
+                    for entry in rss_candidates:
+                        handle_candidate(
+                            entry.get("title"),
+                            entry.get("link"),
+                            entry.get("price"),
+                            entry.get("image"),
+                            entry.get("description"),
+                        )
+                    if results:
+                        save_seen_listings(user_seen, SITE_NAME, username=user_id)
+                        metrics.success = True
+                        metrics.listings_found = len(results)
+                        return results
+                
+                # Try browser fallback as last resort
+                try:
+                    from scrapers.browser_fallback import fetch_with_browser_sync, is_browser_available
+                    if is_browser_available():
+                        logger.info("eBay: Attempting browser fallback")
+                        html_content = fetch_with_browser_sync(full_url, SITE_NAME)
+                        if html_content:
+                            # Create a mock response object
+                            class MockResponse:
+                                def __init__(self, text):
+                                    self.text = text
+                                    self.content = text.encode('utf-8')
+                                    self.status_code = 200
+                            response = MockResponse(html_content)
+                            strategy_used = "browser"
+                            logger.info("eBay: Browser fallback succeeded")
+                except ImportError:
+                    pass
+                except Exception as browser_error:
+                    logger.debug(f"eBay: Browser fallback failed: {browser_error}")
+                
+                if not response:
+                    return []
+            
+            # Record successful request
+            health_monitor.record_success(SITE_NAME, response_time, strategy_used)
+            
+            if strategy_used:
+                logger.debug(f"eBay: Request succeeded using strategy '{strategy_used}'")
+            
+            # Check if response is RSS/XML (when RSS strategy succeeded)
+            response_text = response.text if hasattr(response, 'text') else ""
+            is_rss_response = response_text.strip().startswith('<?xml') or '<rss' in response_text[:500]
+            
+            # Enhanced block detection using new system
+            block_info = detect_block_type(response, SITE_NAME)
+            if block_info:
+                block_type = block_info.get("type", "unknown")
+                cooldown_hint = block_info.get("cooldown_hint", 300)
+                
+                logger.warning(f"eBay: Block detected - type: {block_type}")
+                anti_blocking.record_block(SITE_NAME, f"block:{block_type}", cooldown_hint=cooldown_hint)
+                health_monitor.record_block(SITE_NAME, block_type)
+                metrics.error = f"Block detected: {block_type}"
+                
+                # Reset session and try RSS fallback
                 session = reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
 
                 rss_candidates = _fetch_rss_fallback(full_url, session, username=user_id)
                 if rss_candidates:
-                    logger.info(f"eBay: RSS fallback recovered {len(rss_candidates)} items after block page")
+                    logger.info(f"eBay: RSS fallback recovered {len(rss_candidates)} items after block")
                     for entry in rss_candidates:
                         handle_candidate(
                             entry.get("title"),
@@ -429,7 +526,14 @@ def check_ebay(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None)
                     debug_scraper_output("eBay", results)
                     return results
 
-                logger.warning("eBay RSS fallback did not return any items after block page")
+                logger.warning("eBay RSS fallback did not return any items after block")
+                return []
+            
+            # Check if it's a valid zero-results page
+            if is_zero_results_page(response, SITE_NAME):
+                logger.info(f"eBay: No listings match criteria. Next check in {check_interval}s...")
+                metrics.success = True
+                metrics.listings_found = 0
                 return []
             
             # Use robust HTML parsing with fallback parsers
@@ -462,17 +566,24 @@ def check_ebay(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None)
                             items_found.append(parent)
                 return items_found
             
-            # eBay uses different HTML structures, try multiple patterns - expanded with better fallbacks
+            # eBay uses different HTML structures, try multiple patterns
+            # Updated for December 2024 eBay layout
             items = []
             parse_strategies = [
+                # Primary selectors (current eBay layout)
                 (1, "s-item__wrapper divs", lambda: soup.find_all('div', class_='s-item__wrapper')),
                 (2, "s-item list items", lambda: soup.find_all('li', class_='s-item')),
-                (3, "generic s-item pattern", lambda: soup.find_all('div', attrs={'class': lambda x: x and 's-item' in str(x).lower() if x else False})),
-                (4, "srp-results items", lambda: soup.find_all('div', class_='srp-results') or soup.find_all('ul', class_='srp-results')),
-                (5, "items with data-view", lambda: soup.find_all('div', attrs={'data-view': lambda x: x and 'mi:1686' in str(x) if x else False})),
-                (6, "ul.srp-results direct children", lambda: [ul for ul in soup.find_all('ul', class_='srp-results') if ul][0].find_all('li', recursive=False) if soup.find_all('ul', class_='srp-results') else []),
-                (7, "div with data-view='mi:1686'", lambda: soup.find_all('div', attrs={'data-view': 'mi:1686'})),
+                # New eBay GR4 framework selectors
+                (3, "data-gr4 items", lambda: soup.find_all('div', attrs={'data-gr4-click': True})),
+                (4, "section.s-item", lambda: soup.find_all('section', class_='s-item')),
+                # Generic fallbacks
+                (5, "generic s-item pattern", lambda: soup.find_all(['div', 'li', 'section'], attrs={'class': lambda x: x and 's-item' in str(x).lower() if x else False})),
+                (6, "srp-results li items", lambda: soup.select('ul.srp-results > li.s-item, div.srp-results li')),
+                (7, "items with data-view", lambda: soup.find_all('div', attrs={'data-view': lambda x: x and 'mi:' in str(x) if x else False})),
+                # Last resort - find any elements with /itm/ links
                 (8, "links with href containing /itm/", lambda: _extract_from_listing_links(soup)),
+                # Article elements (newer layout)
+                (9, "article.s-item", lambda: soup.find_all('article', attrs={'class': lambda x: x and 's-item' in str(x).lower() if x else False})),
             ]
             
             for method_num, description, strategy in parse_strategies:
@@ -580,6 +691,54 @@ def check_ebay(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None)
                     "price": normalized_price,
                     "image": image_url
                 })
+
+            # Handle RSS response if detected earlier
+            if is_rss_response:
+                logger.info("eBay: Detected RSS response, parsing as XML")
+                try:
+                    root = ET.fromstring(response_text)
+                    rss_items = []
+                    for item in root.findall(".//item"):
+                        title = (item.findtext("title") or "").strip()
+                        link = (item.findtext("link") or "").strip()
+                        description_html = item.findtext("description") or ""
+                        
+                        if not title or not link:
+                            continue
+                        
+                        price_val, image_url, text_content = _parse_rss_item_description(description_html)
+                        rss_items.append({
+                            "title": title,
+                            "link": link,
+                            "price": price_val,
+                            "image": image_url,
+                            "description": text_content,
+                        })
+                    
+                    logger.info(f"eBay: RSS parsing found {len(rss_items)} items")
+                    
+                    for entry in rss_items:
+                        handle_candidate(
+                            entry.get("title"),
+                            entry.get("link"),
+                            entry.get("price"),
+                            entry.get("image"),
+                            entry.get("description"),
+                        )
+                    
+                    if results:
+                        save_seen_listings(user_seen, SITE_NAME, username=user_id)
+                        metrics.success = True
+                        metrics.listings_found = len(results)
+                    else:
+                        logger.info(f"No new eBay listings from RSS. Next check in {check_interval}s...")
+                        metrics.success = True
+                        metrics.listings_found = 0
+                    
+                    debug_scraper_output("eBay", results)
+                    return results
+                except ET.ParseError as e:
+                    logger.warning(f"eBay: RSS parse error, falling back to HTML: {e}")
 
             # Use json_ld_items if we have them from fallback
             if not items and json_ld_items:

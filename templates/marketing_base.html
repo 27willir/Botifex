@@ -477,6 +477,75 @@
                 });
             });
         }
+
+        // Visitor tracking for analytics
+        (function() {
+            const STORAGE_KEY = 'botifex_visitor_session';
+            const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+            
+            function generateSessionId() {
+                return 'vs_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            }
+            
+            function getOrCreateSession() {
+                let session = null;
+                try {
+                    const stored = sessionStorage.getItem(STORAGE_KEY);
+                    if (stored) {
+                        session = JSON.parse(stored);
+                    }
+                } catch (e) {}
+                
+                if (!session || !session.id) {
+                    session = {
+                        id: generateSessionId(),
+                        started: Date.now()
+                    };
+                    try {
+                        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+                    } catch (e) {}
+                }
+                return session;
+            }
+            
+            function trackVisit(session) {
+                fetch('/api/track/visit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: session.id,
+                        page_path: window.location.pathname,
+                        referrer: document.referrer || ''
+                    })
+                }).catch(function() {});
+            }
+            
+            function sendHeartbeat(session) {
+                fetch('/api/track/heartbeat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: session.id })
+                }).catch(function() {});
+            }
+            
+            // Initialize tracking
+            const session = getOrCreateSession();
+            trackVisit(session);
+            
+            // Send heartbeat periodically
+            const heartbeatTimer = setInterval(function() {
+                sendHeartbeat(session);
+            }, HEARTBEAT_INTERVAL);
+            
+            // Final heartbeat on page unload
+            window.addEventListener('beforeunload', function() {
+                clearInterval(heartbeatTimer);
+                // Use sendBeacon for reliable delivery
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon('/api/track/heartbeat', JSON.stringify({ session_id: session.id }));
+                }
+            });
+        })();
     </script>
     {% block scripts %}{% endblock %}
 </body>

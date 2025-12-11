@@ -5,17 +5,35 @@ import requests
 from pathlib import Path
 import urllib.parse
 import re
+from typing import Any, Dict, List, Optional
 from utils import debug_scraper_output, logger
 from db import get_settings, save_listing
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
 from location_utils import geocode_location, get_location_coords, miles_to_km
-from scrapers.common import parse_html_with_fallback, get_session, make_request_with_retry
+from scrapers.common import (
+    parse_html_with_fallback, get_session, make_request_with_retry,
+    make_request_with_cascade, reset_session, validate_response_structure,
+    detect_block_type, is_zero_results_page, RequestStrategy
+)
+from scrapers import anti_blocking
+from scrapers import health_monitor
 from collections import defaultdict
 
 # ======================
 # CONFIGURATION
 # ======================
+SITE_NAME = "poshmark"
 poshmark_url = "https://poshmark.com"
+BASE_URL = "https://poshmark.com"
+
+# Poshmark-specific fallback chain
+POSHMARK_FALLBACK_CHAIN = [
+    RequestStrategy("normal"),
+    RequestStrategy("fresh_session", fresh_session=True),
+    RequestStrategy("mobile", use_mobile=True),
+    RequestStrategy("proxy", use_proxy=True),
+    RequestStrategy("mobile_proxy", use_mobile=True, use_proxy=True),
+]
 
 def _user_key(user_id):
     """Generate a filesystem-safe key for tracking per-user state."""
@@ -238,16 +256,15 @@ def check_poshmark(flag_name="poshmark", user_id=None, flag_key=None):
                 params["longitude"] = lon
                 params["distance"] = radius_km
             
-            full_url = base_url + "?" + urllib.parse.urlencode(params)
-
-            # Get persistent session with initialization
-            SITE_NAME = "poshmark"
-            BASE_URL = "https://poshmark.com"
+            # Use randomized param order to avoid fingerprinting
+            full_url = base_url + "?" + anti_blocking.randomize_params_order(params)
             
             session = get_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
             
-            # Use enhanced anti-blocking request system
-            response = make_request_with_retry(
+            start_time = time.time()
+            
+            # Use cascade fallback system for maximum reliability
+            response, strategy_used = make_request_with_cascade(
                 full_url,
                 SITE_NAME,
                 session=session,
@@ -255,12 +272,22 @@ def check_poshmark(flag_name="poshmark", user_id=None, flag_key=None):
                 origin=BASE_URL,
                 session_initialize_url=BASE_URL,
                 username=user_id,
-                max_retries=5,
+                fallback_chain=POSHMARK_FALLBACK_CHAIN,
             )
             
+            response_time = time.time() - start_time
+            
             if not response:
-                logger.error("Poshmark request failed after retries")
+                logger.error("Poshmark request failed after all fallbacks")
+                health_monitor.record_failure(SITE_NAME, "all_fallbacks_exhausted")
+                reset_session(SITE_NAME, initialize_url=BASE_URL, username=user_id)
                 return []
+            
+            # Record successful request
+            health_monitor.record_success(SITE_NAME, response_time, strategy_used)
+            
+            if strategy_used:
+                logger.debug(f"Poshmark: Request succeeded using strategy '{strategy_used}'")
 
             encoding_candidates = []
             if response.encoding:
@@ -288,16 +315,23 @@ def check_poshmark(flag_name="poshmark", user_id=None, flag_key=None):
     # Process the results if we successfully got the page
     try:
         # Enhanced item extraction with multiple selector strategies
+        # Updated for December 2024 Poshmark layout
         items = []
         parse_strategies = [
+            # Current Poshmark selectors
             (1, "div.tile class", lambda: soup.find_all('div', class_='tile')),
-            (2, "div.listing pattern", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'listing' in str(x).lower() if x else False})),
-            (3, "div.item pattern", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'item' in str(x).lower() if x else False})),
+            (2, "div.card patterns", lambda: soup.find_all('div', attrs={'class': lambda x: x and ('card' in str(x).lower() or 'Card' in str(x)) if x else False})),
+            (3, "data-test tile", lambda: soup.select('[data-test="tile"], [data-test="listing"]')),
             (4, "article.tile", lambda: soup.find_all('article', class_='tile')),
-            (5, "div.posh-item", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'posh-item' in str(x).lower() if x else False})),
-            (6, "div.product-card", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'product-card' in str(x).lower() if x else False})),
-            (7, "links with /closet/ in href", lambda: soup.find_all('a', href=lambda x: x and '/closet/' in str(x) if x else False)),
-            (8, "div.tile-container", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'tile-container' in str(x).lower() if x else False})),
+            # Listing patterns
+            (5, "div.listing pattern", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'listing' in str(x).lower() if x else False})),
+            (6, "div.item pattern", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'item' in str(x).lower() if x else False})),
+            # Product grid items
+            (7, "div.product-card", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'product' in str(x).lower() if x else False})),
+            # Links with listing paths
+            (8, "links with /listing/ in href", lambda: soup.find_all('a', href=lambda x: x and '/listing/' in str(x) if x else False)),
+            (9, "links with /closet/ in href", lambda: soup.find_all('a', href=lambda x: x and '/closet/' in str(x) if x else False)),
+            (10, "div.tile-container", lambda: soup.find_all('div', attrs={'class': lambda x: x and 'tile' in str(x).lower() if x else False})),
         ]
         
         for method_num, description, strategy in parse_strategies:

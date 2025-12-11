@@ -223,6 +223,14 @@ from db_enhanced import (
     get_listing_by_id,
     record_slow_mode_violation,
     get_saved_search_by_id,
+    # Visitor analytics
+    record_visitor_session,
+    update_visitor_heartbeat,
+    mark_visitor_converted,
+    mark_visitor_converted_by_ip,
+    get_visitor_sessions,
+    get_visitor_stats,
+    get_visitor_hourly_counts,
 )
 
 # Re-export all functions for backward compatibility
@@ -411,4 +419,12 @@ __all__ = [
     'record_slow_mode_violation',
     'get_listing_by_id',
     'get_saved_search_by_id',
+    # Visitor analytics
+    'record_visitor_session',
+    'update_visitor_heartbeat',
+    'mark_visitor_converted',
+    'mark_visitor_converted_by_ip',
+    'get_visitor_sessions',
+    'get_visitor_stats',
+    'get_visitor_hourly_counts',
 ]

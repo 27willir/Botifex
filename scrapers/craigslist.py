@@ -15,12 +15,15 @@ from location_utils import get_location_coords
 from scrapers.common import (
     human_delay, normalize_url, is_new_listing, save_seen_listings,
     load_seen_listings, validate_listing, load_settings, get_session,
-    make_request_with_retry, validate_image_url, check_recursion_guard,
-    set_recursion_guard, log_selector_failure, log_parse_attempt,
-    get_seen_listings_lock, extract_json_ld_items, reset_session
+    make_request_with_retry, make_request_with_cascade, validate_image_url, 
+    check_recursion_guard, set_recursion_guard, log_selector_failure, 
+    log_parse_attempt, get_seen_listings_lock, extract_json_ld_items, 
+    reset_session, validate_response_structure, detect_block_type,
+    is_zero_results_page, RequestStrategy
 )
 from scrapers.metrics import ScraperMetrics
 from scrapers import anti_blocking
+from scrapers import health_monitor
 
 # ======================
 # CONFIGURATION
@@ -53,6 +56,82 @@ _BLOCK_KEYWORDS = {
     "are you a robot",
     "captcha",
 }
+
+# Craigslist-specific fallback chain with mobile site
+def _transform_to_mobile(url: str) -> str:
+    """Transform Craigslist URL to mobile version."""
+    return url.replace("/search/", "/mob/")
+
+def _transform_to_rss(url: str) -> str:
+    """Transform Craigslist URL to RSS feed."""
+    if "format=rss" in url:
+        return url
+    if "?" in url:
+        return url + "&format=rss"
+    return url + "?format=rss"
+
+# RSS FIRST - Craigslist RSS is very reliable and less likely to be blocked
+CRAIGSLIST_FALLBACK_CHAIN = [
+    RequestStrategy("rss", url_transform=_transform_to_rss),  # RSS first - most reliable
+    RequestStrategy("normal"),
+    RequestStrategy("fresh_session", fresh_session=True),
+    RequestStrategy("mobile", use_mobile=True, url_transform=_transform_to_mobile),
+    RequestStrategy("proxy", use_proxy=True),
+    RequestStrategy("mobile_proxy", use_mobile=True, use_proxy=True, url_transform=_transform_to_mobile),
+]
+
+
+def _fetch_rss_fallback(full_url: str, session, base_domain: str, username=None):
+    """Fetch listings from RSS feed as fallback."""
+    from xml.etree import ElementTree as ET
+    
+    rss_url = _transform_to_rss(full_url)
+    logger.debug(f"Craigslist: Attempting RSS fallback from {rss_url}")
+    
+    response = make_request_with_retry(
+        rss_url,
+        SITE_NAME,
+        session=session,
+        referer=base_domain,
+        origin=base_domain,
+        session_initialize_url=base_domain,
+        extra_headers={"Accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8"},
+        username=username,
+    )
+    
+    if not response:
+        return []
+    
+    try:
+        root = ET.fromstring(response.text)
+    except ET.ParseError as exc:
+        logger.warning(f"Craigslist RSS parse error: {exc}")
+        return []
+    
+    results = []
+    for item in root.findall(".//item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        
+        if not title or not link:
+            continue
+        
+        # Extract price from title or description
+        price_val = None
+        description = item.findtext("description") or ""
+        price_match = re.search(r"\$[\d,]+", title + " " + description)
+        if price_match:
+            price_val = _parse_price_text(price_match.group())
+        
+        results.append({
+            "title": title,
+            "link": link,
+            "price": price_val,
+            "image": None,
+        })
+    
+    logger.debug(f"Craigslist RSS fallback recovered {len(results)} items")
+    return results
 
 
 def _normalize_location_key(location):
@@ -287,13 +366,16 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key
             base_domain = f"https://{resolved_location}.craigslist.org"
             url = f"{base_domain}/search/sss"
             params = {"query": " ".join(keywords), "min_price": min_price, "max_price": max_price}
-            full_url = url + "?" + urllib.parse.urlencode(params)
+            # Use randomized param order to avoid fingerprinting
+            full_url = url + "?" + anti_blocking.randomize_params_order(params)
 
             # Get persistent session
             session = get_session(SITE_NAME, base_domain, username=user_id)
             
-            # Make request with automatic retry and rate limit detection
-            response = make_request_with_retry(
+            start_time = time.time()
+            
+            # Use cascade fallback system for maximum reliability
+            response, strategy_used = make_request_with_cascade(
                 full_url,
                 SITE_NAME,
                 session=session,
@@ -301,21 +383,147 @@ def check_craigslist(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key
                 origin=base_domain,
                 session_initialize_url=base_domain,
                 username=user_id,
+                fallback_chain=CRAIGSLIST_FALLBACK_CHAIN,
             )
             
+            response_time = time.time() - start_time
+            
             if not response:
-                metrics.error = "Failed to fetch page after retries"
-                logger.warning("Craigslist request exhausted retries without success")
+                metrics.error = "Failed to fetch page after all fallbacks"
+                logger.warning("Craigslist request exhausted all fallback strategies")
+                health_monitor.record_failure(SITE_NAME, "all_fallbacks_exhausted")
+                
+                # Try RSS as absolute last resort
+                rss_results = _fetch_rss_fallback(full_url, session, base_domain, username=user_id)
+                if rss_results:
+                    logger.info(f"Craigslist: Final RSS fallback recovered {len(rss_results)} items")
+                    # Process RSS results (simplified)
+                    for entry in rss_results:
+                        link = entry.get("link")
+                        if link and not is_new_listing(link, user_seen, SITE_NAME):
+                            continue
+                        results.append(entry)
+                    if results:
+                        save_seen_listings(user_seen, SITE_NAME, username=user_id)
+                        metrics.success = True
+                        metrics.listings_found = len(results)
+                        return results
+                
                 return []
             
-            # Check for bot detection or blocking in response
-            response_text_lower = response.text.lower()
-            block_hit = any(keyword in response_text_lower for keyword in _BLOCK_KEYWORDS)
-            if block_hit:
-                logger.warning("Craigslist: Block page detected (bot protection triggered)")
-                anti_blocking.record_block(SITE_NAME, "keyword:craigslist-block", cooldown_hint=180)
-                metrics.error = "Bot protection page detected"
+            # Record successful request
+            health_monitor.record_success(SITE_NAME, response_time, strategy_used)
+            
+            if strategy_used:
+                logger.debug(f"Craigslist: Request succeeded using strategy '{strategy_used}'")
+            
+            # Check if response is RSS/XML (when RSS strategy succeeded)
+            response_text = response.text if hasattr(response, 'text') else ""
+            is_rss_response = response_text.strip().startswith('<?xml') or '<rss' in response_text[:500]
+            
+            if is_rss_response:
+                logger.info("Craigslist: Detected RSS response, parsing as XML")
+                from xml.etree import ElementTree as ET
+                try:
+                    root = ET.fromstring(response_text)
+                    rss_items = []
+                    for item in root.findall(".//item"):
+                        title = (item.findtext("title") or "").strip()
+                        link = (item.findtext("link") or "").strip()
+                        description = item.findtext("description") or ""
+                        
+                        if not title or not link:
+                            continue
+                        
+                        # Extract price from title or description
+                        price_val = None
+                        price_match = re.search(r"\$[\d,]+", title + " " + description)
+                        if price_match:
+                            price_val = _parse_price_text(price_match.group())
+                        
+                        rss_items.append({
+                            "title": title,
+                            "link": link,
+                            "price": price_val,
+                            "image": None,  # RSS doesn't typically include images
+                        })
+                    
+                    logger.info(f"Craigslist: RSS parsing found {len(rss_items)} items")
+                    
+                    # Process RSS items with filtering
+                    keywords_lower = [k.lower() for k in keywords]
+                    seen_lock = get_seen_listings_lock(SITE_NAME)
+                    
+                    for entry in rss_items:
+                        title = entry.get("title", "")
+                        link = entry.get("link")
+                        price_val = entry.get("price")
+                        
+                        if not link or not title:
+                            continue
+                        
+                        # Apply filters
+                        if price_val is not None:
+                            if price_val < min_price or price_val > max_price:
+                                continue
+                        
+                        if not any(k in title.lower() for k in keywords_lower):
+                            continue
+                        
+                        if not is_new_listing(link, user_seen, SITE_NAME):
+                            continue
+                        
+                        normalized_link = normalize_url(link) or link
+                        with seen_lock:
+                            user_seen[normalized_link] = datetime.now()
+                        
+                        send_discord_message(title, link, price_val, None, user_id=user_id)
+                        results.append({
+                            "title": title,
+                            "link": link,
+                            "price": price_val,
+                            "image": None
+                        })
+                    
+                    if results:
+                        save_seen_listings(user_seen, SITE_NAME, username=user_id)
+                        metrics.success = True
+                        metrics.listings_found = len(results)
+                    else:
+                        logger.info(f"No new Craigslist listings from RSS. Next check in {check_interval}s...")
+                        metrics.success = True
+                        metrics.listings_found = 0
+                    
+                    debug_scraper_output("Craigslist", results)
+                    return results
+                except ET.ParseError as e:
+                    logger.warning(f"Craigslist: RSS parse error, falling back to HTML: {e}")
+            
+            # Enhanced block detection using new system
+            block_info = detect_block_type(response, SITE_NAME)
+            if block_info:
+                block_type = block_info.get("type", "unknown")
+                cooldown_hint = block_info.get("cooldown_hint", 180)
+                
+                logger.warning(f"Craigslist: Block detected - type: {block_type}")
+                anti_blocking.record_block(SITE_NAME, f"block:{block_type}", cooldown_hint=cooldown_hint)
+                health_monitor.record_block(SITE_NAME, block_type)
+                metrics.error = f"Block detected: {block_type}"
                 reset_session(SITE_NAME, initialize_url=base_domain, username=user_id)
+                
+                # Try RSS fallback after block
+                rss_results = _fetch_rss_fallback(full_url, session, base_domain, username=user_id)
+                if rss_results:
+                    logger.info(f"Craigslist: RSS fallback recovered {len(rss_results)} items after block")
+                    return rss_results
+                
+                return []
+            
+            # Check if it's a valid zero-results page
+            if is_zero_results_page(response, SITE_NAME):
+                logger.info(f"Craigslist: No listings match criteria. Next check in {check_interval}s...")
+                metrics.success = True
+                metrics.listings_found = 0
                 return []
             
             # Use robust HTML parsing - try lxml first, fallback to BeautifulSoup
