@@ -15173,12 +15173,20 @@ def update_visitor_heartbeat(session_id: str) -> bool:
     """Update visitor session heartbeat and calculate duration"""
     with get_pool().get_connection() as conn:
         c = conn.cursor()
-        c.execute(_prepare_sql("""
-            UPDATE visitor_sessions 
-            SET last_heartbeat = CURRENT_TIMESTAMP,
-                duration_seconds = CAST((JULIANDAY(CURRENT_TIMESTAMP) - JULIANDAY(started_at)) * 86400 AS INTEGER)
-            WHERE session_id = ?
-        """), (session_id,))
+        if USE_POSTGRES:
+            c.execute("""
+                UPDATE visitor_sessions 
+                SET last_heartbeat = CURRENT_TIMESTAMP,
+                    duration_seconds = CAST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - started_at)) AS INTEGER)
+                WHERE session_id = %s
+            """, (session_id,))
+        else:
+            c.execute("""
+                UPDATE visitor_sessions 
+                SET last_heartbeat = CURRENT_TIMESTAMP,
+                    duration_seconds = CAST((JULIANDAY(CURRENT_TIMESTAMP) - JULIANDAY(started_at)) * 86400 AS INTEGER)
+                WHERE session_id = ?
+            """, (session_id,))
         conn.commit()
         return c.rowcount > 0
 
