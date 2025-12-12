@@ -15188,11 +15188,18 @@ def mark_visitor_converted(session_id: str, username: str) -> bool:
     """Mark a visitor session as having created an account"""
     with get_pool().get_connection() as conn:
         c = conn.cursor()
-        c.execute("""
-            UPDATE visitor_sessions 
-            SET created_account = 1, created_username = ?
-            WHERE session_id = ?
-        """, (username, session_id))
+        if USE_POSTGRES:
+            c.execute("""
+                UPDATE visitor_sessions 
+                SET created_account = true, created_username = %s
+                WHERE session_id = %s
+            """, (username, session_id))
+        else:
+            c.execute("""
+                UPDATE visitor_sessions 
+                SET created_account = 1, created_username = ?
+                WHERE session_id = ?
+            """, (username, session_id))
         conn.commit()
         return c.rowcount > 0
 
@@ -15202,16 +15209,28 @@ def mark_visitor_converted_by_ip(ip_address: str, username: str) -> bool:
     """Mark the most recent visitor session from an IP as having created an account"""
     with get_pool().get_connection() as conn:
         c = conn.cursor()
-        c.execute(_prepare_sql("""
-            UPDATE visitor_sessions 
-            SET created_account = 1, created_username = ?
-            WHERE id = (
-                SELECT id FROM visitor_sessions 
-                WHERE ip_address = ? AND created_account = 0
-                ORDER BY started_at DESC 
-                LIMIT 1
-            )
-        """), (username, ip_address))
+        if USE_POSTGRES:
+            c.execute("""
+                UPDATE visitor_sessions 
+                SET created_account = true, created_username = %s
+                WHERE id = (
+                    SELECT id FROM visitor_sessions 
+                    WHERE ip_address = %s AND created_account = false
+                    ORDER BY started_at DESC 
+                    LIMIT 1
+                )
+            """, (username, ip_address))
+        else:
+            c.execute("""
+                UPDATE visitor_sessions 
+                SET created_account = 1, created_username = ?
+                WHERE id = (
+                    SELECT id FROM visitor_sessions 
+                    WHERE ip_address = ? AND created_account = 0
+                    ORDER BY started_at DESC 
+                    LIMIT 1
+                )
+            """, (username, ip_address))
         conn.commit()
         return c.rowcount > 0
 
@@ -15255,29 +15274,54 @@ def get_visitor_stats(hours: int = 72) -> Dict[str, Any]:
         c = conn.cursor()
         cutoff_time = datetime.now() - timedelta(hours=hours)
         
-        # Total visits
-        c.execute("""
-            SELECT COUNT(*) FROM visitor_sessions WHERE started_at > ?
-        """, (cutoff_time,))
-        total_visits = c.fetchone()[0]
-        
-        # Unique IPs
-        c.execute("""
-            SELECT COUNT(DISTINCT ip_address) FROM visitor_sessions WHERE started_at > ?
-        """, (cutoff_time,))
-        unique_visitors = c.fetchone()[0]
-        
-        # Conversions (created accounts)
-        c.execute("""
-            SELECT COUNT(*) FROM visitor_sessions WHERE started_at > ? AND created_account = 1
-        """, (cutoff_time,))
-        conversions = c.fetchone()[0]
-        
-        # Average duration
-        c.execute("""
-            SELECT AVG(duration_seconds) FROM visitor_sessions WHERE started_at > ? AND duration_seconds > 0
-        """, (cutoff_time,))
-        avg_duration = c.fetchone()[0] or 0
+        if USE_POSTGRES:
+            # Total visits
+            c.execute("""
+                SELECT COUNT(*) FROM visitor_sessions WHERE started_at > %s
+            """, (cutoff_time,))
+            total_visits = c.fetchone()[0]
+            
+            # Unique IPs
+            c.execute("""
+                SELECT COUNT(DISTINCT ip_address) FROM visitor_sessions WHERE started_at > %s
+            """, (cutoff_time,))
+            unique_visitors = c.fetchone()[0]
+            
+            # Conversions (created accounts)
+            c.execute("""
+                SELECT COUNT(*) FROM visitor_sessions WHERE started_at > %s AND created_account = true
+            """, (cutoff_time,))
+            conversions = c.fetchone()[0]
+            
+            # Average duration
+            c.execute("""
+                SELECT AVG(duration_seconds) FROM visitor_sessions WHERE started_at > %s AND duration_seconds > 0
+            """, (cutoff_time,))
+            avg_duration = c.fetchone()[0] or 0
+        else:
+            # Total visits
+            c.execute("""
+                SELECT COUNT(*) FROM visitor_sessions WHERE started_at > ?
+            """, (cutoff_time,))
+            total_visits = c.fetchone()[0]
+            
+            # Unique IPs
+            c.execute("""
+                SELECT COUNT(DISTINCT ip_address) FROM visitor_sessions WHERE started_at > ?
+            """, (cutoff_time,))
+            unique_visitors = c.fetchone()[0]
+            
+            # Conversions (created accounts)
+            c.execute("""
+                SELECT COUNT(*) FROM visitor_sessions WHERE started_at > ? AND created_account = 1
+            """, (cutoff_time,))
+            conversions = c.fetchone()[0]
+            
+            # Average duration
+            c.execute("""
+                SELECT AVG(duration_seconds) FROM visitor_sessions WHERE started_at > ? AND duration_seconds > 0
+            """, (cutoff_time,))
+            avg_duration = c.fetchone()[0] or 0
         
         return {
             'total_visits': total_visits,
