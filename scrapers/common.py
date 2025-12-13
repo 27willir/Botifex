@@ -28,6 +28,84 @@ except ImportError:  # pragma: no cover - fallback for older BeautifulSoup versi
 
 from scrapers import anti_blocking
 
+# Import new stealth infrastructure with fallbacks
+_SMART_REQUEST_AVAILABLE = False
+_smart_request_fn = None
+_stealth_get_fn = None
+
+try:
+    from scrapers.request_router import smart_request as _smart_request_fn, StrategyResult
+    from scrapers.stealth_client import stealth_get as _stealth_get_fn, is_curl_cffi_available
+    from scrapers.proxy_manager import get_proxy as _get_smart_proxy, record_proxy_success, record_proxy_failure
+    from scrapers.waf_bypass import detect_waf_type, bypass_challenge_sync, validate_response
+    _SMART_REQUEST_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Smart request infrastructure not fully available: {e}")
+
+
+def is_smart_request_available() -> bool:
+    """Check if the advanced request infrastructure is available."""
+    return _SMART_REQUEST_AVAILABLE
+
+
+def smart_scrape_request(
+    url: str,
+    site_name: str,
+    user_id: Optional[str] = None,
+    force_browser: bool = False,
+    max_strategies: int = 4,
+) -> Tuple[Optional[Any], Optional[str]]:
+    """
+    Make a smart scraping request using the best available strategy.
+    
+    This is the recommended way to make scraping requests as it:
+    - Uses TLS fingerprint impersonation (curl_cffi) when available
+    - Falls back to browser automation for difficult sites
+    - Automatically handles WAF challenges
+    - Rotates strategies based on success rates
+    
+    Args:
+        url: URL to fetch
+        site_name: Name of the target site
+        user_id: Optional user ID for session isolation
+        force_browser: Force browser-first strategy
+        max_strategies: Maximum strategies to try
+        
+    Returns:
+        Tuple of (response_like_object, strategy_used) or (None, None)
+    """
+    if not _SMART_REQUEST_AVAILABLE or not _smart_request_fn:
+        # Fall back to traditional cascade
+        return make_request_with_cascade(url, site_name, username=user_id)
+    
+    try:
+        result = _smart_request_fn(
+            url,
+            site_name,
+            user_id=user_id,
+            force_browser=force_browser,
+            max_strategies=max_strategies,
+        )
+        
+        if result.success:
+            # Create a response-like object for compatibility
+            class SmartResponse:
+                def __init__(self, result):
+                    self.text = result.html_content or (result.response.text if result.response else "")
+                    self.content = (result.html_content or "").encode('utf-8') if result.html_content else (result.response.content if result.response else b"")
+                    self.status_code = getattr(result.response, 'status_code', 200) if result.response else 200
+                    self.headers = getattr(result.response, 'headers', {}) if result.response else {}
+                    self.cookies = result.cookies or []
+                    self._strategy = result.strategy.value if result.strategy else None
+            
+            return SmartResponse(result), result.strategy.value if result.strategy else "unknown"
+        
+        return None, None
+        
+    except Exception as e:
+        logger.warning(f"Smart request failed, falling back to cascade: {e}")
+        return make_request_with_cascade(url, site_name, username=user_id)
+
 
 def _sanitize_username(username: Optional[str]) -> str:
     """

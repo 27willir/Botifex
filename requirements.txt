@@ -42,6 +42,21 @@ gevent==24.2.1
 # PostgreSQL support (optional - for production deployments)
 psycopg2-binary==2.9.9
 
-# Browser automation fallback (optional - for JS-heavy sites)
-# Install separately with: pip install playwright && playwright install chromium
-# playwright==1.49.0
+# Browser automation (required for JS-heavy sites like Mercari, Poshmark, Facebook)
+# After installing, run: playwright install chromium
+playwright>=1.49.0
+
+# Advanced anti-detection scraping
+curl_cffi>=0.7.0  # TLS fingerprint impersonation (Chrome, Firefox, Safari)
+fake-useragent>=1.4.0  # Real browser user agent database
+
+# ======================
+# SCRAPER ANTI-DETECTION SETUP
+# ======================
+# After pip install, run these commands:
+#   1. playwright install chromium  - Install browser for JS-heavy sites
+#   2. Set environment variables for proxies (optional but recommended):
+#      - SCRAPER_PROXIES=http://user:pass@proxy1:8080,http://user:pass@proxy2:8080
+#      - BRIGHTDATA_PROXY=http://user:pass@brd.superproxy.io:22225
+#      - SMARTPROXY_PROXY=http://user:pass@gate.smartproxy.com:7000
+#   3. Or create .proxies.txt with one proxy URL per line

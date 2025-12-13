@@ -372,6 +372,14 @@ def send_verification_email(to_email, username, token, base_url, verification_co
         logger.warning("Email credentials not configured. Verification email not sent.")
         return False
     
+    # Skip sending to fake/test email domains
+    BLOCKED_DOMAINS = {'example.com', 'ex.com', 'test.com', 'localhost', 'email.com'}
+    if to_email:
+        email_domain = to_email.split('@')[-1].lower() if '@' in to_email else ''
+        if email_domain in BLOCKED_DOMAINS:
+            logger.debug(f"Skipping verification email to test/fake domain: {to_email}")
+            return False
+    
     try:
         verification_link = f"{base_url}/verify-email?token={token}"
         verification_code_url = f"{base_url}/verify-email-code"
@@ -502,6 +510,14 @@ def send_password_reset_email(to_email, username, token, base_url):
     if not is_email_configured():
         logger.warning("Email credentials not configured. Password reset email not sent.")
         return False
+    
+    # Skip sending to fake/test email domains
+    BLOCKED_DOMAINS = {'example.com', 'ex.com', 'test.com', 'localhost', 'email.com'}
+    if to_email:
+        email_domain = to_email.split('@')[-1].lower() if '@' in to_email else ''
+        if email_domain in BLOCKED_DOMAINS:
+            logger.debug(f"Skipping password reset email to test/fake domain: {to_email}")
+            return False
     
     try:
         reset_link = f"{base_url}/reset-password?token={token}"

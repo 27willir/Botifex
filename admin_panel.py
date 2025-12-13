@@ -822,6 +822,60 @@ def update_user_subscription(username):
         return redirect(url_for('admin.user_detail', username=username))
 
 
+@admin_bp.route('/user/<username>/upgrade-1-month', methods=['POST'])
+@login_required
+@admin_required
+def upgrade_user_1_month(username):
+    """Grant a user 1 month of premium subscription (admin only)"""
+    try:
+        tier = request.form.get('tier', 'standard')
+        
+        # Validate tier
+        if tier not in ['standard', 'pro']:
+            flash("Invalid subscription tier for upgrade", "error")
+            return redirect(url_for('admin.user_detail', username=username))
+        
+        # Calculate period dates (1 month from now)
+        now = datetime.now()
+        period_end = now + timedelta(days=30)
+        
+        # Update subscription with 1 month period
+        db_enhanced.create_or_update_subscription(
+            username=username,
+            tier=tier,
+            status='active',
+            current_period_start=now,
+            current_period_end=period_end,
+            cancel_at_period_end=True  # Won't auto-renew since it's a manual grant
+        )
+        cache_set(f"settings:{username}", None, ttl=0)
+        
+        # Log the subscription event
+        db_enhanced.log_subscription_event(
+            username=username,
+            tier=tier,
+            action='admin_grant_1_month',
+            details=f'1-month {tier} subscription granted by admin: {current_user.id}. Expires: {period_end.strftime("%Y-%m-%d %H:%M")}'
+        )
+        
+        # Log admin activity
+        db_enhanced.log_user_activity(
+            current_user.id,
+            'admin_grant_subscription',
+            f'Granted 1-month {tier} subscription to {username} (expires {period_end.strftime("%Y-%m-%d")})',
+            request.remote_addr,
+            request.headers.get('User-Agent')
+        )
+        
+        flash(f"Granted 1 month of {tier.upper()} subscription to {username} (expires {period_end.strftime('%Y-%m-%d')})", "success")
+        return redirect(url_for('admin.user_detail', username=username))
+    
+    except Exception as e:
+        logger.error(f"Error granting 1-month subscription: {e}")
+        flash("Error granting subscription", "error")
+        return redirect(url_for('admin.user_detail', username=username))
+
+
 # ======================
 # SCRAPER HEALTH MONITORING
 # ======================

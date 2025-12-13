@@ -37,10 +37,21 @@ from scrapers.common import (
     is_zero_results_page,
     RequestStrategy,
     reset_session,
+    smart_scrape_request,
+    is_smart_request_available,
 )
 from scrapers.metrics import ScraperMetrics
 from scrapers import anti_blocking
 from scrapers import health_monitor
+
+# Import new stealth infrastructure
+try:
+    from scrapers.waf_bypass import detect_waf_type as detect_waf, bypass_challenge_sync
+    from scrapers.proxy_manager import get_proxy as get_smart_proxy
+    from scrapers.browser_fallback import requires_browser
+    _STEALTH_AVAILABLE = True
+except ImportError:
+    _STEALTH_AVAILABLE = False
 
 
 SITE_NAME = "mercari"
@@ -534,17 +545,28 @@ def check_mercari(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=No
                     metrics.listings_found = len(results)
                     return results
             
-            # Fall back to HTML scraping with cascade
-            response, strategy_used = make_request_with_cascade(
-                full_url,
-                SITE_NAME,
-                session=session,
-                referer=BASE_URL,
-                origin=BASE_URL,
-                session_initialize_url=BASE_URL,
-                username=user_id,
-                fallback_chain=MERCARI_FALLBACK_CHAIN,
-            )
+            # Use smart request system if available (curl_cffi with TLS impersonation works well)
+            if is_smart_request_available():
+                logger.debug("Mercari: Using smart request with TLS fingerprint impersonation")
+                response, strategy_used = smart_scrape_request(
+                    full_url,
+                    SITE_NAME,
+                    user_id=user_id,
+                    force_browser=False,  # curl_cffi with TLS impersonation works better
+                    max_strategies=5,
+                )
+            else:
+                # Fall back to HTML scraping with cascade
+                response, strategy_used = make_request_with_cascade(
+                    full_url,
+                    SITE_NAME,
+                    session=session,
+                    referer=BASE_URL,
+                    origin=BASE_URL,
+                    session_initialize_url=BASE_URL,
+                    username=user_id,
+                    fallback_chain=MERCARI_FALLBACK_CHAIN,
+                )
             
             response_time = time.time() - start_time
 

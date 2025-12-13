@@ -636,7 +636,7 @@
                 showLoading();
                 
                 // Helper function to check and parse response
-                const parseResponse = async (response) => {
+                const parseResponse = async (response, endpoint) => {
                     const contentType = response.headers.get('content-type');
                     if (!contentType || !contentType.includes('application/json')) {
                         // Not JSON response, likely redirected to login
@@ -644,31 +644,52 @@
                         throw new Error('Not authenticated - redirecting to login');
                     }
                     if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
+                        const errorData = await response.json().catch(() => ({}));
+                        const errorMsg = errorData.error || `HTTP ${response.status}`;
+                        console.error(`API Error (${endpoint}):`, errorMsg);
+                        throw new Error(`${endpoint}: ${errorMsg}`);
                     }
                     return response.json();
+                };
+                
+                // Helper function to safely fetch with fallback
+                const safeFetch = async (url, endpoint) => {
+                    try {
+                        const response = await fetch(url, {credentials: 'same-origin'});
+                        return await parseResponse(response, endpoint);
+                    } catch (error) {
+                        console.error(`Failed to fetch ${endpoint}:`, error);
+                        return null;
+                    }
                 };
                 
                 // Build query parameters
                 const keywordParam = keywordFilter ? `&keyword=${encodeURIComponent(keywordFilter)}` : '';
                 
-                // Load all analytics data in parallel
+                // Load all analytics data in parallel with individual error handling
                 const [marketInsights, priceAnalytics, sourceComparison, keywordAnalysis, hourlyActivity, priceDistribution] = await Promise.all([
-                    fetch(`/api/analytics/market-insights?days=${timeRange}${keywordParam}`, {credentials: 'same-origin'}).then(parseResponse),
-                    fetch(`/api/analytics/price-analytics?days=${timeRange}${sourceFilter ? `&source=${sourceFilter}` : ''}${keywordParam}`, {credentials: 'same-origin'}).then(parseResponse),
-                    fetch(`/api/analytics/source-comparison?days=${timeRange}${keywordParam}`, {credentials: 'same-origin'}).then(parseResponse),
-                    fetch(`/api/analytics/keyword-analysis?days=${timeRange}${keywordParam}`, {credentials: 'same-origin'}).then(parseResponse),
-                    fetch(`/api/analytics/hourly-activity?days=${Math.min(timeRange, 7)}${keywordParam}`, {credentials: 'same-origin'}).then(parseResponse),
-                    fetch(`/api/analytics/price-distribution?days=${timeRange}${keywordParam}`, {credentials: 'same-origin'}).then(parseResponse)
+                    safeFetch(`/api/analytics/market-insights?days=${timeRange}${keywordParam}`, 'market-insights'),
+                    safeFetch(`/api/analytics/price-analytics?days=${timeRange}${sourceFilter ? `&source=${sourceFilter}` : ''}${keywordParam}`, 'price-analytics'),
+                    safeFetch(`/api/analytics/source-comparison?days=${timeRange}${keywordParam}`, 'source-comparison'),
+                    safeFetch(`/api/analytics/keyword-analysis?days=${timeRange}${keywordParam}`, 'keyword-analysis'),
+                    safeFetch(`/api/analytics/hourly-activity?days=${Math.min(timeRange, 7)}${keywordParam}`, 'hourly-activity'),
+                    safeFetch(`/api/analytics/price-distribution?days=${timeRange}${keywordParam}`, 'price-distribution')
                 ]);
 
+                // Check if any data was loaded
+                const hasAnyData = marketInsights || priceAnalytics || sourceComparison || keywordAnalysis || hourlyActivity || priceDistribution;
+                
+                if (!hasAnyData) {
+                    throw new Error('All API requests failed. Please check your connection and try again.');
+                }
+
                 currentData = {
-                    marketInsights,
-                    priceAnalytics,
-                    sourceComparison,
-                    keywordAnalysis,
-                    hourlyActivity,
-                    priceDistribution
+                    marketInsights: marketInsights || { overall_stats: [0, 0, 0, 0, 0], top_keywords: [], source_performance: [] },
+                    priceAnalytics: priceAnalytics || { analytics: [] },
+                    sourceComparison: sourceComparison || { comparison: [] },
+                    keywordAnalysis: keywordAnalysis || { analysis: [] },
+                    hourlyActivity: hourlyActivity || { activity: [] },
+                    priceDistribution: priceDistribution || { distribution: [] }
                 };
 
                 console.log('Analytics data loaded:', {
@@ -686,7 +707,7 @@
                 
             } catch (error) {
                 console.error('Error loading analytics:', error);
-                showError('Failed to load analytics data');
+                showError(error.message || 'Failed to load analytics data');
             }
         }
 

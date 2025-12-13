@@ -13,11 +13,20 @@ from location_utils import geocode_location, get_location_coords, miles_to_km
 from scrapers.common import (
     parse_html_with_fallback, get_session, make_request_with_retry,
     make_request_with_cascade, reset_session, validate_response_structure,
-    detect_block_type, is_zero_results_page, RequestStrategy
+    detect_block_type, is_zero_results_page, RequestStrategy,
+    smart_scrape_request, is_smart_request_available,
 )
 from scrapers import anti_blocking
 from scrapers import health_monitor
 from collections import defaultdict
+
+# Import new stealth infrastructure
+try:
+    from scrapers.browser_fallback import fetch_with_browser_sync, is_browser_available, requires_browser
+    from scrapers.waf_bypass import detect_waf_type as detect_waf
+    _STEALTH_AVAILABLE = True
+except ImportError:
+    _STEALTH_AVAILABLE = False
 
 # ======================
 # CONFIGURATION

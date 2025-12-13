@@ -18,11 +18,20 @@ from scrapers.common import (
     check_recursion_guard, set_recursion_guard, log_selector_failure, 
     log_parse_attempt, get_seen_listings_lock, extract_json_ld_items, 
     reset_session, validate_response_structure, detect_block_type,
-    is_zero_results_page, RequestStrategy
+    is_zero_results_page, RequestStrategy, smart_scrape_request,
+    is_smart_request_available,
 )
 from scrapers.metrics import ScraperMetrics
 from scrapers import anti_blocking
 from scrapers import health_monitor
+
+# Import new stealth infrastructure
+try:
+    from scrapers.waf_bypass import detect_waf_type as detect_waf, bypass_challenge_sync
+    from scrapers.proxy_manager import get_proxy as get_smart_proxy
+    _STEALTH_AVAILABLE = True
+except ImportError:
+    _STEALTH_AVAILABLE = False
 
 # ======================
 # CONFIGURATION
@@ -415,17 +424,28 @@ def check_ebay(flag_name=SITE_NAME, user_id=None, user_seen=None, flag_key=None)
             # Get persistent session
             session = get_session(SITE_NAME, BASE_URL, username=user_id)
             
-            # Use cascade fallback system for maximum reliability
-            response, strategy_used = make_request_with_cascade(
-                full_url,
-                SITE_NAME,
-                session=session,
-                referer=BASE_URL,
-                origin=BASE_URL,
-                session_initialize_url=BASE_URL,
-                username=user_id,
-                fallback_chain=EBAY_FALLBACK_CHAIN,
-            )
+            # Use smart request system if available (TLS fingerprint impersonation)
+            if is_smart_request_available():
+                logger.debug("eBay: Using smart request with TLS fingerprint impersonation")
+                response, strategy_used = smart_scrape_request(
+                    full_url,
+                    SITE_NAME,
+                    user_id=user_id,
+                    force_browser=False,  # eBay works well with curl_cffi
+                    max_strategies=5,
+                )
+            else:
+                # Fall back to cascade system
+                response, strategy_used = make_request_with_cascade(
+                    full_url,
+                    SITE_NAME,
+                    session=session,
+                    referer=BASE_URL,
+                    origin=BASE_URL,
+                    session_initialize_url=BASE_URL,
+                    username=user_id,
+                    fallback_chain=EBAY_FALLBACK_CHAIN,
+                )
             
             response_time = time.time() - start_time
             

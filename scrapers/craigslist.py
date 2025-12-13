@@ -19,11 +19,19 @@ from scrapers.common import (
     check_recursion_guard, set_recursion_guard, log_selector_failure, 
     log_parse_attempt, get_seen_listings_lock, extract_json_ld_items, 
     reset_session, validate_response_structure, detect_block_type,
-    is_zero_results_page, RequestStrategy
+    is_zero_results_page, RequestStrategy, smart_scrape_request,
+    is_smart_request_available,
 )
 from scrapers.metrics import ScraperMetrics
 from scrapers import anti_blocking
 from scrapers import health_monitor
+
+# Import new stealth infrastructure
+try:
+    from scrapers.stealth_client import stealth_get, is_curl_cffi_available
+    _STEALTH_AVAILABLE = True
+except ImportError:
+    _STEALTH_AVAILABLE = False
 
 # ======================
 # CONFIGURATION

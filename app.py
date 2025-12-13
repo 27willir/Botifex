@@ -2752,6 +2752,8 @@ def api_profile_me():
                     metadata={"fields": changed_fields},
                     visibility="connections",
                 )
+                # Record engagement for streak tracking
+                db_enhanced.record_user_engagement(current_user.id, "profile_update")
 
     profile = db_enhanced.get_profile(current_user.id)
     showcase = db_enhanced.get_profile_showcase(current_user.id)
@@ -4476,6 +4478,9 @@ def api_server_channel_messages(slug, channel_slug):
         logger.error(f"Failed to create channel message: {exc}")
         return jsonify({"error": "Unable to send message."}), 500
 
+    # Record engagement for streak tracking
+    db_enhanced.record_user_engagement(viewer, "channel_message")
+
     return jsonify({"message": message})
 
 
@@ -4515,6 +4520,8 @@ def api_server_message_reactions(slug, channel_slug, message_id: int):
             reactions = db_enhanced.add_channel_message_reaction(message_id, viewer, reaction)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
+        # Record engagement for streak tracking
+        db_enhanced.record_user_engagement(viewer, "reaction")
         return jsonify({"reactions": reactions})
 
     payload = request.get_json(silent=True) or {}
@@ -5667,6 +5674,9 @@ def api_dm_messages(conversation_id: int):
     except Exception as exc:
         logger.warning(f"Failed to broadcast DM message {message.get('id')}: {exc}")
 
+    # Record engagement for streak tracking
+    db_enhanced.record_user_engagement(viewer, "dm_message")
+
     return jsonify({"message": message})
 
 
@@ -5696,6 +5706,9 @@ def api_dm_message_reactions(conversation_id: int, message_id: int):
             broadcast_dm_reaction(conversation_id, message_id, reactions)
         except Exception as exc:
             logger.warning(f"Failed to broadcast DM reaction update for message {message_id}: {exc}")
+
+        # Record engagement for streak tracking
+        db_enhanced.record_user_engagement(viewer, "reaction")
 
         return jsonify({"reactions": reactions})
 
@@ -6206,17 +6219,23 @@ def api_market_insights():
         insights = db_enhanced.get_market_insights(days, keyword, current_user.id)
         
         # Provide default values if no data exists
-        if not insights or not insights.get('overall_stats') or not insights['overall_stats'][0]:
+        if not insights or not insights.get('overall_stats'):
             insights = {
                 'overall_stats': (0, 0, 0, 0, 0),  # total_listings, avg_price, min_price, max_price, sources_count
                 'top_keywords': [],
-                'source_performance': []
+                'source_performance': [],
+                'price_distribution': []
             }
+        else:
+            # Ensure overall_stats has valid values (replace None with 0)
+            stats = insights.get('overall_stats', (0, 0, 0, 0, 0))
+            if stats:
+                insights['overall_stats'] = tuple(s if s is not None else 0 for s in stats)
         
         return jsonify(insights)
     except Exception as e:
-        logger.error(f"Error getting market insights: {e}")
-        return jsonify({"error": "Failed to get market insights"}), 500
+        logger.error(f"Error getting market insights for user {current_user.id}: {e}", exc_info=True)
+        return jsonify({"error": "Failed to get market insights", "details": str(e)}), 500
 
 @app.route("/api/analytics/keyword-trends")
 @login_required

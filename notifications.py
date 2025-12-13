@@ -63,6 +63,14 @@ def send_email_notification(
         logger.warning("Email credentials not configured. Skipping email notification.")
         return False
 
+    # Skip sending to fake/test email domains
+    BLOCKED_DOMAINS = {'example.com', 'ex.com', 'test.com', 'localhost', 'email.com'}
+    if to_email:
+        email_domain = to_email.split('@')[-1].lower() if '@' in to_email else ''
+        if email_domain in BLOCKED_DOMAINS:
+            logger.debug(f"Skipping email to test/fake domain: {to_email}")
+            return False
+
     try:
         msg = MIMEMultipart('alternative')
         msg['Subject'] = subject

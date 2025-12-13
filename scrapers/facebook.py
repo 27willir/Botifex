@@ -12,6 +12,18 @@ from db import get_settings, save_listing
 from error_handling import ErrorHandler, log_errors, ScraperError, NetworkError
 from location_utils import geocode_location
 from scrapers.metrics import ScraperMetrics
+from scrapers.common import smart_scrape_request, is_smart_request_available
+
+# Import new stealth infrastructure - Facebook REQUIRES browser
+try:
+    from scrapers.browser_fallback import (
+        fetch_with_browser_sync, is_browser_available, requires_browser,
+        BROWSER_REQUIRED_SITES,
+    )
+    from scrapers.waf_bypass import detect_waf_type as detect_waf, bypass_challenge_sync
+    _STEALTH_AVAILABLE = True
+except ImportError:
+    _STEALTH_AVAILABLE = False
 
 # ======================
 # CONFIGURATION

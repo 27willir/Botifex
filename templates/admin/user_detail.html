@@ -215,6 +215,25 @@
 </div>
 
 <div class="section">
+    <h2><i class="fas fa-gift"></i> Grant 1-Month Subscription</h2>
+    <p style="color: rgba(255,255,255,0.6); margin-bottom: 16px; font-size: 14px;">
+        Upgrade this user to a paid tier for 1 month. The subscription will expire automatically after 30 days.
+    </p>
+    <div class="actions-section">
+        <form method="POST" action="{{ url_for('admin.upgrade_user_1_month', username=user.username) }}" onsubmit="return confirm('Grant 1-month subscription to {{ user.username }}?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <select name="tier" class="select-role">
+                <option value="standard">Standard ($19.99/mo)</option>
+                <option value="pro">Pro ($49.99/mo)</option>
+            </select>
+            <button type="submit" class="btn btn-success">
+                <i class="fas fa-crown"></i> Grant 1 Month
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="section">
     <h2><i class="fas fa-id-card"></i> Subscription Details</h2>
     {% if subscription %}
     <table class="subscription-meta-table">
